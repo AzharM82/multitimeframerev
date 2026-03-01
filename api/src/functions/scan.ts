@@ -81,10 +81,17 @@ async function scanHandler(_req: HttpRequest, ctx: InvocationContext): Promise<H
       }
     }
 
-    // Sort: confluence first, then by ticker
+    // Sort: most green (4,3,2,1,0) then most red (0,1,2,3,4)
     results.sort((a, b) => {
-      if (a.confluence && !b.confluence) return -1;
-      if (!a.confluence && b.confluence) return 1;
+      const sigs = (s: StockScanResult) => {
+        const vals = Object.values(s.signals);
+        const green = vals.filter((v) => v.direction === "bullish").length;
+        const red = vals.filter((v) => v.direction === "bearish").length;
+        return { green, red };
+      };
+      const sa = sigs(a), sb = sigs(b);
+      if (sa.green !== sb.green) return sb.green - sa.green; // more green first
+      if (sa.red !== sb.red) return sa.red - sb.red;         // fewer red first
       return a.ticker.localeCompare(b.ticker);
     });
 
