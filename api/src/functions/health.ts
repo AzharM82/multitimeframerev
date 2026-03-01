@@ -6,7 +6,8 @@ async function health(_req: HttpRequest, _ctx: InvocationContext): Promise<HttpR
       status: "ok",
       timestamp: new Date().toISOString(),
       polygonConfigured: !!process.env.POLYGON_API_KEY,
-      cosmosConfigured: !!process.env.COSMOS_CONNECTION_STRING,
+      storageConfigured: !!process.env.AZURE_STORAGE_CONNECTION_STRING,
+      redisConfigured: !!process.env.REDIS_CONNECTION_STRING,
     },
   };
 }

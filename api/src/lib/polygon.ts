@@ -162,17 +162,17 @@ export async function fetchAllTimeframes(ticker: string): Promise<{
   m10: Candle[];
 }> {
   // Check cache for slow-changing timeframes
-  let weekly = getCachedCandles(ticker, "weekly");
-  let daily = getCachedCandles(ticker, "daily");
+  let weekly = await getCachedCandles(ticker, "weekly");
+  let daily = await getCachedCandles(ticker, "daily");
 
   // Build list of fetches we actually need
   const fetches: Promise<void>[] = [];
 
   if (!weekly) {
-    fetches.push(fetchWeeklyCandles(ticker).then((c) => { weekly = c; setCachedCandles(ticker, "weekly", c); }));
+    fetches.push(fetchWeeklyCandles(ticker).then(async (c) => { weekly = c; await setCachedCandles(ticker, "weekly", c); }));
   }
   if (!daily) {
-    fetches.push(fetchDailyCandles(ticker).then((c) => { daily = c; setCachedCandles(ticker, "daily", c); }));
+    fetches.push(fetchDailyCandles(ticker).then(async (c) => { daily = c; await setCachedCandles(ticker, "daily", c); }));
   }
 
   // Intraday always fresh

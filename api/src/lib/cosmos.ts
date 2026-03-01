@@ -1,21 +1,19 @@
-import { CosmosClient, type Container } from "@azure/cosmos";
+import { TableClient } from "@azure/data-tables";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-let container: Container | null = null;
+let tableClient: TableClient | null = null;
 
-function getContainer(): Container {
-  if (container) return container;
+function getTableClient(): TableClient {
+  if (tableClient) return tableClient;
 
-  const connStr = process.env.COSMOS_CONNECTION_STRING;
+  const connStr = process.env.AZURE_STORAGE_CONNECTION_STRING;
   if (!connStr) {
-    throw new Error("COSMOS_CONNECTION_STRING not set — using file fallback");
+    throw new Error("AZURE_STORAGE_CONNECTION_STRING not set");
   }
 
-  const client = new CosmosClient(connStr);
-  const database = client.database("ReversalScanner");
-  container = database.container("watchlists");
-  return container;
+  tableClient = TableClient.fromConnectionString(connStr, "Watchlists");
+  return tableClient;
 }
 
 export interface WatchlistDoc {
@@ -26,7 +24,7 @@ export interface WatchlistDoc {
 
 const DEFAULT_ID = "default";
 
-// ─── File-based fallback when Cosmos is not configured ──────────────────────
+// ─── File-based fallback when Table Storage is not configured ────────────────
 
 const WATCHLIST_FILE = join(__dirname, "..", "..", "watchlist.json");
 
@@ -46,19 +44,23 @@ function saveFileWatchlist(doc: WatchlistDoc): void {
   writeFileSync(WATCHLIST_FILE, JSON.stringify(doc, null, 2), "utf-8");
 }
 
-function isCosmosConfigured(): boolean {
-  return !!process.env.COSMOS_CONNECTION_STRING;
+function isStorageConfigured(): boolean {
+  return !!process.env.AZURE_STORAGE_CONNECTION_STRING;
 }
 
 export async function getWatchlist(): Promise<WatchlistDoc> {
-  if (!isCosmosConfigured()) return loadFileWatchlist();
+  if (!isStorageConfigured()) return loadFileWatchlist();
 
   try {
-    const { resource } = await getContainer().item(DEFAULT_ID, DEFAULT_ID).read<WatchlistDoc>();
-    if (!resource) {
-      return { id: DEFAULT_ID, tickers: [], updatedAt: new Date().toISOString() };
-    }
-    return resource;
+    const entity = await getTableClient().getEntity<{ tickers: string; updatedAt: string }>(
+      DEFAULT_ID,
+      DEFAULT_ID,
+    );
+    return {
+      id: DEFAULT_ID,
+      tickers: JSON.parse(entity.tickers) as string[],
+      updatedAt: entity.updatedAt,
+    };
   } catch {
     return { id: DEFAULT_ID, tickers: [], updatedAt: new Date().toISOString() };
   }
@@ -71,12 +73,17 @@ export async function saveWatchlist(tickers: string[]): Promise<WatchlistDoc> {
     updatedAt: new Date().toISOString(),
   };
 
-  if (!isCosmosConfigured()) {
+  if (!isStorageConfigured()) {
     saveFileWatchlist(doc);
     return doc;
   }
 
-  await getContainer().items.upsert(doc);
+  await getTableClient().upsertEntity({
+    partitionKey: DEFAULT_ID,
+    rowKey: DEFAULT_ID,
+    tickers: JSON.stringify(doc.tickers),
+    updatedAt: doc.updatedAt,
+  });
   return doc;
 }
 

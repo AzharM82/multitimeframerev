@@ -9,3 +9,4 @@ api/local.settings.json
 .vite
 *.tsbuildinfo
 *.jpg
+dump.rdb
