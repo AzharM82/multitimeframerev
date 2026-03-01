@@ -1,0 +1,11 @@
+node_modules
+dist
+api/dist
+api/node_modules
+.env
+api/.env
+api/local.settings.json
+*.local
+.vite
+*.tsbuildinfo
+*.jpg
