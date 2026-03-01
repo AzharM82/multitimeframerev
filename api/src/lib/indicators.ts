@@ -162,6 +162,13 @@ export function computeEmaSignals(candles: Candle[]): EmaSignalBar[] {
 }
 
 // ─── Component 2: ZigZag Reversal Detection (ThinkScript lines 48-112) ──────
+// Faithful port of the two-layer ThinkScript system:
+//   Layer 1: ZigZagHighLow on EMA-smoothed prices (method=average, period=5)
+//   Layer 2: EIL/EIH → dir → signal → U1/D1 confirmation system
+//
+// Parameters from ThinkScript:
+//   method = average (default) → priceh = EMA(high,5), pricel = EMA(low,5)
+//   atrreversal = 2.0, atrlength = 5, revAmount = 0.05, percentamount = 0.01
 
 interface ZigZagResult {
   signal: number;        // running signal (positive = bullish, negative = bearish)
@@ -170,61 +177,173 @@ interface ZigZagResult {
   reversalPrice: number | null;
 }
 
-export function computeZigZag(candles: Candle[], atrLength = 5, atrReversal = 0.5): ZigZagResult[] {
-  if (candles.length < 2) {
+export function computeZigZag(candles: Candle[], atrLength = 5, atrReversal = 2.0): ZigZagResult[] {
+  const n = candles.length;
+  if (n < 2) {
     return candles.map(() => ({ signal: 0, U1: false, D1: false, reversalPrice: null }));
   }
 
+  // ── Step 1: Smoothed prices (method = "average") ──
+  // ThinkScript: mah = MovingAverage(EXPONENTIAL, high, 5)
+  //              mal = MovingAverage(EXPONENTIAL, low, 5)
+  const priceh = computeEMA(candles.map(c => c.high), 5);
+  const pricel = computeEMA(candles.map(c => c.low), 5);
+
+  // ── Step 2: ATR for reversal amount ──
   const atr = computeATR(candles, atrLength);
-  const n = candles.length;
-  const results: ZigZagResult[] = [];
 
-  // Standard ZigZag using HIGH/LOW with ATR-based reversal amount.
-  // Uptrend: track running max(high). Reversal down when max(high) - low >= ATR * factor.
-  // Downtrend: track running min(low). Reversal up when high - min(low) >= ATR * factor.
-  // Signal = current zigzag direction: +1 = uptrend (bullish), -1 = downtrend (bearish).
-  // U1/D1 fire on direction changes (zigzag pivot points).
-  let ei = candles[0].high;
-  let state = 1; // 1 = uptrend, -1 = downtrend
-  let prevState = 1;
+  // ── Step 3: Pass 1 — ZigZagHighLow on smoothed prices ──
+  // Finds pivot highs/lows and places them retroactively at the bar where the
+  // extreme actually occurred (matching ThinkScript's built-in ZigZagHighLow).
+  // reversalAmount = max(close * 0.01 / 100, max(0.05, atrReversal * ATR))
+  const EI: (number | null)[] = new Array(n).fill(null);
+  const pivotIsUp: (boolean | null)[] = new Array(n).fill(null);
 
-  for (let i = 0; i < n; i++) {
-    const h = candles[i].high;
-    const l = candles[i].low;
-    const ra = atrReversal * atr[i];
-    prevState = state;
-    let reversalPrice: number | null = null;
+  let zzState = 1; // 1 = uptrend (tracking max priceh), -1 = downtrend (tracking min pricel)
+  let extremeVal = priceh[0];
+  let extremeBar = 0;
 
-    if (i === 0) {
-      // Initialize
-      results.push({ signal: 0, U1: false, D1: false, reversalPrice: null });
-      continue;
-    }
+  for (let i = 1; i < n; i++) {
+    const revAmt = Math.max(
+      candles[i].close * 0.01 / 100,
+      Math.max(0.05, atrReversal * atr[i]),
+    );
 
-    if (state === 1) {
-      if (h >= ei) {
-        ei = h; // new high in uptrend
-      } else if (ei - l >= ra) {
-        // Reversal DOWN — peak was at ei, now dropping
-        reversalPrice = Math.round(ei * 100) / 100; // the high pivot
-        state = -1;
-        ei = l;
+    if (zzState === 1) {
+      // Uptrend: track running max of smoothed high
+      if (priceh[i] >= extremeVal) {
+        extremeVal = priceh[i];
+        extremeBar = i;
+      }
+      if (extremeVal - pricel[i] >= revAmt) {
+        // High pivot confirmed at extremeBar
+        EI[extremeBar] = priceh[extremeBar];
+        pivotIsUp[extremeBar] = true;
+        zzState = -1;
+        extremeVal = pricel[i];
+        extremeBar = i;
       }
     } else {
-      if (l <= ei) {
-        ei = l; // new low in downtrend
-      } else if (h - ei >= ra) {
-        // Reversal UP — trough was at ei, now rising
-        reversalPrice = Math.round(ei * 100) / 100; // the low pivot
-        state = 1;
-        ei = h;
+      // Downtrend: track running min of smoothed low
+      if (pricel[i] <= extremeVal) {
+        extremeVal = pricel[i];
+        extremeBar = i;
+      }
+      if (priceh[i] - extremeVal >= revAmt) {
+        // Low pivot confirmed at extremeBar
+        EI[extremeBar] = pricel[extremeBar];
+        pivotIsUp[extremeBar] = false;
+        zzState = 1;
+        extremeVal = priceh[i];
+        extremeBar = i;
+      }
+    }
+  }
+
+  // ── Step 4: Pass 2 — Two-layer signal system ──
+  // ThinkScript: EISave → chg/isUp → EIL/EIH → dir → signal → U1/D1
+  let EISave = NaN;
+  let prevEISave = NaN;
+  let EIL = NaN;
+  let EIH = NaN;
+  let prevEIL = NaN;
+  let prevEIH = NaN;
+  let dir = 0;
+  let signal = 0;
+  let prevSignal = 0;
+  let lastPivotIsUp: boolean | null = null;
+
+  const results: ZigZagResult[] = [];
+
+  for (let i = 0; i < n; i++) {
+    prevEISave = EISave;
+    prevEIL = EIL;
+    prevEIH = EIH;
+    prevSignal = signal;
+
+    // EISave: persist last known EI value
+    if (EI[i] !== null) {
+      EISave = EI[i]!;
+      lastPivotIsUp = pivotIsUp[i]!;
+    }
+
+    // chg and isUp: determine if this pivot is higher or lower than previous
+    // ThinkScript: chg = (if EISave == priceh then priceh else pricel) - EISave[1]
+    // At high pivot bars, EISave == priceh → uses priceh. Otherwise uses pricel.
+    let isUp = false;
+    if (!isNaN(EISave)) {
+      if (isNaN(prevEISave)) {
+        // First pivot — determine from pivot type
+        isUp = lastPivotIsUp === true;
+      } else {
+        // ThinkScript checks EISave == priceh to determine price source.
+        // At a high pivot bar, EISave was just set to priceh[i], so match is exact.
+        // At non-pivot bars or low pivot bars, EISave != priceh[i] → uses pricel.
+        const usePriceh = EI[i] !== null && lastPivotIsUp === true;
+        const priceForChg = usePriceh ? priceh[i] : pricel[i];
+        const chg = priceForChg - prevEISave;
+        isUp = chg >= 0;
       }
     }
 
-    const U1 = state === 1 && prevState === -1;  // just reversed UP (bullish)
-    const D1 = state === -1 && prevState === 1;   // just reversed DOWN (bearish)
+    // EIL / EIH: track last low/high pivot values
+    // ThinkScript: EIL = if !IsNaN(EI) and !isUp then pricel else EIL[1]
+    //              EIH = if !IsNaN(EI) and isUp then priceh else EIH[1]
+    if (EI[i] !== null && !isUp) {
+      EIL = pricel[i];
+    }
+    if (EI[i] !== null && isUp) {
+      EIH = priceh[i];
+    }
 
-    results.push({ signal: state, U1, D1, reversalPrice });
+    // dir: direction based on new pivots appearing
+    // ThinkScript: if EIL != EIL[1] or (pricel == EIL[1] and pricel == EISave) then 1
+    //              else if EIH != EIH[1] or (priceh == EIH[1] and priceh == EISave) then -1
+    const eiLChanged = !isNaN(EIL) && (isNaN(prevEIL) || Math.abs(EIL - prevEIL) > 1e-10);
+    const eiHChanged = !isNaN(EIH) && (isNaN(prevEIH) || Math.abs(EIH - prevEIH) > 1e-10);
+    const priceLAtEIL = !isNaN(prevEIL) && Math.abs(pricel[i] - prevEIL) < 1e-10
+                        && Math.abs(pricel[i] - EISave) < 1e-10;
+    const priceHAtEIH = !isNaN(prevEIH) && Math.abs(priceh[i] - prevEIH) < 1e-10
+                        && Math.abs(priceh[i] - EISave) < 1e-10;
+
+    if (eiLChanged || priceLAtEIL) {
+      dir = 1;
+    } else if (eiHChanged || priceHAtEIH) {
+      dir = -1;
+    }
+    // else dir stays the same (CompoundValue behavior)
+
+    // signal: confirmed breakout/breakdown past pivot level
+    // ThinkScript: if dir > 0 and pricel > EIL then (if signal[1] <= 0 then 1 else signal[1])
+    //              else if dir < 0 and priceh < EIH then (if signal[1] >= 0 then -1 else signal[1])
+    //              else signal[1]
+    if (dir > 0 && !isNaN(EIL) && pricel[i] > EIL) {
+      if (prevSignal <= 0) {
+        signal = 1;
+      }
+      // else signal stays the same (already bullish)
+    } else if (dir < 0 && !isNaN(EIH) && priceh[i] < EIH) {
+      if (prevSignal >= 0) {
+        signal = -1;
+      }
+      // else signal stays the same (already bearish)
+    }
+    // else signal stays the same
+
+    const U1 = signal > 0 && prevSignal <= 0;
+    const D1 = signal < 0 && prevSignal >= 0;
+
+    // Reversal prices from ThinkScript bubbles:
+    //   U1: "Reversal:" + low  (raw low of the confirmation bar)
+    //   D1: "Reversal:" + high (raw high of the confirmation bar)
+    let reversalPrice: number | null = null;
+    if (U1) {
+      reversalPrice = Math.round(candles[i].low * 100) / 100;
+    } else if (D1) {
+      reversalPrice = Math.round(candles[i].high * 100) / 100;
+    }
+
+    results.push({ signal, U1, D1, reversalPrice });
   }
 
   return results;
