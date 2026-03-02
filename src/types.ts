@@ -21,9 +21,15 @@ export interface StockScan {
   rvol: number;
   volatility: VolatilityCategory;
   industry: string;
+  category: string;
   signals: Record<Timeframe, TimeframeSignal>;
   confluence: "bullish" | "bearish" | null;
   lastUpdated: string;
+}
+
+export interface WatchlistEntry {
+  ticker: string;
+  category: string;
 }
 
 export interface WatchlistItem {
@@ -33,7 +39,7 @@ export interface WatchlistItem {
 
 export interface Watchlist {
   id: string;
-  tickers: string[];
+  tickers: WatchlistEntry[];
   updatedAt: string;
 }
 

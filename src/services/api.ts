@@ -1,4 +1,4 @@
-import type { Watchlist, ScanResponse, ScanStatus } from "../types.js";
+import type { Watchlist, WatchlistEntry, ScanResponse, ScanStatus } from "../types.js";
 
 const BASE = "/api";
 
@@ -18,7 +18,7 @@ export function getWatchlist(): Promise<Watchlist> {
   return request<Watchlist>("/watchlist");
 }
 
-export function addTickers(tickers: string[], replace = false): Promise<Watchlist> {
+export function addTickers(tickers: WatchlistEntry[], replace = false): Promise<Watchlist> {
   return request<Watchlist>("/watchlist", {
     method: "POST",
     body: JSON.stringify({ tickers, replace }),

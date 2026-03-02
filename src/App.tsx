@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { StockScan } from "./types.js";
+import type { StockScan, WatchlistEntry } from "./types.js";
 import { getWatchlist } from "./services/api.js";
 import { useMarketHours } from "./hooks/useMarketHours.js";
 import { useScanPolling } from "./hooks/useScanPolling.js";
@@ -9,13 +9,18 @@ import { ConfluenceGrid } from "./components/ConfluenceGrid.js";
 import { NotificationLog } from "./components/NotificationLog.js";
 
 function App() {
-  const [tickers, setTickers] = useState<string[]>([]);
+  const [tickers, setTickers] = useState<WatchlistEntry[]>([]);
+  const [volatilityTab, setVolatilityTab] = useState<"high" | "low">("high");
   const marketOpen = useMarketHours();
 
   const { data, loading, error, refresh, status } = useScanPolling();
 
   const stocks: StockScan[] = data?.stocks ?? [];
   const { entries } = useNotifications(stocks);
+
+  const highVolStocks = stocks.filter((s) => s.atr >= 2.5);
+  const lowVolStocks = stocks.filter((s) => s.atr < 2.5);
+  const filteredStocks = volatilityTab === "high" ? highVolStocks : lowVolStocks;
 
   const loadWatchlist = useCallback(async () => {
     try {
@@ -135,9 +140,28 @@ function App() {
         {/* Confluence Grid */}
         <div className="bg-bg-card rounded-lg border border-border overflow-hidden">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-text-secondary">
-              Reversal Signals
-            </h2>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setVolatilityTab("high")}
+                className={`px-3 py-1.5 text-sm font-bold uppercase tracking-wider transition-colors border-b-2 ${
+                  volatilityTab === "high"
+                    ? "text-amber-400 border-amber-400"
+                    : "text-text-secondary border-transparent hover:text-text-primary"
+                }`}
+              >
+                High Volatility ({highVolStocks.length})
+              </button>
+              <button
+                onClick={() => setVolatilityTab("low")}
+                className={`px-3 py-1.5 text-sm font-bold uppercase tracking-wider transition-colors border-b-2 ${
+                  volatilityTab === "low"
+                    ? "text-sky-400 border-sky-400"
+                    : "text-text-secondary border-transparent hover:text-text-primary"
+                }`}
+              >
+                Low Volatility ({lowVolStocks.length})
+              </button>
+            </div>
             {data && (
               <span className="text-xs text-text-secondary">
                 Last scan: {new Date(data.scannedAt).toLocaleTimeString()}
@@ -145,7 +169,7 @@ function App() {
               </span>
             )}
           </div>
-          <ConfluenceGrid stocks={stocks} loading={loading} />
+          <ConfluenceGrid stocks={filteredStocks} loading={loading} />
         </div>
 
         {/* Notification Log */}

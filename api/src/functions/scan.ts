@@ -43,7 +43,13 @@ async function scanHandler(_req: HttpRequest, ctx: InvocationContext): Promise<H
       };
     }
 
-    const tickers = wl.tickers;
+    // Build category lookup from watchlist entries
+    const categoryMap = new Map<string, string>();
+    for (const entry of wl.tickers) {
+      categoryMap.set(entry.ticker, entry.category);
+    }
+
+    const tickers = wl.tickers.map((e) => e.ticker);
     startScan(tickers.length);
 
     const results: StockScanResult[] = [];
@@ -73,6 +79,7 @@ async function scanHandler(_req: HttpRequest, ctx: InvocationContext): Promise<H
     for (let i = 0; i < allResults.length; i++) {
       const result = allResults[i];
       if (result.status === "fulfilled") {
+        result.value.category = categoryMap.get(tickers[i]) ?? "";
         results.push(result.value);
       } else {
         const errMsg = result.reason instanceof Error ? result.reason.message : "Unknown error";

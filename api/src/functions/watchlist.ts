@@ -1,5 +1,5 @@
 import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } from "@azure/functions";
-import { getWatchlist, addTickers, removeTicker, saveWatchlist } from "../lib/cosmos.js";
+import { getWatchlist, addTickers, removeTicker, saveWatchlist, type WatchlistEntry } from "../lib/cosmos.js";
 import { clearCache } from "../lib/cache.js";
 
 async function watchlistHandler(req: HttpRequest, _ctx: InvocationContext): Promise<HttpResponseInit> {
@@ -10,7 +10,7 @@ async function watchlistHandler(req: HttpRequest, _ctx: InvocationContext): Prom
     }
 
     if (req.method === "POST") {
-      const body = (await req.json()) as { tickers?: string[]; replace?: boolean };
+      const body = (await req.json()) as { tickers?: WatchlistEntry[]; replace?: boolean };
       if (!body.tickers || !Array.isArray(body.tickers)) {
         return { status: 400, jsonBody: { error: "tickers array required" } };
       }

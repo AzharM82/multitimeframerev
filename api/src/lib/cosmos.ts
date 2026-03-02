@@ -16,9 +16,14 @@ function getTableClient(): TableClient {
   return tableClient;
 }
 
+export interface WatchlistEntry {
+  ticker: string;
+  category: string;
+}
+
 export interface WatchlistDoc {
   id: string;
-  tickers: string[];
+  tickers: WatchlistEntry[];
   updatedAt: string;
 }
 
@@ -28,11 +33,21 @@ const DEFAULT_ID = "default";
 
 const WATCHLIST_FILE = join(__dirname, "..", "..", "watchlist.json");
 
+/** Migrate old string[] format to WatchlistEntry[] */
+function migrateTickers(raw: unknown[]): WatchlistEntry[] {
+  return raw.map((item) =>
+    typeof item === "string"
+      ? { ticker: item, category: "" }
+      : item as WatchlistEntry,
+  );
+}
+
 function loadFileWatchlist(): WatchlistDoc {
   try {
     if (existsSync(WATCHLIST_FILE)) {
       const raw = readFileSync(WATCHLIST_FILE, "utf-8");
-      return JSON.parse(raw) as WatchlistDoc;
+      const doc = JSON.parse(raw) as { id: string; tickers: unknown[]; updatedAt: string };
+      return { id: doc.id, tickers: migrateTickers(doc.tickers), updatedAt: doc.updatedAt };
     }
   } catch {
     // Corrupted file — start fresh
@@ -56,9 +71,10 @@ export async function getWatchlist(): Promise<WatchlistDoc> {
       DEFAULT_ID,
       DEFAULT_ID,
     );
+    const raw = JSON.parse(entity.tickers) as unknown[];
     return {
       id: DEFAULT_ID,
-      tickers: JSON.parse(entity.tickers) as string[],
+      tickers: migrateTickers(raw),
       updatedAt: entity.updatedAt,
     };
   } catch {
@@ -66,10 +82,20 @@ export async function getWatchlist(): Promise<WatchlistDoc> {
   }
 }
 
-export async function saveWatchlist(tickers: string[]): Promise<WatchlistDoc> {
+/** Deduplicate by ticker (last category wins) */
+function dedup(entries: WatchlistEntry[]): WatchlistEntry[] {
+  const map = new Map<string, string>();
+  for (const e of entries) {
+    const t = e.ticker.toUpperCase().trim();
+    if (t) map.set(t, e.category);
+  }
+  return Array.from(map, ([ticker, category]) => ({ ticker, category }));
+}
+
+export async function saveWatchlist(entries: WatchlistEntry[]): Promise<WatchlistDoc> {
   const doc: WatchlistDoc = {
     id: DEFAULT_ID,
-    tickers: [...new Set(tickers.map((t) => t.toUpperCase().trim()).filter(Boolean))],
+    tickers: dedup(entries),
     updatedAt: new Date().toISOString(),
   };
 
@@ -87,14 +113,15 @@ export async function saveWatchlist(tickers: string[]): Promise<WatchlistDoc> {
   return doc;
 }
 
-export async function addTickers(newTickers: string[]): Promise<WatchlistDoc> {
+export async function addTickers(newEntries: WatchlistEntry[]): Promise<WatchlistDoc> {
   const current = await getWatchlist();
-  const merged = [...new Set([...current.tickers, ...newTickers.map((t) => t.toUpperCase().trim())])];
+  // New entries overwrite existing categories for the same ticker
+  const merged = [...current.tickers, ...newEntries];
   return saveWatchlist(merged);
 }
 
 export async function removeTicker(ticker: string): Promise<WatchlistDoc> {
   const current = await getWatchlist();
-  const filtered = current.tickers.filter((t) => t !== ticker.toUpperCase().trim());
+  const filtered = current.tickers.filter((e) => e.ticker !== ticker.toUpperCase().trim());
   return saveWatchlist(filtered);
 }
