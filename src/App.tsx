@@ -20,8 +20,8 @@ function App() {
 
   // Only show high-conviction stocks (score >= 6 or <= -6)
   const scoredStocks = stocks.filter((s) => s.score >= 6 || s.score <= -6);
-  const highVolStocks = scoredStocks.filter((s) => s.atr >= 2.5);
-  const lowVolStocks = scoredStocks.filter((s) => s.atr < 2.5);
+  const highVolStocks = scoredStocks.filter((s) => s.atr >= 3);
+  const lowVolStocks = scoredStocks.filter((s) => s.atr < 3);
   const filteredStocks = volatilityTab === "high" ? highVolStocks : lowVolStocks;
 
   const loadWatchlist = useCallback(async () => {

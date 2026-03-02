@@ -36,7 +36,7 @@ export function useNotifications(stocks: StockScan[]) {
     if (stocks.length === 0) return;
 
     // Dedupe by creating a scan fingerprint so we don't re-log the same scan
-    const scanId = stocks.map((s) => `${s.ticker}:${s.confluence ?? "x"}`).join(",");
+    const scanId = stocks.map((s) => `${s.ticker}:${s.score}`).join(",");
     if (scanId === lastScanIdRef.current) return;
     lastScanIdRef.current = scanId;
 
@@ -44,19 +44,21 @@ export function useNotifications(stocks: StockScan[]) {
     const newAlerts: NotificationEntry[] = [];
 
     for (const stock of stocks) {
-      if (!stock.confluence) continue;
+      // Only alert for perfect conviction: +15 or -15
+      if (stock.score !== 15 && stock.score !== -15) continue;
 
+      const type = stock.score > 0 ? "bullish" as const : "bearish" as const;
       newAlerts.push({
         id: `${stock.ticker}-${Date.now()}-${Math.random()}`,
         ticker: stock.ticker,
-        type: stock.confluence,
+        type,
         timestamp: now,
-        message: `${stock.confluence.toUpperCase()} confluence — all 4 timeframes aligned`,
+        message: `Score ${stock.score > 0 ? "+" : ""}${stock.score} — max conviction ${type}`,
       });
 
       if (permission === "granted") {
-        new Notification(`${stock.ticker} — ${stock.confluence.toUpperCase()} CONFLUENCE`, {
-          body: `All 4 timeframes show ${stock.confluence} reversal signal`,
+        new Notification(`${stock.ticker} — ${type.toUpperCase()} SCORE ${stock.score > 0 ? "+" : ""}${stock.score}`, {
+          body: `Max conviction ${type} signal`,
         });
       }
     }
