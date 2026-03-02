@@ -18,8 +18,10 @@ function App() {
   const stocks: StockScan[] = data?.stocks ?? [];
   const { entries } = useNotifications(stocks);
 
-  const highVolStocks = stocks.filter((s) => s.atr >= 2.5);
-  const lowVolStocks = stocks.filter((s) => s.atr < 2.5);
+  // Only show high-conviction stocks (score >= 6 or <= -6)
+  const scoredStocks = stocks.filter((s) => s.score >= 6 || s.score <= -6);
+  const highVolStocks = scoredStocks.filter((s) => s.atr >= 2.5);
+  const lowVolStocks = scoredStocks.filter((s) => s.atr < 2.5);
   const filteredStocks = volatilityTab === "high" ? highVolStocks : lowVolStocks;
 
   const loadWatchlist = useCallback(async () => {

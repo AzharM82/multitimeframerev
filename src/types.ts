@@ -22,6 +22,7 @@ export interface StockScan {
   volatility: VolatilityCategory;
   industry: string;
   category: string;
+  score: number;
   signals: Record<Timeframe, TimeframeSignal>;
   confluence: "bullish" | "bearish" | null;
   lastUpdated: string;

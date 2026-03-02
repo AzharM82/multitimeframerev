@@ -41,6 +41,7 @@ export function ConfluenceGrid({ stocks, loading }: Props) {
             <th className="px-3 py-2 text-right border border-border bg-bg-secondary">ATR</th>
             <th className="px-3 py-2 text-right border border-border bg-bg-secondary">RVOL</th>
             <th className="px-3 py-2 text-center border border-border bg-bg-secondary">Category</th>
+            <th className="px-3 py-2 text-center border border-border bg-bg-secondary">Score</th>
             <th className="px-3 py-2 text-center border border-border bg-bg-secondary">Weekly</th>
             <th className="px-3 py-2 text-center border border-border bg-bg-secondary">Daily</th>
             <th className="px-3 py-2 text-center border border-border bg-bg-secondary">65m</th>
@@ -89,6 +90,19 @@ export function ConfluenceGrid({ stocks, loading }: Props) {
                 <td className="px-3 py-2 border border-border text-center">
                   <span className={`px-1.5 py-0.5 text-xs rounded ${catBadge}`}>
                     {shortLabel(stock.category)}
+                  </span>
+                </td>
+                <td className="px-3 py-2 border border-border text-center font-mono text-sm font-bold">
+                  <span
+                    className={
+                      stock.score > 0
+                        ? "text-signal-bull"
+                        : stock.score < 0
+                          ? "text-signal-bear"
+                          : "text-text-secondary"
+                    }
+                  >
+                    {stock.score > 0 ? "+" : ""}{stock.score}
                   </span>
                 </td>
                 <SignalCell signal={stock.signals["1W"]} />

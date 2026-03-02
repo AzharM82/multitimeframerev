@@ -32,6 +32,7 @@ export interface StockScanResult {
   volatility: "high" | "low";
   industry: string;
   category: string;
+  score: number;
   signals: Record<Timeframe, TimeframeSignal>;
   confluence: "bullish" | "bearish" | null;
   lastUpdated: string;
@@ -459,6 +460,7 @@ export function scanStock(
     volatility: currentAtr >= 3 ? "high" : "low",
     industry,
     category: "",
+    score: 0,
     signals,
     confluence: allBullish ? "bullish" : allBearish ? "bearish" : null,
     lastUpdated: new Date().toISOString(),

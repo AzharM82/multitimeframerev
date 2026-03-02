@@ -5,6 +5,29 @@ import { scanStock, type StockScanResult } from "../lib/indicators.js";
 import { getCachedScan, setCachedScan } from "../lib/cache.js";
 import { startScan, updateScanTicker, completeTicker, finishScan } from "../lib/scanStatus.js";
 
+const BULL_CATEGORIES = new Set([
+  "Squeeze Fired", "Bull Close", "Power of 3 - Bull",
+  "21 SMA Range - Bull", "Signal Daily - Bull", "Universe",
+]);
+const BEAR_CATEGORIES = new Set([
+  "Bear Close", "Power of 3 - Bear", "21 SMA Range - Bear", "Signal Daily - Bear",
+]);
+
+// Scoring: Weekly ±5, Daily ±3, 65m ±2, 10m 0, Category ±5
+const TF_WEIGHTS: Record<string, number> = { "1W": 5, "1D": 3, "65m": 2, "10m": 0 };
+
+function computeScore(stock: StockScanResult): number {
+  let score = 0;
+  for (const [tf, weight] of Object.entries(TF_WEIGHTS)) {
+    const dir = stock.signals[tf as keyof typeof stock.signals]?.direction;
+    if (dir === "bullish") score += weight;
+    else if (dir === "bearish") score -= weight;
+  }
+  if (BULL_CATEGORIES.has(stock.category)) score += 5;
+  else if (BEAR_CATEGORIES.has(stock.category)) score -= 5;
+  return score;
+}
+
 function isMarketOpen(): boolean {
   const now = new Date();
   const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -80,6 +103,7 @@ async function scanHandler(_req: HttpRequest, ctx: InvocationContext): Promise<H
       const result = allResults[i];
       if (result.status === "fulfilled") {
         result.value.category = categoryMap.get(tickers[i]) ?? "";
+        result.value.score = computeScore(result.value);
         results.push(result.value);
       } else {
         const errMsg = result.reason instanceof Error ? result.reason.message : "Unknown error";
@@ -88,17 +112,9 @@ async function scanHandler(_req: HttpRequest, ctx: InvocationContext): Promise<H
       }
     }
 
-    // Sort: most green (4,3,2,1,0) then most red (0,1,2,3,4)
+    // Sort by score descending (highest conviction first)
     results.sort((a, b) => {
-      const sigs = (s: StockScanResult) => {
-        const vals = Object.values(s.signals);
-        const green = vals.filter((v) => v.direction === "bullish").length;
-        const red = vals.filter((v) => v.direction === "bearish").length;
-        return { green, red };
-      };
-      const sa = sigs(a), sb = sigs(b);
-      if (sa.green !== sb.green) return sb.green - sa.green; // more green first
-      if (sa.red !== sb.red) return sa.red - sb.red;         // fewer red first
+      if (a.score !== b.score) return b.score - a.score;
       return a.ticker.localeCompare(b.ticker);
     });
 
