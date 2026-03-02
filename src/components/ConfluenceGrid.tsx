@@ -8,6 +8,7 @@ const BULL_CATEGORIES = new Set([
   "Power of 3 - Bull",
   "21 SMA Range - Bull",
   "Signal Daily - Bull",
+  "Universe",
 ]);
 
 /** Short display label for the category column */

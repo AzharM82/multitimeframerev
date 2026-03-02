@@ -12,6 +12,7 @@ const CATEGORIES: { label: string; side: "bull" | "bear" }[] = [
   { label: "Power of 3 - Bear", side: "bear" },
   { label: "21 SMA Range - Bear", side: "bear" },
   { label: "Signal Daily - Bear", side: "bear" },
+  { label: "Universe", side: "bull" },
 ];
 
 const BULL_CATEGORIES = new Set(
@@ -66,6 +67,16 @@ export function WatchlistManager({ tickers, stocks, onUpdate }: Props) {
       setLoading(false);
     }
   }, [input, category, onUpdate]);
+
+  const handleClear = useCallback(async () => {
+    setLoading(true);
+    try {
+      await api.addTickers([], true);
+      onUpdate();
+    } finally {
+      setLoading(false);
+    }
+  }, [onUpdate]);
 
   const handleRemove = useCallback(
     async (ticker: string) => {
@@ -129,6 +140,13 @@ export function WatchlistManager({ tickers, stocks, onUpdate }: Props) {
           className="px-3 py-2 bg-bg-secondary border border-border text-text-secondary rounded text-sm hover:text-text-primary transition-colors"
         >
           Replace All
+        </button>
+        <button
+          onClick={handleClear}
+          disabled={loading}
+          className="px-3 py-2 bg-signal-bear/20 border border-signal-bear/40 text-signal-bear rounded text-sm hover:bg-signal-bear/30 transition-colors"
+        >
+          Clear
         </button>
       </div>
 
