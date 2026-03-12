@@ -63,22 +63,22 @@ function isStorageConfigured(): boolean {
   return !!process.env.AZURE_STORAGE_CONNECTION_STRING;
 }
 
-export async function getWatchlist(): Promise<WatchlistDoc> {
+export async function getWatchlist(listName = DEFAULT_ID): Promise<WatchlistDoc> {
   if (!isStorageConfigured()) return loadFileWatchlist();
 
   try {
     const entity = await getTableClient().getEntity<{ tickers: string; updatedAt: string }>(
-      DEFAULT_ID,
-      DEFAULT_ID,
+      listName,
+      listName,
     );
     const raw = JSON.parse(entity.tickers) as unknown[];
     return {
-      id: DEFAULT_ID,
+      id: listName,
       tickers: migrateTickers(raw),
       updatedAt: entity.updatedAt,
     };
   } catch {
-    return { id: DEFAULT_ID, tickers: [], updatedAt: new Date().toISOString() };
+    return { id: listName, tickers: [], updatedAt: new Date().toISOString() };
   }
 }
 
@@ -92,9 +92,9 @@ function dedup(entries: WatchlistEntry[]): WatchlistEntry[] {
   return Array.from(map, ([ticker, category]) => ({ ticker, category }));
 }
 
-export async function saveWatchlist(entries: WatchlistEntry[]): Promise<WatchlistDoc> {
+export async function saveWatchlist(entries: WatchlistEntry[], listName = DEFAULT_ID): Promise<WatchlistDoc> {
   const doc: WatchlistDoc = {
-    id: DEFAULT_ID,
+    id: listName,
     tickers: dedup(entries),
     updatedAt: new Date().toISOString(),
   };
@@ -105,23 +105,23 @@ export async function saveWatchlist(entries: WatchlistEntry[]): Promise<Watchlis
   }
 
   await getTableClient().upsertEntity({
-    partitionKey: DEFAULT_ID,
-    rowKey: DEFAULT_ID,
+    partitionKey: listName,
+    rowKey: listName,
     tickers: JSON.stringify(doc.tickers),
     updatedAt: doc.updatedAt,
   });
   return doc;
 }
 
-export async function addTickers(newEntries: WatchlistEntry[]): Promise<WatchlistDoc> {
-  const current = await getWatchlist();
+export async function addTickers(newEntries: WatchlistEntry[], listName = DEFAULT_ID): Promise<WatchlistDoc> {
+  const current = await getWatchlist(listName);
   // New entries overwrite existing categories for the same ticker
   const merged = [...current.tickers, ...newEntries];
-  return saveWatchlist(merged);
+  return saveWatchlist(merged, listName);
 }
 
-export async function removeTicker(ticker: string): Promise<WatchlistDoc> {
-  const current = await getWatchlist();
+export async function removeTicker(ticker: string, listName = DEFAULT_ID): Promise<WatchlistDoc> {
+  const current = await getWatchlist(listName);
   const filtered = current.tickers.filter((e) => e.ticker !== ticker.toUpperCase().trim());
-  return saveWatchlist(filtered);
+  return saveWatchlist(filtered, listName);
 }

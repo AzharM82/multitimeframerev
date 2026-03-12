@@ -65,3 +65,70 @@ export interface NotificationEntry {
   timestamp: string;
   message: string;
 }
+
+// ─── Phase Oscillator Types ─────────────────────────────────────────────────
+
+export type PhaseZone =
+  | "extended_up"
+  | "distribution"
+  | "neutral_up"
+  | "launch_box"
+  | "neutral_down"
+  | "accumulation"
+  | "extended_down";
+
+export type PhaseSignal = "oversold" | "overbought" | null;
+
+export type PhaseLineColor = "green" | "red" | "gray";
+
+export type PhaseTimeframe = "1W" | "1D" | "60m" | "30m";
+
+export interface PhaseTimeframeSignal {
+  timeframe: PhaseTimeframe;
+  oscillatorValue: number;
+  zone: PhaseZone;
+  signal: PhaseSignal;
+  signalBarsAgo: number;
+  compression: boolean;
+  lineColor: PhaseLineColor;
+}
+
+export interface PhaseStockResult {
+  ticker: string;
+  price: number;
+  score: number;
+  signals: Record<PhaseTimeframe, PhaseTimeframeSignal>;
+}
+
+export interface PhaseScanResponse {
+  stocks: PhaseStockResult[];
+  scannedAt: string;
+  errors?: Array<{ ticker: string; error: string }>;
+}
+
+// ─── Capitulation Scanner Types ─────────────────────────────────────────────
+
+export type CapitulationTier = "CRITICAL" | "HIGH" | "WATCH";
+
+export interface CapitulationSignal {
+  ticker: string;
+  price: number;
+  prevClose: number;
+  open: number;
+  gapPct: number;
+  recoveryPct: number;
+  rvol: number;
+  todayVolume: number;
+  prevDayVolume: number;
+  tier: CapitulationTier;
+  timeWeight: number;
+  timeWindow: string;
+}
+
+export interface CapitulationScanResponse {
+  signals: CapitulationSignal[];
+  scannedAt: string;
+  marketOpen: boolean;
+  totalScanned: number;
+  scanDurationMs: number;
+}

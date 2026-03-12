@@ -82,16 +82,16 @@ function filterMarketHours(candles: Candle[]): Candle[] {
 async function fetchWeeklyCandles(ticker: string): Promise<Candle[]> {
   const to = new Date();
   const from = new Date();
-  // 1 year (~52 weeks) — find last reversal even if it fired months ago
-  from.setDate(from.getDate() - 365);
+  // 3 years (~156 weeks) — EMA(21) needs 100+ bars to converge from seed value
+  from.setDate(from.getDate() - 1095);
   return fetchAggs(ticker, 1, "week", formatDate(from), formatDate(to));
 }
 
 async function fetchDailyCandles(ticker: string): Promise<Candle[]> {
   const to = new Date();
   const from = new Date();
-  // 1 year (~252 trading days) — find last reversal even if it was months ago
-  from.setDate(from.getDate() - 365);
+  // 2 years (~504 trading days) — EMA(21) needs sufficient history for convergence
+  from.setDate(from.getDate() - 730);
   return fetchAggs(ticker, 1, "day", formatDate(from), formatDate(to));
 }
 
@@ -111,6 +111,56 @@ async function fetch10mCandles(ticker: string): Promise<Candle[]> {
   from.setDate(from.getDate() - 14);
   const candles = await fetchAggs(ticker, 10, "minute", formatDate(from), formatDate(to));
   return filterMarketHours(candles);
+}
+
+// ─── Phase Oscillator timeframe fetchers (60m, 30m) ─────────────────────────
+
+async function fetch60mCandles(ticker: string): Promise<Candle[]> {
+  const to = new Date();
+  const from = new Date();
+  // 60 calendar days (~40 trading days, ~260 bars) — enough for EMA(21) convergence
+  from.setDate(from.getDate() - 60);
+  const candles = await fetchAggs(ticker, 60, "minute", formatDate(from), formatDate(to));
+  return filterMarketHours(candles);
+}
+
+async function fetch30mCandles(ticker: string): Promise<Candle[]> {
+  const to = new Date();
+  const from = new Date();
+  // 45 calendar days (~30 trading days, ~390 bars) — enough for EMA(21) convergence
+  from.setDate(from.getDate() - 45);
+  const candles = await fetchAggs(ticker, 30, "minute", formatDate(from), formatDate(to));
+  return filterMarketHours(candles);
+}
+
+export async function fetchPhaseTimeframes(ticker: string): Promise<{
+  weekly: Candle[];
+  daily: Candle[];
+  m60: Candle[];
+  m30: Candle[];
+}> {
+  // Check cache for slow-changing timeframes
+  let weekly = await getCachedCandles(ticker, "weekly");
+  let daily = await getCachedCandles(ticker, "daily");
+
+  const fetches: Promise<void>[] = [];
+
+  if (!weekly) {
+    fetches.push(fetchWeeklyCandles(ticker).then(async (c) => { weekly = c; await setCachedCandles(ticker, "weekly", c); }));
+  }
+  if (!daily) {
+    fetches.push(fetchDailyCandles(ticker).then(async (c) => { daily = c; await setCachedCandles(ticker, "daily", c); }));
+  }
+
+  // Intraday always fresh
+  let m60: Candle[] = [];
+  let m30: Candle[] = [];
+  fetches.push(fetch60mCandles(ticker).then((c) => { m60 = c; }));
+  fetches.push(fetch30mCandles(ticker).then((c) => { m30 = c; }));
+
+  await Promise.all(fetches);
+
+  return { weekly: weekly!, daily: daily!, m60, m30 };
 }
 
 // ─── Ticker Details (industry/sector) ────────────────────────────────────────
