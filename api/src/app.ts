@@ -7,3 +7,5 @@ import "./functions/phaseScan.js";
 import "./functions/phaseWatchlist.js";
 import "./functions/capitulationScan.js";
 import "./functions/capitulationTimer.js";
+import "./functions/weeklyCapitulationScan.js";
+import "./functions/weeklyCapitulationTimer.js";

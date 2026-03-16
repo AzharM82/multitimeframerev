@@ -132,3 +132,29 @@ export interface CapitulationScanResponse {
   totalScanned: number;
   scanDurationMs: number;
 }
+
+// ─── Weekly Capitulation Scanner Types ──────────────────────────────────────
+
+export type WeeklyCapTier = "CRITICAL" | "HIGH" | "WATCH";
+
+export interface WeeklyCapSignal {
+  ticker: string;
+  price: number;
+  open: number;
+  close5dAgo: number;
+  dropPct: number;
+  changeFromOpenPct: number;
+  rvol: number;
+  todayVolume: number;
+  prevDayVolume: number;
+  tier: WeeklyCapTier;
+  capitulating: boolean;
+}
+
+export interface WeeklyCapScanResponse {
+  signals: WeeklyCapSignal[];
+  scannedAt: string;
+  marketOpen: boolean;
+  totalScanned: number;
+  scanDurationMs: number;
+}

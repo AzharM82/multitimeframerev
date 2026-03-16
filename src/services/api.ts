@@ -1,4 +1,4 @@
-import type { Watchlist, WatchlistEntry, ScanResponse, ScanStatus, PhaseScanResponse, CapitulationScanResponse } from "../types.js";
+import type { Watchlist, WatchlistEntry, ScanResponse, ScanStatus, PhaseScanResponse, CapitulationScanResponse, WeeklyCapScanResponse } from "../types.js";
 
 const BASE = "/api";
 
@@ -66,4 +66,10 @@ export function runPhaseScan(): Promise<PhaseScanResponse> {
 
 export function runCapitulationScan(): Promise<CapitulationScanResponse> {
   return request<CapitulationScanResponse>("/capitulation-scan");
+}
+
+// ─── Weekly Capitulation Scanner API ────────────────────────────────────────
+
+export function runWeeklyCapitulationScan(): Promise<WeeklyCapScanResponse> {
+  return request<WeeklyCapScanResponse>("/weekly-capitulation-scan");
 }

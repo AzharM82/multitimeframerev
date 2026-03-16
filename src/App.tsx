@@ -9,8 +9,9 @@ import { ConfluenceGrid } from "./components/ConfluenceGrid.js";
 import { NotificationLog } from "./components/NotificationLog.js";
 import { PhaseOscillatorPage } from "./components/PhaseOscillatorPage.js";
 import { CapitulationPage } from "./components/CapitulationPage.js";
+import { WeeklyCapitulationPage } from "./components/WeeklyCapitulationPage.js";
 
-type Page = "reversal" | "phase" | "capitulation";
+type Page = "reversal" | "phase" | "capitulation" | "weekly-capitulation";
 
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>("reversal");
@@ -85,6 +86,16 @@ function App() {
                 }`}
               >
                 Capitulation
+              </button>
+              <button
+                onClick={() => setCurrentPage("weekly-capitulation")}
+                className={`px-3 py-1.5 text-sm font-bold uppercase tracking-wider transition-colors border-b-2 ${
+                  currentPage === "weekly-capitulation"
+                    ? "text-accent border-accent"
+                    : "text-text-secondary border-transparent hover:text-text-primary"
+                }`}
+              >
+                Weekly Cap
               </button>
             </nav>
             <span
@@ -242,6 +253,8 @@ function App() {
         {currentPage === "phase" && <PhaseOscillatorPage />}
 
         {currentPage === "capitulation" && <CapitulationPage />}
+
+        {currentPage === "weekly-capitulation" && <WeeklyCapitulationPage />}
       </main>
     </div>
   );
