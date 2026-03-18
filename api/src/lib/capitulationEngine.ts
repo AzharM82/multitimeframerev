@@ -1,4 +1,4 @@
-import { CAPITULATION_TICKERS } from "./capitulationTickers.js";
+import { getCapitulationTickers } from "./capitulationTickers.js";
 import { fetchAllSnapshots, type SnapshotTicker } from "./polygonSnapshot.js";
 
 export type CapitulationTier = "CRITICAL" | "HIGH" | "WATCH";
@@ -62,11 +62,11 @@ function computeRVOL(snap: SnapshotTicker): number {
   return (todayVol / prevVol) * projectionFactor;
 }
 
-function classifyTier(gapPct: number, recoveryPct: number, rvol: number): CapitulationTier | null {
-  // Check CRITICAL first, then HIGH, then WATCH
-  if (gapPct <= -8 && recoveryPct >= 1.0 && rvol >= 3.0) return "CRITICAL";
-  if (gapPct <= -5 && recoveryPct >= 0.5 && rvol >= 2.0) return "HIGH";
-  if (gapPct <= -3 && recoveryPct > 0 && rvol >= 1.5) return "WATCH";
+function classifyTier(gapPct: number): CapitulationTier | null {
+  // Classify by gap down magnitude only
+  if (gapPct <= -5) return "CRITICAL";
+  if (gapPct <= -3) return "HIGH";
+  if (gapPct < 0) return "WATCH";
   return null;
 }
 
@@ -87,11 +87,12 @@ const TIER_PRIORITY: Record<CapitulationTier, number> = {
 
 export async function runCapitulationScan(): Promise<CapitulationScanResponse> {
   const startTime = Date.now();
-  const snapshots = await fetchAllSnapshots(CAPITULATION_TICKERS);
+  const tickers = await getCapitulationTickers();
+  const snapshots = await fetchAllSnapshots(tickers);
   const { weight: timeWeight, window: timeWindow } = getTimeWeight();
   const signals: CapitulationSignal[] = [];
 
-  for (const ticker of CAPITULATION_TICKERS) {
+  for (const ticker of tickers) {
     const snap = snapshots.get(ticker);
     if (!snap) continue;
 
@@ -105,7 +106,7 @@ export async function runCapitulationScan(): Promise<CapitulationScanResponse> {
     const recoveryPct = ((price - open) / open) * 100;
     const rvol = computeRVOL(snap);
 
-    const tier = classifyTier(gapPct, recoveryPct, rvol);
+    const tier = classifyTier(gapPct);
     if (!tier) continue;
 
     signals.push({
@@ -135,7 +136,7 @@ export async function runCapitulationScan(): Promise<CapitulationScanResponse> {
     signals,
     scannedAt: new Date().toISOString(),
     marketOpen: isMarketOpen(),
-    totalScanned: CAPITULATION_TICKERS.length,
+    totalScanned: tickers.length,
     scanDurationMs: Date.now() - startTime,
   };
 }

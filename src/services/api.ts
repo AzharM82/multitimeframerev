@@ -64,6 +64,23 @@ export function runPhaseScan(): Promise<PhaseScanResponse> {
 
 // ─── Capitulation Scanner API ───────────────────────────────────────────────
 
+export function getCapitulationWatchlist(): Promise<Watchlist> {
+  return request<Watchlist>("/capitulation-watchlist");
+}
+
+export function addCapitulationTickers(tickers: WatchlistEntry[], replace = false): Promise<Watchlist> {
+  return request<Watchlist>("/capitulation-watchlist", {
+    method: "POST",
+    body: JSON.stringify({ tickers, replace }),
+  });
+}
+
+export function removeCapitulationTicker(ticker: string): Promise<Watchlist> {
+  return request<Watchlist>(`/capitulation-watchlist?ticker=${encodeURIComponent(ticker)}`, {
+    method: "DELETE",
+  });
+}
+
 export function runCapitulationScan(): Promise<CapitulationScanResponse> {
   return request<CapitulationScanResponse>("/capitulation-scan");
 }

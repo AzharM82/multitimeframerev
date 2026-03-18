@@ -1,4 +1,4 @@
-import { CAPITULATION_TICKERS } from "./capitulationTickers.js";
+import { getCapitulationTickers } from "./capitulationTickers.js";
 import { fetchAllSnapshots, type SnapshotTicker } from "./polygonSnapshot.js";
 
 export type WeeklyCapTier = "CRITICAL" | "HIGH" | "WATCH";
@@ -83,16 +83,17 @@ const TIER_PRIORITY: Record<WeeklyCapTier, number> = {
 export async function runWeeklyCapitulationScan(): Promise<WeeklyCapScanResponse> {
   const startTime = Date.now();
 
-  // Fetch close prices from 5 trading days ago
+  // Fetch ticker list + close prices from 5 trading days ago
+  const tickers = await getCapitulationTickers();
   const date5dAgo = getTradingDaysAgo(5);
   const [closesMap, snapshots] = await Promise.all([
     fetchGroupedDaily(date5dAgo),
-    fetchAllSnapshots(CAPITULATION_TICKERS),
+    fetchAllSnapshots(tickers),
   ]);
 
   const signals: WeeklyCapSignal[] = [];
 
-  for (const ticker of CAPITULATION_TICKERS) {
+  for (const ticker of tickers) {
     const snap = snapshots.get(ticker);
     if (!snap) continue;
 
@@ -138,7 +139,7 @@ export async function runWeeklyCapitulationScan(): Promise<WeeklyCapScanResponse
     signals,
     scannedAt: new Date().toISOString(),
     marketOpen: isMarketOpen(),
-    totalScanned: CAPITULATION_TICKERS.length,
+    totalScanned: tickers.length,
     scanDurationMs: Date.now() - startTime,
   };
 }

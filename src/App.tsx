@@ -85,7 +85,7 @@ function App() {
                     : "text-text-secondary border-transparent hover:text-text-primary"
                 }`}
               >
-                Capitulation
+                Daily Cap
               </button>
               <button
                 onClick={() => setCurrentPage("weekly-capitulation")}

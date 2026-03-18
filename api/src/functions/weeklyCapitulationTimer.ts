@@ -22,8 +22,7 @@ function getPhase(et: Date): Phase {
 
   if (totalMinutes >= 570 && totalMinutes < 600) return "morning";
   if (totalMinutes >= 600 && totalMinutes < 960) {
-    if (minutes % 30 === 0) return "extended";
-    return null;
+    return "extended";
   }
   return null;
 }
@@ -59,10 +58,11 @@ async function weeklyCapitulationTimerHandler(
     ctx.log(`Weekly cap scan: ${scanResult.signals.length} signals from ${scanResult.totalScanned} tickers`);
 
     const alertResults = await sendWeeklyCapitulationAlerts(scanResult.signals, phase);
-    const sent = alertResults.filter((r) => r.success).length;
+    const sent = alertResults.filter((r) => r.success && !r.error).length;
+    const suppressed = alertResults.filter((r) => r.error?.includes("suppressed")).length;
     const failed = alertResults.filter((r) => !r.success).length;
 
-    ctx.log(`Weekly cap alerts: ${sent} sent, ${failed} failed`);
+    ctx.log(`Weekly cap alerts: ${sent} sent, ${suppressed} suppressed (dedup), ${failed} failed`);
 
     return {
       jsonBody: {
@@ -70,6 +70,7 @@ async function weeklyCapitulationTimerHandler(
         phase,
         signalsFound: scanResult.signals.length,
         alertsSent: sent,
+        alertsSuppressed: suppressed,
         alertsFailed: failed,
         alerts: alertResults,
         scannedAt: scanResult.scannedAt,

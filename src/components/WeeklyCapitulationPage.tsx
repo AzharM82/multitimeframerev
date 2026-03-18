@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { WeeklyCapSignal, WeeklyCapScanResponse, WeeklyCapTier } from "../types.js";
 import { runWeeklyCapitulationScan } from "../services/api.js";
 import { useMarketHours } from "../hooks/useMarketHours.js";
+import { CapitulationWatchlistManager } from "./CapitulationWatchlistManager.js";
 
 type TierFilter = "ALL" | WeeklyCapTier;
+type SortKey = "tier" | "ticker" | "price" | "close5dAgo" | "dropPct" | "changeFromOpenPct" | "rvol";
+type SortDir = "asc" | "desc";
 
 const TIER_COLORS: Record<WeeklyCapTier, { bg: string; text: string; border: string }> = {
   CRITICAL: { bg: "bg-red-500/20", text: "text-red-400", border: "border-red-500/40" },
@@ -11,11 +14,17 @@ const TIER_COLORS: Record<WeeklyCapTier, { bg: string; text: string; border: str
   WATCH: { bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/40" },
 };
 
+const TIER_RANK: Record<WeeklyCapTier, number> = { CRITICAL: 0, HIGH: 1, WATCH: 2 };
+
 export function WeeklyCapitulationPage() {
   const [data, setData] = useState<WeeklyCapScanResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tierFilter, setTierFilter] = useState<TierFilter>("ALL");
+  const [tickerCount, setTickerCount] = useState<number | null>(null);
+  const [showManager, setShowManager] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("tier");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const marketOpen = useMarketHours();
 
@@ -32,7 +41,6 @@ export function WeeklyCapitulationPage() {
     }
   }, []);
 
-  // Auto-refresh every 60s when market is open
   useEffect(() => {
     if (marketOpen) {
       scan();
@@ -45,6 +53,38 @@ export function WeeklyCapitulationPage() {
 
   const signals = data?.signals ?? [];
   const filtered = tierFilter === "ALL" ? signals : signals.filter((s) => s.tier === tierFilter);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "tier": cmp = TIER_RANK[a.tier] - TIER_RANK[b.tier]; break;
+        case "ticker": cmp = a.ticker.localeCompare(b.ticker); break;
+        case "price": cmp = a.price - b.price; break;
+        case "close5dAgo": cmp = a.close5dAgo - b.close5dAgo; break;
+        case "dropPct": cmp = a.dropPct - b.dropPct; break;
+        case "changeFromOpenPct": cmp = a.changeFromOpenPct - b.changeFromOpenPct; break;
+        case "rvol": cmp = a.rvol - b.rvol; break;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const sortIndicator = (key: SortKey) => {
+    if (sortKey !== key) return "";
+    return sortDir === "asc" ? " \u25B2" : " \u25BC";
+  };
 
   const criticalCount = signals.filter((s) => s.tier === "CRITICAL").length;
   const highCount = signals.filter((s) => s.tier === "HIGH").length;
@@ -63,7 +103,7 @@ export function WeeklyCapitulationPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <span className="text-sm text-text-secondary">
-              Monitoring <span className="text-text-primary font-bold">{data?.totalScanned ?? 1105}</span> tickers
+              Monitoring <span className="text-text-primary font-bold">{data?.totalScanned ?? tickerCount ?? "..."}</span> tickers
               <span className="text-text-secondary ml-1">(5-day drop)</span>
             </span>
             {data && (
@@ -77,18 +117,34 @@ export function WeeklyCapitulationPage() {
               </>
             )}
           </div>
-          <button
-            onClick={scan}
-            disabled={loading}
-            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-              loading
-                ? "bg-bg-card border border-border text-text-secondary opacity-50 cursor-not-allowed"
-                : "bg-signal-bull/20 text-signal-bull border border-signal-bull/40 hover:bg-signal-bull/30"
-            }`}
-          >
-            {loading ? "Scanning..." : "Scan Now"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowManager(!showManager)}
+              className="px-3 py-1.5 rounded text-sm font-medium transition-colors bg-bg-secondary text-text-secondary border border-border hover:text-text-primary"
+            >
+              {showManager ? "Hide" : "Manage"} Tickers
+            </button>
+            <button
+              onClick={scan}
+              disabled={loading}
+              className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+                loading
+                  ? "bg-bg-card border border-border text-text-secondary opacity-50 cursor-not-allowed"
+                  : "bg-signal-bull/20 text-signal-bull border border-signal-bull/40 hover:bg-signal-bull/30"
+              }`}
+            >
+              {loading ? "Scanning..." : "Scan Now"}
+            </button>
+          </div>
         </div>
+        {showManager && (
+          <div className="mt-4 pt-4 border-t border-border">
+            <CapitulationWatchlistManager
+              onTickerCountChange={setTickerCount}
+              sharedNote="Shared with Daily Cap scanner"
+            />
+          </div>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -103,7 +159,7 @@ export function WeeklyCapitulationPage() {
       <div className="bg-bg-card rounded-lg border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wider text-text-secondary">
-            Weekly Capitulation Signals
+            Weekly Cap Signals
           </h2>
           <div className="flex gap-1">
             {(["ALL", "CRITICAL", "HIGH", "WATCH"] as TierFilter[]).map((t) => (
@@ -123,8 +179,8 @@ export function WeeklyCapitulationPage() {
         </div>
 
         {loading && !data ? (
-          <div className="p-8 text-center text-text-secondary text-sm">Scanning 1,105 tickers...</div>
-        ) : filtered.length === 0 ? (
+          <div className="p-8 text-center text-text-secondary text-sm">Scanning tickers...</div>
+        ) : sorted.length === 0 ? (
           <div className="p-8 text-center text-text-secondary text-sm">
             {signals.length === 0
               ? "No weekly capitulation signals detected. Signals appear when stocks drop 10%+ over the last 5 trading days."
@@ -135,17 +191,17 @@ export function WeeklyCapitulationPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-text-secondary uppercase tracking-wider">
-                  <th className="px-4 py-2 text-left">Tier</th>
-                  <th className="px-4 py-2 text-left">Ticker</th>
-                  <th className="px-4 py-2 text-right">Price</th>
-                  <th className="px-4 py-2 text-right">5d Ago</th>
-                  <th className="px-4 py-2 text-right">5-Day Drop</th>
-                  <th className="px-4 py-2 text-right">Chg from Open</th>
-                  <th className="px-4 py-2 text-right">RVOL</th>
+                  <SortHeader label="Tier" sortKey="tier" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} align="left" />
+                  <SortHeader label="Ticker" sortKey="ticker" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} align="left" />
+                  <SortHeader label="Price" sortKey="price" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
+                  <SortHeader label="5d Ago" sortKey="close5dAgo" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
+                  <SortHeader label="5-Day Drop" sortKey="dropPct" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
+                  <SortHeader label="Chg from Open" sortKey="changeFromOpenPct" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
+                  <SortHeader label="RVOL" sortKey="rvol" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((signal) => (
+                {sorted.map((signal) => (
                   <SignalRow key={signal.ticker} signal={signal} />
                 ))}
               </tbody>
@@ -176,6 +232,20 @@ export function WeeklyCapitulationPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function SortHeader({ label, sortKey: key, onClick, indicator, align = "right" }: {
+  label: string; sortKey: SortKey; current?: SortKey; dir?: SortDir;
+  onClick: (k: SortKey) => void; indicator: (k: SortKey) => string; align?: "left" | "right";
+}) {
+  return (
+    <th
+      className={`px-4 py-2 ${align === "left" ? "text-left" : "text-right"} cursor-pointer hover:text-text-primary select-none`}
+      onClick={() => onClick(key)}
+    >
+      {label}{indicator(key)}
+    </th>
   );
 }
 

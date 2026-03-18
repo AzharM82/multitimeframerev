@@ -26,11 +26,7 @@ function getPhase(et: Date): Phase {
     return "morning";
   }
   if (totalMinutes >= 600 && totalMinutes < 960) {
-    // Extended phase: only on 30-min boundaries
-    if (minutes % 30 === 0) {
-      return "extended";
-    }
-    return null; // not a 30-min boundary
+    return "extended";
   }
   return null; // outside market hours
 }
@@ -71,10 +67,11 @@ async function capitulationTimerHandler(
 
     // Send alerts
     const alertResults = await sendCapitulationAlerts(scanResult.signals, phase);
-    const sent = alertResults.filter((r) => r.success).length;
+    const sent = alertResults.filter((r) => r.success && !r.error).length;
+    const suppressed = alertResults.filter((r) => r.error?.includes("suppressed")).length;
     const failed = alertResults.filter((r) => !r.success).length;
 
-    ctx.log(`Alerts: ${sent} sent, ${failed} failed`);
+    ctx.log(`Alerts: ${sent} sent, ${suppressed} suppressed (dedup), ${failed} failed`);
 
     return {
       jsonBody: {
@@ -82,6 +79,7 @@ async function capitulationTimerHandler(
         phase,
         signalsFound: scanResult.signals.length,
         alertsSent: sent,
+        alertsSuppressed: suppressed,
         alertsFailed: failed,
         alerts: alertResults,
         scannedAt: scanResult.scannedAt,
