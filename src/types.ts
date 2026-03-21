@@ -116,6 +116,7 @@ export interface CapitulationSignal {
   prevClose: number;
   open: number;
   gapPct: number;
+  changePct: number;
   recoveryPct: number;
   rvol: number;
   todayVolume: number;

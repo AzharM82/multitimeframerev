@@ -9,6 +9,7 @@ export interface CapitulationSignal {
   prevClose: number;
   open: number;
   gapPct: number;
+  changePct: number;
   recoveryPct: number;
   rvol: number;
   todayVolume: number;
@@ -103,6 +104,7 @@ export async function runCapitulationScan(): Promise<CapitulationScanResponse> {
     if (prevClose <= 0 || open <= 0 || price <= 0) continue;
 
     const gapPct = ((open - prevClose) / prevClose) * 100;
+    const changePct = ((price - prevClose) / prevClose) * 100;
     const recoveryPct = ((price - open) / open) * 100;
     const rvol = computeRVOL(snap);
 
@@ -115,6 +117,7 @@ export async function runCapitulationScan(): Promise<CapitulationScanResponse> {
       prevClose,
       open,
       gapPct,
+      changePct,
       recoveryPct,
       rvol,
       todayVolume: snap.day?.v ?? 0,
