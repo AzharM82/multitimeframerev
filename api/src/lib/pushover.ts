@@ -23,7 +23,7 @@ function formatMessage(signal: CapitulationSignal, phase: Phase): string {
     : "Extended 10:00-16:00";
 
   return (
-    `${signal.ticker} gapped ${signal.gapPct.toFixed(1)}% | recovering +${signal.recoveryPct.toFixed(1)}%\n` +
+    `${signal.ticker} gapped ${signal.gapPct.toFixed(1)}% | from open ${signal.recoveryPct >= 0 ? "+" : ""}${signal.recoveryPct.toFixed(1)}%\n` +
     `Price: $${signal.price.toFixed(2)} | RVOL: ${signal.rvol.toFixed(1)}x\n` +
     `[${phaseLabel}]`
   );

@@ -191,7 +191,7 @@ export function CapitulationPage() {
                   <SortHeader label="Ticker" sortKey="ticker" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} align="left" />
                   <SortHeader label="Price" sortKey="price" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
                   <SortHeader label="Gap Down" sortKey="gapPct" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
-                  <SortHeader label="Recovery" sortKey="recoveryPct" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
+                  <SortHeader label="Chg from Open" sortKey="recoveryPct" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
                   <SortHeader label="RVOL" sortKey="rvol" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
                   <SortHeader label="Time Wt" sortKey="timeWeight" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
                 </tr>
@@ -266,7 +266,9 @@ function SignalRow({ signal }: { signal: CapitulationSignal }) {
       <td className="px-4 py-2 font-bold text-text-primary">{signal.ticker}</td>
       <td className="px-4 py-2 text-right text-text-primary">${signal.price.toFixed(2)}</td>
       <td className="px-4 py-2 text-right text-red-400 font-medium">{signal.gapPct.toFixed(2)}%</td>
-      <td className="px-4 py-2 text-right text-green-400 font-medium">+{signal.recoveryPct.toFixed(2)}%</td>
+      <td className={`px-4 py-2 text-right font-medium ${signal.recoveryPct >= 0 ? "text-green-400" : "text-red-400"}`}>
+        {signal.recoveryPct >= 0 ? "+" : ""}{signal.recoveryPct.toFixed(2)}%
+      </td>
       <td className="px-4 py-2 text-right text-text-primary">{signal.rvol.toFixed(1)}x</td>
       <td className="px-4 py-2 text-right text-text-secondary">{signal.timeWeight.toFixed(1)}x</td>
     </tr>
