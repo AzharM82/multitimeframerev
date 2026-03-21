@@ -64,11 +64,11 @@ function computeRVOL(snap: SnapshotTicker): number {
 }
 
 function classifyTier(gapPct: number): CapitulationTier | null {
-  // Classify by gap down magnitude only
+  // Classify by gap down magnitude (minimum -1% gap required)
   if (gapPct <= -5) return "CRITICAL";
   if (gapPct <= -3) return "HIGH";
-  if (gapPct < 0) return "WATCH";
-  return null;
+  if (gapPct <= -1) return "WATCH";
+  return null; // gap > -1% ignored
 }
 
 function isMarketOpen(): boolean {
@@ -110,6 +110,9 @@ export async function runCapitulationScan(): Promise<CapitulationScanResponse> {
 
     const tier = classifyTier(gapPct);
     if (!tier) continue;
+
+    // Only show stocks where % change from open is positive (recovering)
+    if (recoveryPct <= 0) continue;
 
     signals.push({
       ticker,

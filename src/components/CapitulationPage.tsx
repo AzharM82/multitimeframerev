@@ -214,11 +214,11 @@ export function CapitulationPage() {
 
       {/* Legend */}
       <div className="bg-bg-card rounded-lg border border-border p-4 text-xs text-text-secondary space-y-2">
-        <div className="font-bold uppercase tracking-wider text-text-secondary mb-1">Tier Thresholds (Gap Down)</div>
+        <div className="font-bold uppercase tracking-wider text-text-secondary mb-1">Tier Thresholds (Gap Down) — Only stocks with positive % Chg from Open shown</div>
         <div className="flex flex-wrap gap-6">
           <span>
             <span className="inline-block px-1.5 py-px rounded bg-red-500/20 text-red-400 font-bold mr-1">CRITICAL</span>
-            Gap &gt; 5%
+            Gap &ge; 5%
           </span>
           <span>
             <span className="inline-block px-1.5 py-px rounded bg-orange-500/20 text-orange-400 font-bold mr-1">HIGH</span>
@@ -226,7 +226,7 @@ export function CapitulationPage() {
           </span>
           <span>
             <span className="inline-block px-1.5 py-px rounded bg-yellow-500/20 text-yellow-400 font-bold mr-1">WATCH</span>
-            Gap 0%–3%
+            Gap 1%–3%
           </span>
         </div>
         <div className="mt-1">
