@@ -113,6 +113,9 @@ export async function runWeeklyCapitulationScan(): Promise<WeeklyCapScanResponse
     const tier = classifyWeeklyTier(dropPct);
     if (!tier) continue;
 
+    // Only show stocks with positive change from open (recovering)
+    if (changeFromOpenPct <= 0) continue;
+
     signals.push({
       ticker,
       price,
