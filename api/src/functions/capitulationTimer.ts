@@ -21,11 +21,15 @@ function getPhase(et: Date): Phase {
   const minutes = et.getMinutes();
   const totalMinutes = hours * 60 + minutes;
 
-  // 9:30 = 570, 10:00 = 600, 16:00 = 960
-  if (totalMinutes >= 570 && totalMinutes < 600) {
+  // 9:30 = 570, 10:30 = 630, 16:00 = 960
+  if (totalMinutes >= 570 && totalMinutes < 630) {
+    // First hour: alert every 10 min (cron runs every 5 min, only fire on 10-min marks)
+    if (minutes % 10 !== 0) return null;
     return "morning";
   }
-  if (totalMinutes >= 600 && totalMinutes < 960) {
+  if (totalMinutes >= 630 && totalMinutes < 960) {
+    // After first hour: alert every 30 min
+    if (minutes % 30 !== 0) return null;
     return "extended";
   }
   return null; // outside market hours
@@ -67,11 +71,10 @@ async function capitulationTimerHandler(
 
     // Send alerts
     const alertResults = await sendCapitulationAlerts(scanResult.signals, phase);
-    const sent = alertResults.filter((r) => r.success && !r.error).length;
-    const suppressed = alertResults.filter((r) => r.error?.includes("suppressed")).length;
+    const sent = alertResults.filter((r) => r.success).length;
     const failed = alertResults.filter((r) => !r.success).length;
 
-    ctx.log(`Alerts: ${sent} sent, ${suppressed} suppressed (dedup), ${failed} failed`);
+    ctx.log(`Alerts: ${sent} sent, ${failed} failed`);
 
     return {
       jsonBody: {
@@ -79,7 +82,6 @@ async function capitulationTimerHandler(
         phase,
         signalsFound: scanResult.signals.length,
         alertsSent: sent,
-        alertsSuppressed: suppressed,
         alertsFailed: failed,
         alerts: alertResults,
         scannedAt: scanResult.scannedAt,

@@ -20,8 +20,14 @@ function getPhase(et: Date): Phase {
   const minutes = et.getMinutes();
   const totalMinutes = hours * 60 + minutes;
 
-  if (totalMinutes >= 570 && totalMinutes < 600) return "morning";
-  if (totalMinutes >= 600 && totalMinutes < 960) {
+  // 9:30-10:30: alert every 10 min
+  if (totalMinutes >= 570 && totalMinutes < 630) {
+    if (minutes % 10 !== 0) return null;
+    return "morning";
+  }
+  // 10:30-16:00: alert every 30 min
+  if (totalMinutes >= 630 && totalMinutes < 960) {
+    if (minutes % 30 !== 0) return null;
     return "extended";
   }
   return null;
@@ -58,11 +64,10 @@ async function weeklyCapitulationTimerHandler(
     ctx.log(`Weekly cap scan: ${scanResult.signals.length} signals from ${scanResult.totalScanned} tickers`);
 
     const alertResults = await sendWeeklyCapitulationAlerts(scanResult.signals, phase);
-    const sent = alertResults.filter((r) => r.success && !r.error).length;
-    const suppressed = alertResults.filter((r) => r.error?.includes("suppressed")).length;
+    const sent = alertResults.filter((r) => r.success).length;
     const failed = alertResults.filter((r) => !r.success).length;
 
-    ctx.log(`Weekly cap alerts: ${sent} sent, ${suppressed} suppressed (dedup), ${failed} failed`);
+    ctx.log(`Weekly cap alerts: ${sent} sent, ${failed} failed`);
 
     return {
       jsonBody: {
@@ -70,7 +75,6 @@ async function weeklyCapitulationTimerHandler(
         phase,
         signalsFound: scanResult.signals.length,
         alertsSent: sent,
-        alertsSuppressed: suppressed,
         alertsFailed: failed,
         alerts: alertResults,
         scannedAt: scanResult.scannedAt,

@@ -131,12 +131,8 @@ export async function runCapitulationScan(): Promise<CapitulationScanResponse> {
     });
   }
 
-  // Sort: tier priority (CRITICAL > HIGH > WATCH), then gap magnitude (most negative first)
-  signals.sort((a, b) => {
-    const tierDiff = TIER_PRIORITY[a.tier] - TIER_PRIORITY[b.tier];
-    if (tierDiff !== 0) return tierDiff;
-    return a.gapPct - b.gapPct; // more negative gap = higher priority
-  });
+  // Sort by % change from open, highest first
+  signals.sort((a, b) => b.recoveryPct - a.recoveryPct);
 
   return {
     signals,

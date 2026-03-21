@@ -131,12 +131,8 @@ export async function runWeeklyCapitulationScan(): Promise<WeeklyCapScanResponse
     });
   }
 
-  // Sort: tier priority, then most negative drop first
-  signals.sort((a, b) => {
-    const tierDiff = TIER_PRIORITY[a.tier] - TIER_PRIORITY[b.tier];
-    if (tierDiff !== 0) return tierDiff;
-    return a.dropPct - b.dropPct;
-  });
+  // Sort by % change from open, highest first
+  signals.sort((a, b) => b.changeFromOpenPct - a.changeFromOpenPct);
 
   return {
     signals,
