@@ -27,10 +27,10 @@ export interface CapitulationScanResponse {
 }
 
 function getCurrentPrice(snap: SnapshotTicker): number {
-  // Price fallback chain: lastTrade.p → min.c → day.c
-  if (snap.lastTrade?.p && snap.lastTrade.p > 0) return snap.lastTrade.p;
-  if (snap.min?.c && snap.min.c > 0) return snap.min.c;
+  // Use day.c (current/close price from regular hours) first,
+  // then min.c (last minute bar). Skip lastTrade.p — it can be after-hours.
   if (snap.day?.c && snap.day.c > 0) return snap.day.c;
+  if (snap.min?.c && snap.min.c > 0) return snap.min.c;
   return 0;
 }
 

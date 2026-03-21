@@ -5,7 +5,7 @@ import { useMarketHours } from "../hooks/useMarketHours.js";
 import { CapitulationWatchlistManager } from "./CapitulationWatchlistManager.js";
 
 type TierFilter = "ALL" | CapitulationTier;
-type SortKey = "tier" | "ticker" | "price" | "gapPct" | "recoveryPct" | "rvol" | "timeWeight";
+type SortKey = "tier" | "ticker" | "prevClose" | "open" | "price" | "gapPct" | "recoveryPct" | "rvol" | "timeWeight";
 type SortDir = "asc" | "desc";
 
 const TIER_COLORS: Record<CapitulationTier, { bg: string; text: string; border: string }> = {
@@ -61,6 +61,8 @@ export function CapitulationPage() {
       switch (sortKey) {
         case "tier": cmp = TIER_RANK[a.tier] - TIER_RANK[b.tier]; break;
         case "ticker": cmp = a.ticker.localeCompare(b.ticker); break;
+        case "prevClose": cmp = a.prevClose - b.prevClose; break;
+        case "open": cmp = a.open - b.open; break;
         case "price": cmp = a.price - b.price; break;
         case "gapPct": cmp = a.gapPct - b.gapPct; break;
         case "recoveryPct": cmp = a.recoveryPct - b.recoveryPct; break;
@@ -189,6 +191,8 @@ export function CapitulationPage() {
                 <tr className="text-xs text-text-secondary uppercase tracking-wider">
                   <SortHeader label="Tier" sortKey="tier" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} align="left" />
                   <SortHeader label="Ticker" sortKey="ticker" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} align="left" />
+                  <SortHeader label="Prev Close" sortKey="prevClose" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
+                  <SortHeader label="Open" sortKey="open" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
                   <SortHeader label="Price" sortKey="price" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
                   <SortHeader label="Gap Down" sortKey="gapPct" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
                   <SortHeader label="Chg from Open" sortKey="recoveryPct" current={sortKey} dir={sortDir} onClick={handleSort} indicator={sortIndicator} />
@@ -264,6 +268,8 @@ function SignalRow({ signal }: { signal: CapitulationSignal }) {
         </span>
       </td>
       <td className="px-4 py-2 font-bold text-text-primary">{signal.ticker}</td>
+      <td className="px-4 py-2 text-right text-text-secondary">${signal.prevClose.toFixed(2)}</td>
+      <td className="px-4 py-2 text-right text-text-secondary">${signal.open.toFixed(2)}</td>
       <td className="px-4 py-2 text-right text-text-primary">${signal.price.toFixed(2)}</td>
       <td className="px-4 py-2 text-right text-red-400 font-medium">{signal.gapPct.toFixed(2)}%</td>
       <td className={`px-4 py-2 text-right font-medium ${signal.recoveryPct >= 0 ? "text-green-400" : "text-red-400"}`}>
