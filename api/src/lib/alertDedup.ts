@@ -9,7 +9,7 @@
  * trade-off (worst case: one extra alert after a cold start).
  */
 
-const COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+const COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes (3 runs × 5 min)
 
 // Separate caches for daily vs weekly so they don't interfere
 const dailyCache = new Map<string, number>();

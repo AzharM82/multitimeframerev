@@ -39,18 +39,16 @@ export async function sendCapitulationAlerts(
   signals: CapitulationSignal[],
   phase: Phase,
 ): Promise<PushoverResult[]> {
-  // Filter signals: CRITICAL and HIGH with >1% recovery from open
-  const tierFiltered = signals.filter((s) => {
-    return (s.tier === "CRITICAL" || s.tier === "HIGH") && s.recoveryPct > 1;
-  });
+  // Filter signals: gap <= -1% with positive change from open (already filtered by engine)
+  const tierFiltered = signals.filter((s) => s.recoveryPct > 0);
 
-  // Suppress tickers alerted within the last 30 minutes (6 runs)
+  // Suppress tickers alerted within the last 15 minutes (3 runs)
   const { eligible, suppressed } = filterRecentlyAlerted(tierFiltered, "daily");
   const results: PushoverResult[] = suppressed.map((s) => ({
     ticker: s.ticker,
     tier: s.tier,
     success: true,
-    error: "suppressed (alerted within last 30 min)",
+    error: "suppressed (alerted within last 15 min)",
   }));
 
   for (const signal of eligible) {
@@ -58,7 +56,7 @@ export async function sendCapitulationAlerts(
       const body = new URLSearchParams({
         token: process.env.PUSHOVER_APP_TOKEN!,
         user: process.env.PUSHOVER_USER_KEY!,
-        title: `${signal.tier}: ${signal.ticker}`,
+        title: `DAILY ${signal.tier}: ${signal.ticker}`,
         message: formatMessage(signal, phase),
         priority: String(getPriority(signal.tier)),
       });
@@ -80,7 +78,7 @@ export async function sendCapitulationAlerts(
     }
   }
 
-  // Record successfully sent tickers so they get suppressed for 30 min
+  // Record successfully sent tickers so they get suppressed for 15 min
   const sentTickers = results
     .filter((r) => r.success && !r.error)
     .map((r) => r.ticker);
@@ -112,19 +110,16 @@ export async function sendWeeklyCapitulationAlerts(
   signals: WeeklyCapSignal[],
   phase: Phase,
 ): Promise<PushoverResult[]> {
-  // Only alert when Change from Open is >1% (stock is bouncing = capitulating)
-  const tierFiltered = signals.filter((s) => {
-    if (s.changeFromOpenPct <= 1) return false; // skip if not recovering >1% from open
-    return s.tier === "CRITICAL" || s.tier === "HIGH";
-  });
+  // Alert when Change from Open is positive (stock is bouncing)
+  const tierFiltered = signals.filter((s) => s.changeFromOpenPct > 0);
 
-  // Suppress tickers alerted within the last 30 minutes (6 runs)
+  // Suppress tickers alerted within the last 15 minutes (3 runs)
   const { eligible, suppressed } = filterRecentlyAlerted(tierFiltered, "weekly");
   const results: PushoverResult[] = suppressed.map((s) => ({
     ticker: s.ticker,
     tier: s.tier,
     success: true,
-    error: "suppressed (alerted within last 30 min)",
+    error: "suppressed (alerted within last 15 min)",
   }));
 
   for (const signal of eligible) {
@@ -154,7 +149,7 @@ export async function sendWeeklyCapitulationAlerts(
     }
   }
 
-  // Record successfully sent tickers so they get suppressed for 30 min
+  // Record successfully sent tickers so they get suppressed for 15 min
   const sentTickers = results
     .filter((r) => r.success && !r.error)
     .map((r) => r.ticker);
