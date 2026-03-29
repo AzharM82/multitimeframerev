@@ -9,3 +9,4 @@ import "./functions/capitulationScan.js";
 import "./functions/capitulationTimer.js";
 import "./functions/weeklyCapitulationScan.js";
 import "./functions/weeklyCapitulationTimer.js";
+import "./functions/screenerScan.js";

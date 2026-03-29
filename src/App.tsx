@@ -10,8 +10,9 @@ import { NotificationLog } from "./components/NotificationLog.js";
 import { PhaseOscillatorPage } from "./components/PhaseOscillatorPage.js";
 import { CapitulationPage } from "./components/CapitulationPage.js";
 import { WeeklyCapitulationPage } from "./components/WeeklyCapitulationPage.js";
+import { ScreenerPage } from "./components/ScreenerPage.js";
 
-type Page = "reversal" | "phase" | "capitulation" | "weekly-capitulation";
+type Page = "reversal" | "phase" | "capitulation" | "weekly-capitulation" | "screener";
 
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>("reversal");
@@ -96,6 +97,16 @@ function App() {
                 }`}
               >
                 Weekly Cap
+              </button>
+              <button
+                onClick={() => setCurrentPage("screener")}
+                className={`px-3 py-1.5 text-sm font-bold uppercase tracking-wider transition-colors border-b-2 ${
+                  currentPage === "screener"
+                    ? "text-accent border-accent"
+                    : "text-text-secondary border-transparent hover:text-text-primary"
+                }`}
+              >
+                Screeners
               </button>
             </nav>
             <span
@@ -255,6 +266,8 @@ function App() {
         {currentPage === "capitulation" && <CapitulationPage />}
 
         {currentPage === "weekly-capitulation" && <WeeklyCapitulationPage />}
+
+        {currentPage === "screener" && <ScreenerPage />}
       </main>
     </div>
   );

@@ -1,4 +1,4 @@
-import type { Watchlist, WatchlistEntry, ScanResponse, ScanStatus, PhaseScanResponse, CapitulationScanResponse, WeeklyCapScanResponse } from "../types.js";
+import type { Watchlist, WatchlistEntry, ScanResponse, ScanStatus, PhaseScanResponse, CapitulationScanResponse, WeeklyCapScanResponse, ScreenerRow } from "../types.js";
 
 const BASE = "/api";
 
@@ -89,4 +89,14 @@ export function runCapitulationScan(): Promise<CapitulationScanResponse> {
 
 export function runWeeklyCapitulationScan(): Promise<WeeklyCapScanResponse> {
   return request<WeeklyCapScanResponse>("/weekly-capitulation-scan");
+}
+
+// ─── Screener API ─────────────────────────────────────────────────────────────
+
+export type ScreenerType = "qullamaggie" | "minervini" | "oneil";
+
+export function fetchScreener(type: ScreenerType, refresh = false): Promise<ScreenerRow[]> {
+  const params = new URLSearchParams({ type });
+  if (refresh) params.set("refresh", "true");
+  return request<ScreenerRow[]>(`/screeners?${params}`);
 }

@@ -159,3 +159,20 @@ export interface WeeklyCapScanResponse {
   totalScanned: number;
   scanDurationMs: number;
 }
+
+// ─── Screener Types ─────────────────────────────────────────────────────────
+
+export interface ScreenerRow {
+  ticker: string;
+  price: string;
+  change: string;
+  volume: string;
+  avg_vol: string;
+  rel_vol: string;
+  atr_pct: number | null;
+  tag?: string;
+  roe?: number | null;
+  net_margin?: number | null;
+  news?: string;
+  news_url?: string;
+}
