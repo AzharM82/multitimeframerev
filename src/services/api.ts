@@ -1,4 +1,8 @@
-import type { Watchlist, WatchlistEntry, ScanResponse, ScanStatus, PhaseScanResponse, CapitulationScanResponse, WeeklyCapScanResponse, ScreenerRow } from "../types.js";
+import type {
+  AvwapResultsResponse,
+  BullListResponse,
+  PaperTradesResponse,
+} from "../types.js";
 
 const BASE = "/api";
 
@@ -14,89 +18,27 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function getWatchlist(): Promise<Watchlist> {
-  return request<Watchlist>("/watchlist");
+// ─── Section 1: AVWAP ───────────────────────────────────────────────────────
+
+export function getAvwapResults(date?: string): Promise<AvwapResultsResponse> {
+  return request<AvwapResultsResponse>(`/avwap-results${date ? `?date=${date}` : ""}`);
 }
 
-export function addTickers(tickers: WatchlistEntry[], replace = false): Promise<Watchlist> {
-  return request<Watchlist>("/watchlist", {
-    method: "POST",
-    body: JSON.stringify({ tickers, replace }),
-  });
+// ─── Section 2: Bull List ──────────────────────────────────────────────────
+
+export function getBullList(status: "open" | "closed" = "open"): Promise<BullListResponse> {
+  return request<BullListResponse>(`/bull-list?status=${status}`);
 }
 
-export function removeTicker(ticker: string): Promise<Watchlist> {
-  return request<Watchlist>(`/watchlist?ticker=${encodeURIComponent(ticker)}`, {
-    method: "DELETE",
-  });
+export function deleteBullEntry(partition: string, rowKey: string): Promise<{ status: string }> {
+  return request<{ status: string }>(
+    `/bull-list?partition=${partition}&rowKey=${encodeURIComponent(rowKey)}`,
+    { method: "DELETE" },
+  );
 }
 
-export function runScan(): Promise<ScanResponse> {
-  return request<ScanResponse>("/scan");
-}
+// ─── Section 4: Performance ────────────────────────────────────────────────
 
-export function getScanStatus(): Promise<ScanStatus> {
-  return request<ScanStatus>("/scan-status");
-}
-
-// ─── Phase Oscillator API ────────────────────────────────────────────────────
-
-export function getPhaseWatchlist(): Promise<Watchlist> {
-  return request<Watchlist>("/phase-watchlist");
-}
-
-export function addPhaseTickers(tickers: WatchlistEntry[], replace = false): Promise<Watchlist> {
-  return request<Watchlist>("/phase-watchlist", {
-    method: "POST",
-    body: JSON.stringify({ tickers, replace }),
-  });
-}
-
-export function removePhaseTicker(ticker: string): Promise<Watchlist> {
-  return request<Watchlist>(`/phase-watchlist?ticker=${encodeURIComponent(ticker)}`, {
-    method: "DELETE",
-  });
-}
-
-export function runPhaseScan(): Promise<PhaseScanResponse> {
-  return request<PhaseScanResponse>("/phase-scan");
-}
-
-// ─── Capitulation Scanner API ───────────────────────────────────────────────
-
-export function getCapitulationWatchlist(): Promise<Watchlist> {
-  return request<Watchlist>("/capitulation-watchlist");
-}
-
-export function addCapitulationTickers(tickers: WatchlistEntry[], replace = false): Promise<Watchlist> {
-  return request<Watchlist>("/capitulation-watchlist", {
-    method: "POST",
-    body: JSON.stringify({ tickers, replace }),
-  });
-}
-
-export function removeCapitulationTicker(ticker: string): Promise<Watchlist> {
-  return request<Watchlist>(`/capitulation-watchlist?ticker=${encodeURIComponent(ticker)}`, {
-    method: "DELETE",
-  });
-}
-
-export function runCapitulationScan(): Promise<CapitulationScanResponse> {
-  return request<CapitulationScanResponse>("/capitulation-scan");
-}
-
-// ─── Weekly Capitulation Scanner API ────────────────────────────────────────
-
-export function runWeeklyCapitulationScan(): Promise<WeeklyCapScanResponse> {
-  return request<WeeklyCapScanResponse>("/weekly-capitulation-scan");
-}
-
-// ─── Screener API ─────────────────────────────────────────────────────────────
-
-export type ScreenerType = "qullamaggie" | "minervini" | "oneil";
-
-export function fetchScreener(type: ScreenerType, refresh = false): Promise<ScreenerRow[]> {
-  const params = new URLSearchParams({ type });
-  if (refresh) params.set("refresh", "true");
-  return request<ScreenerRow[]>(`/screeners?${params}`);
+export function getPaperTrades(): Promise<PaperTradesResponse> {
+  return request<PaperTradesResponse>("/paper-trades");
 }

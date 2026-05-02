@@ -203,6 +203,29 @@ export async function fetchTickerInfo(ticker: string): Promise<TickerInfo> {
   }
 }
 
+// ─── Extended daily lookback for AVWAP anchors (5 years) ────────────────────
+
+export async function fetchDailyBarsExtended(ticker: string, years = 5): Promise<Candle[]> {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - Math.round(365 * years));
+  return fetchAggs(ticker, 1, "day", formatDate(from), formatDate(to));
+}
+
+// ─── Last trade quote for mark-to-market ────────────────────────────────────
+
+export async function fetchLastTrade(ticker: string): Promise<number | null> {
+  const url = `${BASE_URL}/v2/last/trade/${ticker}?apiKey=${getApiKey()}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json() as { results?: { p?: number } };
+    return data.results?.p ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Main entry point — uses candle cache for weekly/daily ───────────────────
 
 export async function fetchAllTimeframes(ticker: string): Promise<{

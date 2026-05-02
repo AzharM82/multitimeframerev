@@ -176,3 +176,119 @@ export interface ScreenerRow {
   news?: string;
   news_url?: string;
 }
+
+// ─── AVWAP (Section 1) ──────────────────────────────────────────────────────
+
+export type AvwapPattern = "PULLBACK" | "PINCH" | "RECLAIM";
+export type AnchorKind = "ATH" | "52W_HIGH" | "52W_LOW" | "YTD" | "SWING_LOW";
+
+export interface AvwapHit {
+  ticker: string;
+  pattern: AvwapPattern;
+  price: number;
+  score: number;
+  involvedAnchors: AnchorKind[];
+  bandPct: number;
+  volumeMultiple: number;
+  trendAligned: boolean;
+  daysSinceTrigger: number;
+  asOf: string;
+  details: {
+    avwapValues: Record<AnchorKind, number | null>;
+    sma50: number | null;
+    sma200: number | null;
+    rsi14: number | null;
+  };
+}
+
+export interface AvwapResultsResponse {
+  date: string | null;
+  totalHits: number;
+  updatedAt?: string;
+  hits: AvwapHit[];
+  available?: { date: string; totalHits: number }[];
+}
+
+// ─── Bull List (Section 2) ──────────────────────────────────────────────────
+
+export type BullStatus = "OPEN" | "TP_HIT" | "SL_HIT" | "EXPIRED";
+
+export interface BullListRow {
+  partitionKey: string;
+  rowKey: string;
+  ticker: string;
+  entry: number;
+  sl: number;
+  tp: number;
+  rPct: number;
+  status: BullStatus;
+  addedAt: string;
+  closedAt?: string;
+  exitPrice?: number;
+  exitReason?: string;
+  source: string;
+  emailSubject: string;
+  reversalBarTs: string;
+  last?: number | null;
+  pnlPct?: number | null;
+}
+
+export interface BullListResponse {
+  status: "open" | "closed";
+  count: number;
+  rows: BullListRow[];
+}
+
+// ─── Performance (Section 4) ────────────────────────────────────────────────
+
+export interface PerfStats {
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalPnl: number;
+  avgPnl: number;
+  bestPct: number;
+  worstPct: number;
+  bySource: Record<string, { count: number; wins: number; pnl: number }>;
+}
+
+export interface ClosedPaperTrade {
+  ticker: string;
+  source: "bull" | "daytrade" | "avwap";
+  entry: number;
+  exit: number;
+  qty: number;
+  pnlDollars: number;
+  pnlPct: number;
+  exitReason: string;
+  openedAt: string;
+  closedAt: string;
+}
+
+export interface OpenPaperTrade {
+  ticker: string;
+  source: "bull";
+  entry: number;
+  sl: number;
+  tp: number;
+  qty: number;
+  openedAt: string;
+}
+
+export interface DayTradeAlertRow {
+  partitionKey: string;
+  rowKey: string;
+  ticker: string;
+  reversalPrice: number;
+  firedAt: string;
+  channel: string;
+  status: string;
+}
+
+export interface PaperTradesResponse {
+  stats: PerfStats;
+  open: OpenPaperTrade[];
+  closed: ClosedPaperTrade[];
+  dayTradeAlerts: { total: number; recent: DayTradeAlertRow[] };
+}
