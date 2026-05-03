@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { BullListResponse, BullListRow, BullStatus } from "../types.js";
 import { getBullList, deleteBullEntry } from "../services/api.js";
 
@@ -9,6 +9,27 @@ const STATUS_COLORS: Record<BullStatus, string> = {
   EXPIRED: "bg-slate-500/15 text-slate-400 border-slate-500/40",
 };
 
+type SortKey =
+  | "ticker"
+  | "entry"
+  | "sl"
+  | "slPct"
+  | "tp"
+  | "rPct"
+  | "last"
+  | "pnlPct"
+  | "status"
+  | "addedAt";
+
+interface EnrichedRow extends BullListRow {
+  _slPct: number; // (entry - sl) / entry * 100
+}
+
+function enrich(r: BullListRow): EnrichedRow {
+  const slPct = r.entry > 0 ? ((r.entry - r.sl) / r.entry) * 100 : 0;
+  return { ...r, _slPct: Math.round(slPct * 100) / 100 };
+}
+
 function pnlClass(pct: number | null | undefined): string {
   if (pct === null || pct === undefined) return "text-text-secondary";
   if (pct > 0) return "text-signal-bull";
@@ -16,7 +37,32 @@ function pnlClass(pct: number | null | undefined): string {
   return "text-text-secondary";
 }
 
-function Row({ row, onRemove }: { row: BullListRow; onRemove: () => void }) {
+interface ThProps {
+  label: string;
+  sortKey?: SortKey;
+  current: SortKey | null;
+  dir: "asc" | "desc";
+  align?: "left" | "right" | "center";
+  onSort: (k: SortKey) => void;
+}
+
+function Th({ label, sortKey, current, dir, align = "left", onSort }: ThProps) {
+  const alignCls = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+  const isActive = sortKey === current;
+  return (
+    <th
+      onClick={() => sortKey && onSort(sortKey)}
+      className={`py-2 px-3 ${alignCls} ${sortKey ? "cursor-pointer hover:text-text-primary select-none" : ""}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {isActive && <span className="text-accent">{dir === "asc" ? "▲" : "▼"}</span>}
+      </span>
+    </th>
+  );
+}
+
+function Row({ row, onRemove }: { row: EnrichedRow; onRemove: () => void }) {
   return (
     <tr className="border-b border-border hover:bg-bg-secondary/40">
       <td className="py-2 px-3">
@@ -29,11 +75,13 @@ function Row({ row, onRemove }: { row: BullListRow; onRemove: () => void }) {
           {row.ticker}
         </a>
       </td>
-      <td className="py-2 px-3 text-right tabular-nums">${row.entry.toFixed(2)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-emerald-300/80">${row.entry.toFixed(2)}</td>
       <td className="py-2 px-3 text-right tabular-nums text-signal-bear/80">${row.sl.toFixed(2)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-xs">{row._slPct.toFixed(2)}%</td>
       <td className="py-2 px-3 text-right tabular-nums text-signal-bull/80">${row.tp.toFixed(2)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-xs text-text-secondary">{row.rPct.toFixed(2)}</td>
       <td className="py-2 px-3 text-right tabular-nums">
-        {row.last !== undefined && row.last !== null ? `$${row.last.toFixed(2)}` : "—"}
+        {row.last !== undefined && row.last !== null && row.last > 0 ? `$${row.last.toFixed(2)}` : "—"}
       </td>
       <td className={`py-2 px-3 text-right tabular-nums font-semibold ${pnlClass(row.pnlPct)}`}>
         {row.pnlPct !== undefined && row.pnlPct !== null ? `${row.pnlPct >= 0 ? "+" : ""}${row.pnlPct.toFixed(2)}%` : "—"}
@@ -62,6 +110,8 @@ export function BullListPage() {
   const [data, setData] = useState<BullListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey | null>("addedAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   function load() {
     setLoading(true);
@@ -88,7 +138,41 @@ export function BullListPage() {
     }
   }
 
-  const rows = data?.rows ?? [];
+  const enriched = useMemo<EnrichedRow[]>(() => (data?.rows ?? []).map(enrich), [data]);
+
+  const sorted = useMemo<EnrichedRow[]>(() => {
+    if (!sortKey) return enriched;
+    const copy = [...enriched];
+    copy.sort((a, b) => {
+      let av: string | number;
+      let bv: string | number;
+      switch (sortKey) {
+        case "ticker": av = a.ticker; bv = b.ticker; break;
+        case "entry": av = a.entry; bv = b.entry; break;
+        case "sl": av = a.sl; bv = b.sl; break;
+        case "slPct": av = a._slPct; bv = b._slPct; break;
+        case "tp": av = a.tp; bv = b.tp; break;
+        case "rPct": av = a.rPct; bv = b.rPct; break;
+        case "last": av = a.last ?? -1; bv = b.last ?? -1; break;
+        case "pnlPct": av = a.pnlPct ?? -9999; bv = b.pnlPct ?? -9999; break;
+        case "status": av = a.status; bv = b.status; break;
+        case "addedAt":
+        default: av = a.addedAt; bv = b.addedAt; break;
+      }
+      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }, [enriched, sortKey, sortDir]);
+
+  function handleSort(k: SortKey) {
+    if (sortKey === k) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(k);
+      setSortDir(k === "ticker" || k === "status" ? "asc" : "desc");
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -99,7 +183,7 @@ export function BullListPage() {
             <h2 className="text-xl font-bold mt-1">Bull List</h2>
           </div>
           <div className="text-xs text-text-secondary">
-            Auto-ingested from <code className="text-accent">tosbullalerts@live.com</code> hourly.
+            Auto-ingested from <code className="text-accent">tosbullalert@gmail.com</code> hourly.
             SL/TP computed via reversal pivot · Default TP +5%
           </div>
         </div>
@@ -125,27 +209,35 @@ export function BullListPage() {
         <table className="w-full text-sm">
           <thead className="bg-bg-secondary text-[10px] uppercase tracking-wider text-text-secondary">
             <tr>
-              <th className="py-2 px-3 text-left">Ticker</th>
-              <th className="py-2 px-3 text-right">Entry</th>
-              <th className="py-2 px-3 text-right">Stop</th>
-              <th className="py-2 px-3 text-right">Target</th>
-              <th className="py-2 px-3 text-right">Last</th>
-              <th className="py-2 px-3 text-right">P&amp;L</th>
-              <th className="py-2 px-3 text-center">Status</th>
-              <th className="py-2 px-3 text-left">Added</th>
+              <Th label="Ticker"  sortKey="ticker"  current={sortKey} dir={sortDir} onSort={handleSort} />
+              <Th label="Entry"   sortKey="entry"   current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="Stop"    sortKey="sl"      current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="%SL"     sortKey="slPct"   current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="Target"  sortKey="tp"      current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="R"       sortKey="rPct"    current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="Last"    sortKey="last"    current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="P&L"     sortKey="pnlPct"  current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="Status"  sortKey="status"  current={sortKey} dir={sortDir} onSort={handleSort} align="center" />
+              <Th label="Added"   sortKey="addedAt" current={sortKey} dir={sortDir} onSort={handleSort} />
               <th className="py-2 px-3 text-right"></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={9} className="py-8 text-center text-text-secondary text-sm">Loading…</td></tr>}
-            {!loading && rows.length === 0 && (
-              <tr><td colSpan={9} className="py-8 text-center text-text-secondary text-sm">
+            {loading && <tr><td colSpan={11} className="py-8 text-center text-text-secondary text-sm">Loading…</td></tr>}
+            {!loading && sorted.length === 0 && (
+              <tr><td colSpan={11} className="py-8 text-center text-text-secondary text-sm">
                 No {tab} positions.
               </td></tr>
             )}
-            {!loading && rows.map((r) => <Row key={r.rowKey} row={r} onRemove={() => handleRemove(r)} />)}
+            {!loading && sorted.map((r) => <Row key={r.rowKey} row={r} onRemove={() => handleRemove(r)} />)}
           </tbody>
         </table>
+      </div>
+
+      <div className="text-[11px] text-text-secondary px-1">
+        <span className="text-text-primary">%SL</span> = (entry − stop) / entry · risk size per share.
+        &nbsp;·&nbsp; <span className="text-text-primary">R</span> = (target − entry) / (entry − stop) · reward-to-risk multiple.
+        &nbsp;·&nbsp; Click any column header to sort.
       </div>
     </div>
   );
