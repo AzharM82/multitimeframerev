@@ -33,8 +33,16 @@ async function bullEmailHandler(
   }
 
   try {
-    const alerts = await fetchBullAlerts();
-    ctx.log(`bullEmailTimer: ${alerts.length} new D-Bull-Sig alerts`);
+    const lookbackParam = req.query.get("lookbackDays");
+    const lookbackDays = lookbackParam ? Math.max(1, Math.min(30, parseInt(lookbackParam, 10))) : undefined;
+    const debug = req.query.get("debug") === "1";
+    const folder = req.query.get("folder") ?? undefined;
+    const alerts = await fetchBullAlerts({ lookbackDays, debug, folder });
+    ctx.log(`bullEmailTimer: ${alerts.length} alerts (lookbackDays=${lookbackDays ?? "unread-only"}, folder=${folder ?? "INBOX"}, debug=${debug})`);
+
+    if (debug) {
+      return { jsonBody: { status: "debug", folder: folder ?? "INBOX", count: alerts.length, subjects: alerts.map((a) => ({ uid: a.uid, receivedAt: a.receivedAt, subject: a.subject })) } };
+    }
 
     const date = todayKey();
     const added: BullListRow[] = [];
@@ -88,9 +96,16 @@ async function bullEmailHandler(
       },
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    ctx.error(`bullEmailTimer error: ${message}`);
-    return { status: 500, jsonBody: { error: message } };
+    const e = err as { message?: string; code?: string; response?: string; responseStatus?: string; authenticationFailed?: boolean };
+    const detail = {
+      message: e?.message ?? String(err),
+      code: e?.code,
+      response: e?.response,
+      responseStatus: e?.responseStatus,
+      authenticationFailed: e?.authenticationFailed,
+    };
+    ctx.error(`bullEmailTimer error: ${JSON.stringify(detail)}`);
+    return { status: 500, jsonBody: { error: detail } };
   }
 }
 
