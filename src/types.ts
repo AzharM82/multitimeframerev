@@ -186,6 +186,9 @@ export interface AvwapHit {
   ticker: string;
   pattern: AvwapPattern;
   price: number;
+  buy?: number;
+  sl?: number;
+  slPct?: number;
   score: number;
   involvedAnchors: AnchorKind[];
   bandPct: number;

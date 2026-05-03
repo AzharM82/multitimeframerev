@@ -36,6 +36,9 @@ export interface AvwapHit {
   ticker: string;
   pattern: PatternKind;
   price: number;
+  buy: number;        // entry price — same as price for daily-bar setups
+  sl: number;         // lowest involved AVWAP (natural support floor)
+  slPct: number;      // (price - sl) / price * 100  (how far below price is the stop)
   score: number;
   involvedAnchors: AnchorKind[];
   bandPct: number;
@@ -48,6 +51,16 @@ export interface AvwapHit {
     sma50: number | null;
     sma200: number | null;
     rsi14: number | null;
+  };
+}
+
+function computeLevels(price: number, involved: { kind: AnchorKind; value: number }[]): { buy: number; sl: number; slPct: number } {
+  const sl = involved.length > 0 ? Math.min(...involved.map((v) => v.value)) : price;
+  const slPct = price > 0 ? ((price - sl) / price) * 100 : 0;
+  return {
+    buy: Math.round(price * 100) / 100,
+    sl: Math.round(sl * 100) / 100,
+    slPct: Math.round(slPct * 100) / 100,
   };
 }
 
@@ -240,11 +253,13 @@ function detectPullback(ctx: DetectionContext): AvwapHit | null {
 
   const tightestPct = Math.min(...hits.map((h) => Math.abs(((close - h.value) / h.value) * 100)));
   const volMult = volumeMultiple(ctx);
+  const levels = computeLevels(close, hits);
 
   return {
     ticker: ctx.ticker,
     pattern: "PULLBACK",
     price: close,
+    ...levels,
     score: scorePattern("PULLBACK", hits.length, tightestPct, volMult, true, 0),
     involvedAnchors: hits.map((h) => h.kind),
     bandPct: tightestPct,
@@ -272,11 +287,13 @@ function detectPinch(ctx: DetectionContext): AvwapHit | null {
 
   const volMult = volumeMultiple(ctx);
   const aligned = trendAligned(ctx);
+  const levels = computeLevels(ctx.lastBar.close, vals);
 
   return {
     ticker: ctx.ticker,
     pattern: "PINCH",
     price: ctx.lastBar.close,
+    ...levels,
     score: scorePattern("PINCH", vals.length, bandPct, volMult, aligned, 0),
     involvedAnchors: vals.map((v) => v.kind),
     bandPct,
@@ -316,11 +333,13 @@ function detectReclaim(ctx: DetectionContext): AvwapHit | null {
   const tightestPct = Math.min(...reclaimed.map((h) => Math.abs(((close - h.value) / h.value) * 100)));
   const volMult = volumeMultiple(ctx);
   const aligned = trendAligned(ctx);
+  const levels = computeLevels(close, reclaimed);
 
   return {
     ticker: ctx.ticker,
     pattern: "RECLAIM",
     price: close,
+    ...levels,
     score: scorePattern("RECLAIM", reclaimed.length, tightestPct, volMult, aligned, 0),
     involvedAnchors: reclaimed.map((r) => r.kind),
     bandPct: tightestPct,
