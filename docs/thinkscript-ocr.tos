@@ -248,8 +248,8 @@ rec lastRevDay   = if U1 or D1 then GetDayOfMonth(GetYYYYMMDD()) else lastRevDay
 rec lastRevHour  = if U1 or D1 then _hourOfBar      else lastRevHour[1];
 rec lastRevMin   = if U1 or D1 then _minOfBar       else lastRevMin[1];
 
-def revHourStr = (if lastRevHour < 10 then "0" else "") + lastRevHour;
-def revMinStr  = (if lastRevMin  < 10 then "0" else "") + lastRevMin;
+# Strings aren't first-class in ThinkScript — `def` only holds doubles.
+# Zero-padding for HH/MM has to be inlined inside the AddLabel call below.
 
 # Track the most recent Buy / SL / TP and whether we've seen any
 rec lastBuy   = if isBuyBar then open  else lastBuy[1];
@@ -273,7 +273,9 @@ AddLabel(showOcrLabels,
 AddLabel(showOcrLabels and lastRevDir != 0,
     "REV " + (if lastRevDir == 1 then "U" else "D") +
     " " + AsDollars(lastRevPrice) +
-    " " + lastRevMonth + "/" + lastRevDay + " " + revHourStr + ":" + revMinStr +
+    " " + lastRevMonth + "/" + lastRevDay + " " +
+    (if lastRevHour < 10 then "0" else "") + lastRevHour + ":" +
+    (if lastRevMin  < 10 then "0" else "") + lastRevMin +
     " " + barsSinceRev + "b",
     if lastRevDir == 1 then Color.GREEN else Color.RED);
 
