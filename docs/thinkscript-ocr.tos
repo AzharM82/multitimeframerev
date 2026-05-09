@@ -185,10 +185,21 @@ tpDot.HideTitle();
 #==============================================
 input showOcrLabels = yes;
 
-# Track the most recent reversal: direction (+1 up / -1 dn / 0 none), price, bar-age
+# Track the most recent reversal: direction, price, bar-age, AND wall-clock
+# timestamp so the LLM/OCR can compare reversals across screenshots and pick
+# the most recent one — using bar-count alone would require knowing the chart
+# timeframe. Format: M/D HH:MM (zero-padded), works for intraday and daily.
 rec lastRevDir   = if U1 then 1 else if D1 then -1 else lastRevDir[1];
 rec lastRevPrice = if U1 then low else if D1 then high else lastRevPrice[1];
 rec barsSinceRev = if U1 or D1 then 0 else barsSinceRev[1] + 1;
+
+rec lastRevMonth = if U1 or D1 then GetMonth()      else lastRevMonth[1];
+rec lastRevDay   = if U1 or D1 then GetDayOfMonth() else lastRevDay[1];
+rec lastRevHour  = if U1 or D1 then GetHour()       else lastRevHour[1];
+rec lastRevMin   = if U1 or D1 then GetMinute()     else lastRevMin[1];
+
+def revHourStr = (if lastRevHour < 10 then "0" else "") + lastRevHour;
+def revMinStr  = (if lastRevMin  < 10 then "0" else "") + lastRevMin;
 
 # Track the most recent Buy / SL / TP and whether we've seen any
 rec lastBuy   = if isBuyBar then open  else lastBuy[1];
@@ -212,6 +223,7 @@ AddLabel(showOcrLabels,
 AddLabel(showOcrLabels and lastRevDir != 0,
     "REV " + (if lastRevDir == 1 then "U" else "D") +
     " " + AsDollars(lastRevPrice) +
+    " " + lastRevMonth + "/" + lastRevDay + " " + revHourStr + ":" + revMinStr +
     " " + barsSinceRev + "b",
     if lastRevDir == 1 then Color.GREEN else Color.RED);
 
