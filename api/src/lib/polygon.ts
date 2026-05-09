@@ -212,19 +212,11 @@ export async function fetchDailyBarsExtended(ticker: string, years = 5): Promise
   return fetchAggs(ticker, 1, "day", formatDate(from), formatDate(to));
 }
 
-// ─── Last trade quote for mark-to-market ────────────────────────────────────
-
-export async function fetchLastTrade(ticker: string): Promise<number | null> {
-  const url = `${BASE_URL}/v2/last/trade/${ticker}?apiKey=${getApiKey()}`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json() as { results?: { p?: number } };
-    return data.results?.p ?? null;
-  } catch {
-    return null;
-  }
-}
+// ─── Live price (mark-to-market) ────────────────────────────────────────────
+//
+// /v2/last/trade requires a paid Polygon plan and returns NOT_AUTHORIZED on
+// the free tier — silently breaking any caller that depended on it. Use the
+// snapshot endpoint below instead, which works on the free tier and batches.
 
 // Batch snapshot — fetch current prices for many tickers in one call.
 // Polygon caps `tickers` at 250 per request, so we chunk.
