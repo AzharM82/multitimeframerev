@@ -109,7 +109,7 @@ _TP_RE = re.compile(r"\bTP\s*[\$S]?\s*(?P<price>\d+\.\d{2})\b", re.IGNORECASE)
 # digit to come right after R (no colon), and constrain to 2-decimal form.
 _R_RE  = re.compile(r"\bR\s*(?P<value>\d+\.\d{2})\b")
 # Ticker = leading uppercase letters before any digit (e.g. 'PLTR1D5m' → 'PLTR').
-_TICKER_RE = re.compile(r"^([A-Z]{1,6})(?=\d|\s|[^A-Z])")
+_TICKER_RE = re.compile(r"^([A-Z]{1,6})(?=\d|\s|[^A-Z]|$)")
 
 
 def parse_strip(lines: list[str]) -> dict:
