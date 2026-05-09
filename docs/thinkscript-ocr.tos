@@ -237,10 +237,16 @@ rec lastRevDir   = if U1 then 1 else if D1 then -1 else lastRevDir[1];
 rec lastRevPrice = if U1 then low else if D1 then high else lastRevPrice[1];
 rec barsSinceRev = if U1 or D1 then 0 else barsSinceRev[1] + 1;
 
+# ThinkScript has no GetHour/GetMinute — derive from SecondsFromTime(0)
+# (seconds since midnight on this bar) and split into HH/MM.
+def _secsMidnight = SecondsFromTime(0);
+def _hourOfBar    = Floor(_secsMidnight / 3600);
+def _minOfBar     = Floor((_secsMidnight - _hourOfBar * 3600) / 60);
+
 rec lastRevMonth = if U1 or D1 then GetMonth()      else lastRevMonth[1];
 rec lastRevDay   = if U1 or D1 then GetDayOfMonth() else lastRevDay[1];
-rec lastRevHour  = if U1 or D1 then GetHour()       else lastRevHour[1];
-rec lastRevMin   = if U1 or D1 then GetMinute()     else lastRevMin[1];
+rec lastRevHour  = if U1 or D1 then _hourOfBar      else lastRevHour[1];
+rec lastRevMin   = if U1 or D1 then _minOfBar       else lastRevMin[1];
 
 def revHourStr = (if lastRevHour < 10 then "0" else "") + lastRevHour;
 def revMinStr  = (if lastRevMin  < 10 then "0" else "") + lastRevMin;
