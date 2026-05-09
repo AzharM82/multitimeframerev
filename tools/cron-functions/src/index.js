@@ -54,8 +54,14 @@ app.timer("bullMonitorCron", {
   handler: async (_t, ctx) => fire("bull-monitor-timer", ctx),
 });
 
-// Day-trade reversal scan — every 10 min, 9:30 AM to 3:50 PM ET, weekdays
-app.timer("dayTradeCron", {
-  schedule: "0 */10 9-15 * * 1-5",
-  handler: async (_t, ctx) => fire("day-trade-timer", ctx),
-});
+// Day-trade reversal scan — DISABLED 2026-05-09. Replaced by the local
+// Finviz → TOS → OCR scanner (tools/chart-ocr/finviz_scanner.py) so reversal
+// detection comes off the actual TOS chart instead of a server-side ZigZag.
+// The /api/day-trade-timer endpoint and dayTradeTimer.ts function are left
+// in place for now (they'll just never be triggered) and will be removed in
+// a cleanup PR after the new scanner runs cleanly for a week.
+//
+// app.timer("dayTradeCron", {
+//   schedule: "0 */10 9-15 * * 1-5",
+//   handler: async (_t, ctx) => fire("day-trade-timer", ctx),
+// });

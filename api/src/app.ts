@@ -18,5 +18,6 @@ import "./functions/avwapResults.js";
 import "./functions/bullEmailTimer.js";
 import "./functions/bullList.js";
 import "./functions/bullMonitorTimer.js";
-import "./functions/dayTradeTimer.js";
+import "./functions/dayTradeTimer.js"; // legacy; replaced by local Finviz scanner → scannerAlert
 import "./functions/paperTrades.js";
+import "./functions/scannerAlert.js";
