@@ -44,9 +44,20 @@ function OpenRow({ t }: { t: OpenPaperTrade }) {
       <td className="py-2 px-3 font-bold text-accent">{t.ticker}</td>
       <td className="py-2 px-3 text-xs uppercase text-text-secondary">{t.source}</td>
       <td className="py-2 px-3 text-right tabular-nums">${t.entry.toFixed(2)}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{t.last !== null ? `$${t.last.toFixed(2)}` : "—"}</td>
       <td className="py-2 px-3 text-right tabular-nums text-signal-bear/80">${t.sl.toFixed(2)}</td>
       <td className="py-2 px-3 text-right tabular-nums text-signal-bull/80">${t.tp.toFixed(2)}</td>
       <td className="py-2 px-3 text-right tabular-nums text-text-secondary">{t.qty}</td>
+      <td className={`py-2 px-3 text-right tabular-nums font-semibold ${t.unrealizedDollars !== null ? pnlClass(t.unrealizedDollars) : "text-text-secondary"}`}>
+        {t.unrealizedDollars !== null
+          ? `${t.unrealizedDollars >= 0 ? "+" : ""}$${t.unrealizedDollars.toFixed(2)}`
+          : "—"}
+      </td>
+      <td className={`py-2 px-3 text-right tabular-nums ${t.unrealizedPct !== null ? pnlClass(t.unrealizedPct) : "text-text-secondary"}`}>
+        {t.unrealizedPct !== null
+          ? `${t.unrealizedPct >= 0 ? "+" : ""}${t.unrealizedPct.toFixed(2)}%`
+          : "—"}
+      </td>
       <td className="py-2 px-3 text-xs text-text-secondary">{new Date(t.openedAt).toLocaleDateString()}</td>
     </tr>
   );
@@ -87,21 +98,43 @@ export function PerformancePage() {
 
       {loading && <div className="text-center text-text-secondary py-8">Loading…</div>}
 
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard label="Closed Trades" value={String(stats.totalTrades)} sub={`${stats.wins}W / ${stats.losses}L`} />
-          <StatCard label="Win Rate" value={`${stats.winRate}%`} />
-          <StatCard
-            label="Total P&L"
-            value={`${stats.totalPnl >= 0 ? "+" : ""}$${stats.totalPnl.toFixed(2)}`}
-            sub={`avg ${stats.avgPnl >= 0 ? "+" : ""}$${stats.avgPnl.toFixed(2)}`}
-          />
-          <StatCard
-            label="Best / Worst %"
-            value={`${stats.bestPct >= 0 ? "+" : ""}${stats.bestPct}% / ${stats.worstPct >= 0 ? "+" : ""}${stats.worstPct}%`}
-          />
-        </div>
-      )}
+      {stats && (() => {
+        const combined = stats.totalPnl + stats.openPnl;
+        const beSub = stats.breakevens && stats.breakevens > 0 ? ` / ${stats.breakevens}BE` : "";
+        return (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard
+                label="Open Book P&L"
+                value={`${stats.openPnl >= 0 ? "+" : ""}$${stats.openPnl.toFixed(2)}`}
+                sub={`${stats.openCount} open · ${stats.openMarked} marked`}
+              />
+              <StatCard
+                label="Realized P&L"
+                value={`${stats.totalPnl >= 0 ? "+" : ""}$${stats.totalPnl.toFixed(2)}`}
+                sub={`avg ${stats.avgPnl >= 0 ? "+" : ""}$${stats.avgPnl.toFixed(2)}`}
+              />
+              <StatCard
+                label="Combined P&L"
+                value={`${combined >= 0 ? "+" : ""}$${combined.toFixed(2)}`}
+                sub="realized + unrealized"
+              />
+              <StatCard
+                label="Win Rate"
+                value={`${stats.winRate}%`}
+                sub={`${stats.wins}W / ${stats.losses}L${beSub}`}
+              />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard label="Closed Trades" value={String(stats.totalTrades)} />
+              <StatCard
+                label="Best / Worst %"
+                value={`${stats.bestPct >= 0 ? "+" : ""}${stats.bestPct}% / ${stats.worstPct >= 0 ? "+" : ""}${stats.worstPct}%`}
+              />
+            </div>
+          </>
+        );
+      })()}
 
       <h3 className="text-sm font-bold uppercase tracking-wider text-text-secondary mt-4">Open ({open.length})</h3>
       <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
@@ -111,14 +144,17 @@ export function PerformancePage() {
               <th className="py-2 px-3 text-left">Ticker</th>
               <th className="py-2 px-3 text-left">Source</th>
               <th className="py-2 px-3 text-right">Entry</th>
+              <th className="py-2 px-3 text-right">Last</th>
               <th className="py-2 px-3 text-right">Stop</th>
               <th className="py-2 px-3 text-right">Target</th>
               <th className="py-2 px-3 text-right">Qty</th>
+              <th className="py-2 px-3 text-right">Unreal P&amp;L</th>
+              <th className="py-2 px-3 text-right">%</th>
               <th className="py-2 px-3 text-left">Opened</th>
             </tr>
           </thead>
           <tbody>
-            {open.length === 0 && <tr><td colSpan={7} className="py-6 text-center text-text-secondary text-sm">No open positions.</td></tr>}
+            {open.length === 0 && <tr><td colSpan={10} className="py-6 text-center text-text-secondary text-sm">No open positions.</td></tr>}
             {open.map((t) => <OpenRow key={`${t.ticker}_${t.openedAt}`} t={t} />)}
           </tbody>
         </table>

@@ -1,6 +1,11 @@
 import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
 import { listByPartition, getOne, upsert, remove, TABLES } from "../lib/tables.js";
-import { fetchLastTrade } from "../lib/polygon.js";
+import { fetchAllSnapshots, type SnapshotTicker } from "../lib/polygonSnapshot.js";
+
+function pickPrice(s: SnapshotTicker | undefined): number | null {
+  if (!s) return null;
+  return s.min?.c || s.lastTrade?.p || s.day?.c || s.prevDay?.c || null;
+}
 
 interface BullListRow {
   partitionKey: string;
@@ -26,15 +31,15 @@ async function getHandler(req: HttpRequest): Promise<HttpResponseInit> {
 
   const rows = await listByPartition<BullListRow>(TABLES.BULL_LIST, partition);
 
-  // Live mark for open positions
+  // Live mark for open positions — batched snapshot to avoid 1-call-per-ticker rate limits
   if (partition === "open" && rows.length > 0) {
-    const enriched = await Promise.all(
-      rows.map(async (r) => {
-        const last = await fetchLastTrade(r.ticker);
-        const pnlPct = last !== null ? ((last - r.entry) / r.entry) * 100 : null;
-        return { ...r, last, pnlPct };
-      }),
-    );
+    const tickers = Array.from(new Set(rows.map((r) => r.ticker)));
+    const snapshots = await fetchAllSnapshots(tickers).catch(() => new Map<string, SnapshotTicker>());
+    const enriched = rows.map((r) => {
+      const last = pickPrice(snapshots.get(r.ticker));
+      const pnlPct = last !== null ? ((last - r.entry) / r.entry) * 100 : null;
+      return { ...r, last, pnlPct };
+    });
     enriched.sort((a, b) => b.addedAt.localeCompare(a.addedAt));
     return { jsonBody: { status: partition, count: enriched.length, rows: enriched } };
   }

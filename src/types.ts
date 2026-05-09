@@ -248,11 +248,15 @@ export interface PerfStats {
   totalTrades: number;
   wins: number;
   losses: number;
+  breakevens?: number;
   winRate: number;
   totalPnl: number;
   avgPnl: number;
   bestPct: number;
   worstPct: number;
+  openPnl: number;
+  openCount: number;
+  openMarked: number;
   bySource: Record<string, { count: number; wins: number; pnl: number }>;
 }
 
@@ -277,6 +281,9 @@ export interface OpenPaperTrade {
   tp: number;
   qty: number;
   openedAt: string;
+  last: number | null;
+  unrealizedDollars: number | null;
+  unrealizedPct: number | null;
 }
 
 export interface DayTradeAlertRow {

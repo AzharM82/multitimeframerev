@@ -1,5 +1,6 @@
 import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
 import { listByPartition, listAll, TABLES } from "../lib/tables.js";
+import { fetchAllSnapshots, type SnapshotTicker } from "../lib/polygonSnapshot.js";
 
 const NOTIONAL_PER_TRADE = 5000;
 
@@ -48,6 +49,14 @@ interface OpenTrade {
   tp: number;
   qty: number;
   openedAt: string;
+  last: number | null;
+  unrealizedDollars: number | null;
+  unrealizedPct: number | null;
+}
+
+function pickPrice(s: SnapshotTicker | undefined): number | null {
+  if (!s) return null;
+  return s.min?.c || s.lastTrade?.p || s.day?.c || s.prevDay?.c || null;
 }
 
 function buildClosedFromBull(rows: BullListRow[]): ClosedTrade[] {
@@ -73,34 +82,52 @@ function buildClosedFromBull(rows: BullListRow[]): ClosedTrade[] {
     });
 }
 
-function buildOpenFromBull(rows: BullListRow[]): OpenTrade[] {
-  return rows.map((r) => ({
-    ticker: r.ticker,
-    source: "bull" as const,
-    entry: r.entry,
-    sl: r.sl,
-    tp: r.tp,
-    qty: Math.floor(NOTIONAL_PER_TRADE / r.entry),
-    openedAt: r.addedAt,
-  }));
+function buildOpenFromBull(rows: BullListRow[], snapshots: Map<string, SnapshotTicker>): OpenTrade[] {
+  return rows.map((r) => {
+    const qty = Math.floor(NOTIONAL_PER_TRADE / r.entry);
+    const last = pickPrice(snapshots.get(r.ticker));
+    const unrealizedDollars = last !== null ? Math.round((last - r.entry) * qty * 100) / 100 : null;
+    const unrealizedPct = last !== null ? Math.round(((last - r.entry) / r.entry) * 10000) / 100 : null;
+    return {
+      ticker: r.ticker,
+      source: "bull" as const,
+      entry: r.entry,
+      sl: r.sl,
+      tp: r.tp,
+      qty,
+      openedAt: r.addedAt,
+      last,
+      unrealizedDollars,
+      unrealizedPct,
+    };
+  });
 }
 
-function aggregate(closed: ClosedTrade[]) {
+function aggregate(closed: ClosedTrade[], open: OpenTrade[]) {
+  const openPnl = open.reduce((s, t) => s + (t.unrealizedDollars ?? 0), 0);
+  const openMarked = open.filter((t) => t.unrealizedDollars !== null).length;
+
   if (closed.length === 0) {
     return {
       totalTrades: 0,
       wins: 0,
       losses: 0,
+      breakevens: 0,
       winRate: 0,
       totalPnl: 0,
       avgPnl: 0,
       bestPct: 0,
       worstPct: 0,
+      openPnl: Math.round(openPnl * 100) / 100,
+      openCount: open.length,
+      openMarked,
       bySource: {} as Record<string, { count: number; wins: number; pnl: number }>,
     };
   }
   const wins = closed.filter((t) => t.pnlDollars > 0).length;
-  const losses = closed.filter((t) => t.pnlDollars <= 0).length;
+  const losses = closed.filter((t) => t.pnlDollars < 0).length;
+  const breakevens = closed.filter((t) => t.pnlDollars === 0).length;
+  const decisive = wins + losses;
   const totalPnl = closed.reduce((s, t) => s + t.pnlDollars, 0);
   const bestPct = Math.max(...closed.map((t) => t.pnlPct));
   const worstPct = Math.min(...closed.map((t) => t.pnlPct));
@@ -120,11 +147,15 @@ function aggregate(closed: ClosedTrade[]) {
     totalTrades: closed.length,
     wins,
     losses,
-    winRate: Math.round((wins / closed.length) * 1000) / 10,
+    breakevens,
+    winRate: decisive > 0 ? Math.round((wins / decisive) * 1000) / 10 : 0,
     totalPnl: Math.round(totalPnl * 100) / 100,
     avgPnl: Math.round((totalPnl / closed.length) * 100) / 100,
     bestPct: Math.round(bestPct * 100) / 100,
     worstPct: Math.round(worstPct * 100) / 100,
+    openPnl: Math.round(openPnl * 100) / 100,
+    openCount: open.length,
+    openMarked,
     bySource,
   };
 }
@@ -139,9 +170,18 @@ async function paperTradesHandler(req: HttpRequest): Promise<HttpResponseInit> {
       listAll<AlertLogRow>(TABLES.ALERT_LOG).catch(() => [] as AlertLogRow[]),
     ]);
 
+    const tickers = Array.from(new Set(openBull.map((r) => r.ticker)));
+    const snapshots = tickers.length > 0
+      ? await fetchAllSnapshots(tickers).catch(() => new Map<string, SnapshotTicker>())
+      : new Map<string, SnapshotTicker>();
+
     const closedTrades = buildClosedFromBull(closedBull);
-    const openTrades = buildOpenFromBull(openBull);
-    const stats = aggregate(closedTrades);
+    closedTrades.sort((a, b) => b.closedAt.localeCompare(a.closedAt));
+
+    const openTrades = buildOpenFromBull(openBull, snapshots);
+    openTrades.sort((a, b) => b.openedAt.localeCompare(a.openedAt));
+
+    const stats = aggregate(closedTrades, openTrades);
 
     if (view === "open") return { jsonBody: { open: openTrades } };
     if (view === "closed") return { jsonBody: { closed: closedTrades, stats } };
@@ -151,7 +191,7 @@ async function paperTradesHandler(req: HttpRequest): Promise<HttpResponseInit> {
       jsonBody: {
         stats,
         open: openTrades,
-        closed: closedTrades.slice(-50).reverse(),
+        closed: closedTrades.slice(0, 50),
         dayTradeAlerts: {
           total: allAlerts.length,
           recent: allAlerts.slice(-25).reverse(),
