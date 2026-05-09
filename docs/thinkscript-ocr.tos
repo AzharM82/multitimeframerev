@@ -181,6 +181,50 @@ tpDot.HideBubble();
 tpDot.HideTitle();
 
 #==============================================
+# ACTIVE-TRADE SL / TP HORIZONTAL LINES
+#
+# Far easier for an LLM to read price levels off horizontal lines than to
+# correlate dots back to the label strip. Lines render only while a trade
+# is live — they appear on the buy bar and disappear when SL is hit, TP is
+# hit, OR a new day begins. Re-entries replace the prior level cleanly.
+#
+# TP price uses the same 5% rule as our paper trading rules
+# (api/src/lib/levels.ts: DEFAULT_TP_PCT). Adjust via input if needed.
+#==============================================
+input showTradeLines = yes;
+input tpPct          = 5.0;
+
+# Carry buy / SL prices forward intra-day; reset on new day.
+rec activeBuyPrice = if isBuyBar then open
+                     else if !isNewDay then activeBuyPrice[1]
+                     else 0;
+rec activeSLPrice  = if isBuyBar then low[2]
+                     else if !isNewDay then activeSLPrice[1]
+                     else 0;
+def activeTPPrice  = if activeBuyPrice > 0 then activeBuyPrice * (1 + tpPct / 100) else 0;
+
+# Trade lifecycle: starts on isBuyBar, ends on SL hit / TP hit / new day.
+def slHit = activeSLPrice > 0 and low  <= activeSLPrice;
+def tpHit = activeTPPrice > 0 and high >= activeTPPrice;
+rec inTrade = if isBuyBar then 1
+              else if inTrade[1] and !isNewDay and !slHit and !tpHit then 1
+              else 0;
+
+plot slLine = if showTradeLines and inTrade then activeSLPrice else Double.NaN;
+slLine.SetDefaultColor(Color.PINK);
+slLine.SetStyle(Curve.FIRM);
+slLine.SetLineWeight(2);
+slLine.HideBubble();
+slLine.HideTitle();
+
+plot tpLine = if showTradeLines and inTrade then activeTPPrice else Double.NaN;
+tpLine.SetDefaultColor(Color.YELLOW);
+tpLine.SetStyle(Curve.FIRM);
+tpLine.SetLineWeight(2);
+tpLine.HideBubble();
+tpLine.HideTitle();
+
+#==============================================
 # OCR LABEL STRIP — fixed-position chips at top of chart
 #==============================================
 input showOcrLabels = yes;
