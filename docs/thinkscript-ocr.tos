@@ -243,8 +243,8 @@ def _secsMidnight = SecondsFromTime(0);
 def _hourOfBar    = Floor(_secsMidnight / 3600);
 def _minOfBar     = Floor((_secsMidnight - _hourOfBar * 3600) / 60);
 
-rec lastRevMonth = if U1 or D1 then GetMonth()      else lastRevMonth[1];
-rec lastRevDay   = if U1 or D1 then GetDayOfMonth() else lastRevDay[1];
+rec lastRevMonth = if U1 or D1 then GetMonth()                    else lastRevMonth[1];
+rec lastRevDay   = if U1 or D1 then GetDayOfMonth(GetYYYYMMDD()) else lastRevDay[1];
 rec lastRevHour  = if U1 or D1 then _hourOfBar      else lastRevHour[1];
 rec lastRevMin   = if U1 or D1 then _minOfBar       else lastRevMin[1];
 
