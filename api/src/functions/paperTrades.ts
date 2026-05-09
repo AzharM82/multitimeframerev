@@ -1,5 +1,6 @@
 import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
 import { listByPartition, listAll, TABLES } from "../lib/tables.js";
+import { fetchSnapshotPrices } from "../lib/polygon.js";
 
 const NOTIONAL_PER_TRADE = 5000;
 
@@ -48,6 +49,20 @@ interface OpenTrade {
   tp: number;
   qty: number;
   openedAt: string;
+  currentPrice: number | null;
+  mtmDollars: number | null;
+  mtmPct: number | null;
+}
+
+interface OpenMtmStats {
+  totalOpen: number;
+  priced: number;
+  totalMtm: number;
+  avgMtmPct: number;
+  winners: number;
+  losers: number;
+  bestPct: number;
+  worstPct: number;
 }
 
 function buildClosedFromBull(rows: BullListRow[]): ClosedTrade[] {
@@ -73,16 +88,60 @@ function buildClosedFromBull(rows: BullListRow[]): ClosedTrade[] {
     });
 }
 
-function buildOpenFromBull(rows: BullListRow[]): OpenTrade[] {
-  return rows.map((r) => ({
-    ticker: r.ticker,
-    source: "bull" as const,
-    entry: r.entry,
-    sl: r.sl,
-    tp: r.tp,
-    qty: Math.floor(NOTIONAL_PER_TRADE / r.entry),
-    openedAt: r.addedAt,
-  }));
+function buildOpenFromBull(rows: BullListRow[], priceMap: Map<string, number>): OpenTrade[] {
+  return rows.map((r) => {
+    const qty = Math.floor(NOTIONAL_PER_TRADE / r.entry);
+    const currentPrice = priceMap.get(r.ticker) ?? null;
+    let mtmDollars: number | null = null;
+    let mtmPct: number | null = null;
+    if (currentPrice !== null) {
+      mtmDollars = Math.round((currentPrice - r.entry) * qty * 100) / 100;
+      mtmPct = Math.round(((currentPrice - r.entry) / r.entry) * 10000) / 100;
+    }
+    return {
+      ticker: r.ticker,
+      source: "bull" as const,
+      entry: r.entry,
+      sl: r.sl,
+      tp: r.tp,
+      qty,
+      openedAt: r.addedAt,
+      currentPrice,
+      mtmDollars,
+      mtmPct,
+    };
+  });
+}
+
+function aggregateOpenMtm(opens: OpenTrade[]): OpenMtmStats {
+  const priced = opens.filter((t) => t.mtmDollars !== null);
+  if (priced.length === 0) {
+    return {
+      totalOpen: opens.length,
+      priced: 0,
+      totalMtm: 0,
+      avgMtmPct: 0,
+      winners: 0,
+      losers: 0,
+      bestPct: 0,
+      worstPct: 0,
+    };
+  }
+  const winners = priced.filter((t) => (t.mtmDollars as number) > 0).length;
+  const losers = priced.filter((t) => (t.mtmDollars as number) < 0).length;
+  const totalMtm = priced.reduce((s, t) => s + (t.mtmDollars as number), 0);
+  const pcts = priced.map((t) => t.mtmPct as number);
+  const avgPct = pcts.reduce((s, p) => s + p, 0) / pcts.length;
+  return {
+    totalOpen: opens.length,
+    priced: priced.length,
+    totalMtm: Math.round(totalMtm * 100) / 100,
+    avgMtmPct: Math.round(avgPct * 100) / 100,
+    winners,
+    losers,
+    bestPct: Math.round(Math.max(...pcts) * 100) / 100,
+    worstPct: Math.round(Math.min(...pcts) * 100) / 100,
+  };
 }
 
 function aggregate(closed: ClosedTrade[]) {
@@ -139,17 +198,22 @@ async function paperTradesHandler(req: HttpRequest): Promise<HttpResponseInit> {
       listAll<AlertLogRow>(TABLES.ALERT_LOG).catch(() => [] as AlertLogRow[]),
     ]);
 
-    const closedTrades = buildClosedFromBull(closedBull);
-    const openTrades = buildOpenFromBull(openBull);
-    const stats = aggregate(closedTrades);
+    const tickers = Array.from(new Set(openBull.map((r) => r.ticker)));
+    const priceMap = await fetchSnapshotPrices(tickers).catch(() => new Map<string, number>());
 
-    if (view === "open") return { jsonBody: { open: openTrades } };
+    const closedTrades = buildClosedFromBull(closedBull);
+    const openTrades = buildOpenFromBull(openBull, priceMap);
+    const stats = aggregate(closedTrades);
+    const openMtm = aggregateOpenMtm(openTrades);
+
+    if (view === "open") return { jsonBody: { open: openTrades, openMtm } };
     if (view === "closed") return { jsonBody: { closed: closedTrades, stats } };
     if (view === "alerts") return { jsonBody: { alerts: allAlerts } };
 
     return {
       jsonBody: {
         stats,
+        openMtm,
         open: openTrades,
         closed: closedTrades.slice(-50).reverse(),
         dayTradeAlerts: {

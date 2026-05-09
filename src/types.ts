@@ -277,6 +277,20 @@ export interface OpenPaperTrade {
   tp: number;
   qty: number;
   openedAt: string;
+  currentPrice: number | null;
+  mtmDollars: number | null;
+  mtmPct: number | null;
+}
+
+export interface OpenMtmStats {
+  totalOpen: number;
+  priced: number;
+  totalMtm: number;
+  avgMtmPct: number;
+  winners: number;
+  losers: number;
+  bestPct: number;
+  worstPct: number;
 }
 
 export interface DayTradeAlertRow {
@@ -291,6 +305,7 @@ export interface DayTradeAlertRow {
 
 export interface PaperTradesResponse {
   stats: PerfStats;
+  openMtm: OpenMtmStats;
   open: OpenPaperTrade[];
   closed: ClosedPaperTrade[];
   dayTradeAlerts: { total: number; recent: DayTradeAlertRow[] };
