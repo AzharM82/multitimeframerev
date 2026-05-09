@@ -239,9 +239,20 @@ rec barsSinceRev = if U1 or D1 then 0 else barsSinceRev[1] + 1;
 
 # ThinkScript has no GetHour/GetMinute — derive from SecondsFromTime(0)
 # (seconds since midnight on this bar) and split into HH/MM.
+#
+# IMPORTANT: SecondsFromTime(0) uses Eastern Time (exchange time) regardless
+# of how the chart x-axis is displayed. Apply timezoneOffsetHours to get the
+# wall-clock time you actually want shown. Default -3 = Pacific Time (both
+# PST and PDT are -3 from ET). Set to 0 if you prefer ET on the label.
+input timezoneOffsetHours = -3.0;
+
 def _secsMidnight = SecondsFromTime(0);
-def _hourOfBar    = Floor(_secsMidnight / 3600);
-def _minOfBar     = Floor((_secsMidnight - _hourOfBar * 3600) / 60);
+def _secsLocal    = _secsMidnight + timezoneOffsetHours * 3600;
+def _secsToday    = if _secsLocal < 0       then _secsLocal + 86400
+                    else if _secsLocal >= 86400 then _secsLocal - 86400
+                    else _secsLocal;
+def _hourOfBar    = Floor(_secsToday / 3600);
+def _minOfBar     = Floor((_secsToday - _hourOfBar * 3600) / 60);
 
 rec lastRevMonth = if U1 or D1 then GetMonth()                    else lastRevMonth[1];
 rec lastRevDay   = if U1 or D1 then GetDayOfMonth(GetYYYYMMDD()) else lastRevDay[1];
