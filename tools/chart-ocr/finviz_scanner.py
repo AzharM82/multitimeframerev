@@ -186,22 +186,83 @@ def fetch_finviz_tickers(screener_url: str) -> list[str]:
 
 
 # ─── Window automation ───────────────────────────────────────────────────────
-def find_scanner_window(title_match: str) -> tuple[int, str] | None:
+def list_tos_chart_windows() -> list[tuple[int, str]]:
+    """Return every visible TOS Charts window as (hwnd, title)."""
     if not HAVE_WIN_AUTOMATION:
         raise RuntimeError("pywin32/pyautogui not installed — pip install pywin32 pyautogui")
-    target_lower = title_match.lower()
     found: list[tuple[int, str]] = []
-
     def cb(hwnd: int, _arg: int) -> bool:
         if not win32gui.IsWindowVisible(hwnd):
             return True
         title = win32gui.GetWindowText(hwnd)
-        if title and target_lower in title.lower():
+        if title and "thinkorswim" in title.lower() and "charts" in title.lower():
             found.append((hwnd, title))
         return True
-
     win32gui.EnumWindows(cb, 0)
-    return found[0] if found else None
+    return found
+
+
+def find_scanner_window(title_match: str) -> tuple[int, str] | None:
+    """Title-substring match — used when TOS_SCANNER_WINDOW is set and matches."""
+    if not title_match:
+        return None
+    target_lower = title_match.lower()
+    for hwnd, title in list_tos_chart_windows():
+        if target_lower in title.lower():
+            return (hwnd, title)
+    return None
+
+
+def pick_scanner_window_interactively() -> tuple[int, str] | None:
+    """Show all chart windows and let the user pick one. Returns chosen
+    (hwnd, title) or None if no candidates / user cancelled."""
+    candidates = list_tos_chart_windows()
+    if not candidates:
+        print("No TOS Charts windows found. Open a chart first.")
+        return None
+    print("\nAvailable TOS chart windows:")
+    for i, (hwnd, title) in enumerate(candidates):
+        print(f"  [{i}] hwnd {hwnd}  |  {title}")
+    print("  [c] cancel")
+    while True:
+        choice = input("\nPick the chart to use as the Scanner: ").strip().lower()
+        if choice == "c":
+            return None
+        if choice.isdigit():
+            idx = int(choice)
+            if 0 <= idx < len(candidates):
+                return candidates[idx]
+        print("Invalid choice — enter a number from the list, or 'c' to cancel.")
+
+
+def get_or_pick_scanner_window(state: dict) -> tuple[int, str] | None:
+    """Resolve the scanner window in this priority order:
+       1. Saved hwnd from state file (if still a live TOS Charts window).
+       2. TOS_SCANNER_WINDOW substring match (if env var set).
+       3. Interactive picker (TTY only).
+    Returns (hwnd, title) or None."""
+    # 1. Saved hwnd
+    saved = state.get("scanner_hwnd")
+    if saved:
+        live = {h: t for h, t in list_tos_chart_windows()}
+        if saved in live:
+            print(f"Using saved scanner window hwnd {saved}: {live[saved]}")
+            return (saved, live[saved])
+        print(f"Saved hwnd {saved} no longer exists (TOS restart?) — re-picking.")
+
+    # 2. Title-substring match (env var)
+    if TOS_SCANNER_WINDOW:
+        match = find_scanner_window(TOS_SCANNER_WINDOW)
+        if match:
+            return match
+
+    # 3. Interactive picker — only useful if a human is at the terminal.
+    if not sys.stdin.isatty():
+        print("ERROR: no saved/matching window and not running interactively.")
+        print("       Run once from a terminal to pick the scanner chart, then schedule.")
+        return None
+
+    return pick_scanner_window_interactively()
 
 
 def focus_window(hwnd: int) -> None:
@@ -380,6 +441,8 @@ def main() -> int:
     parser.add_argument("--force",   action="store_true", help="ignore market-hours gate")
     parser.add_argument("--max", type=int, default=0, help="limit to N tickers (debug)")
     parser.add_argument("--show-text", action="store_true", help="print raw OCR per ticker")
+    parser.add_argument("--pick-window", action="store_true",
+                        help="force re-selection of the scanner chart (clears the saved hwnd)")
     args = parser.parse_args()
 
     print(f"=== Finviz Scanner — {datetime.now():%Y-%m-%d %H:%M:%S} ===")
@@ -393,12 +456,33 @@ def main() -> int:
     if not FINVIZ_SCREENER_URL:
         print("ERROR: FINVIZ_SCREENER_URL env var not set")
         return 1
-    if not TOS_SCANNER_WINDOW:
-        print("ERROR: TOS_SCANNER_WINDOW env var not set (substring of the dedicated chart's title)")
-        return 1
     if not HAVE_WIN_AUTOMATION:
         print("ERROR: pip install pyautogui pywin32 azure-storage-queue python-dotenv")
         return 1
+
+    # Load state first so we can recover the saved scanner hwnd before any work.
+    state = load_state()
+    today = datetime.now().strftime("%Y-%m-%d")
+    if state.get("date") != today:
+        # New trading day — reset per-day dedup but keep the saved hwnd.
+        state = {
+            "date": today,
+            "alerted_today": [],
+            "scanner_hwnd": state.get("scanner_hwnd"),
+        }
+    if args.pick_window:
+        state["scanner_hwnd"] = None
+    alerted_today = set(state["alerted_today"])
+
+    found = get_or_pick_scanner_window(state)
+    if not found:
+        return 3
+    hwnd, title = found
+    if state.get("scanner_hwnd") != hwnd:
+        state["scanner_hwnd"] = hwnd
+        save_state(state)
+        print(f"Saved scanner window for future runs: hwnd {hwnd}")
+    print(f"Scanner window: '{title}' (hwnd {hwnd})")
 
     print(f"Pulling Finviz screener…")
     try:
@@ -409,19 +493,6 @@ def main() -> int:
     if args.max:
         tickers = tickers[:args.max]
     print(f"Got {len(tickers)} tickers: {', '.join(tickers[:10])}{'…' if len(tickers) > 10 else ''}")
-
-    found = find_scanner_window(TOS_SCANNER_WINDOW)
-    if not found:
-        print(f"ERROR: no TOS window matching '{TOS_SCANNER_WINDOW}' — open it and try again")
-        return 3
-    hwnd, title = found
-    print(f"Scanner window: '{title}' (hwnd {hwnd})")
-
-    state = load_state()
-    today = datetime.now().strftime("%Y-%m-%d")
-    if state.get("date") != today:
-        state = {"date": today, "alerted_today": []}
-    alerted_today = set(state["alerted_today"])
 
     fired_count = 0
     for i, ticker in enumerate(tickers):

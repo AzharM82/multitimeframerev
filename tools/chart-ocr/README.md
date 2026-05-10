@@ -48,7 +48,9 @@ and tickers will be parsed but no REV/BUY/SL/TP fields will populate.
 
 ### TOS setup
 - Open one chart, apply the OCR-friendly Azhar_Reversal study, set `showOcrLabels = yes`.
-- Right-click the chart tab → **Rename** to include the substring you put in `TOS_SCANNER_WINDOW` (e.g. "Scanner"). The script matches by substring against the window title.
+- **First run picks the chart interactively** — when you run the script the first time, it lists every visible TOS Charts window and asks you to pick which one to use as the scanner. The chosen hwnd is saved to `.state/scanner_state.json` and reused on every subsequent run. No chart renaming required.
+- If TOS restarts (handles change), the script auto-detects the dead hwnd and re-prompts. Force a re-pick anytime with `--pick-window`.
+- Optional: set `TOS_SCANNER_WINDOW=Scanner` (or any substring) in `.env` to skip the interactive picker entirely — it'll match the first chart whose title contains that string.
 - Don't interact with this chart while a scan is running — keystrokes will hijack focus for ~3-5 minutes per cycle.
 
 ### Schedule it
