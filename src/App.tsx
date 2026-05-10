@@ -3,16 +3,14 @@ import { useMarketHours } from "./hooks/useMarketHours.js";
 import { AvwapPage } from "./views/AvwapPage.js";
 import { BullListPage } from "./views/BullListPage.js";
 import { DayTradePage } from "./views/DayTradePage.js";
-import { PerformancePage } from "./views/PerformancePage.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "avwap" | "bull" | "daytrade" | "performance" | "about";
+type Page = "avwap" | "bull" | "daytrade" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "avwap", label: "AVWAP" },
   { key: "bull", label: "Bull List" },
   { key: "daytrade", label: "Day Trades" },
-  { key: "performance", label: "Performance" },
   { key: "about", label: "About" },
 ];
 
@@ -58,7 +56,6 @@ function App() {
         {page === "avwap" && <AvwapPage />}
         {page === "bull" && <BullListPage />}
         {page === "daytrade" && <DayTradePage />}
-        {page === "performance" && <PerformancePage />}
         {page === "about" && <AboutPage />}
       </main>
     </div>

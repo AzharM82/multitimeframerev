@@ -1,0 +1,132 @@
+// Saty Phase Oscillator
+// Copyright (C) 2022-2026 Saty Mahajan
+// A useful range-based signal to monitor various phases of the market.
+
+//@version=5
+indicator("Saty Phase Oscillator")
+
+time_warp = input.string("off", 'Time Warp', options=["off", "1m", "2m", "3m", "4m", "5m", "10m", "15m", "20m", "30m", "1h", "2h", "4h", "D", "W", "M", "Y"])
+show_label = input(true, "Show Label")
+show_zone_crosses = input(true, "Show Zone Crosses")
+show_extreme_crosses = input(true, "Show Extreme Crosses")
+compression_color = input.string("Clean", 'Compression Color', options=["Clean", "Classic"])
+
+// Saty Color Theme
+saty_green = color.rgb(0, 255, 30)
+saty_blue = color.rgb(0, 185, 255)
+saty_red = color.rgb(255, 0, 0)
+saty_orange = color.rgb(255, 150, 0)
+saty_yellow = color.rgb(255,255,0)
+saty_violet = color.rgb(150, 100, 255)
+saty_purple = color.rgb(150, 0, 150)
+saty_pink = color.rgb(255, 0, 255)
+saty_white = color.rgb(255, 255, 255)
+saty_light_gray = color.rgb(200,200,200)
+saty_gray = color.rgb(150,150,150)
+saty_dark_gray = color.rgb(100,100,100)
+saty_black = color.rgb(0, 0, 0)
+
+// Time Warp timeframe
+// Set the appropriate timeframe based on trading mode
+timeframe_func() =>
+    timeframe = timeframe.period 
+    if time_warp == 'off'
+        timeframe := timeframe.period
+    else if time_warp == '1m'
+        timeframe := '1'
+    else if time_warp == '2m'
+        timeframe := '2'
+    else if time_warp == '3m'
+        timeframe := '3'
+    else if time_warp == '4m'
+        timeframe := '4'
+    else if time_warp == '5m'
+        timeframe := '5'
+    else if time_warp == '10m'
+        timeframe := '10'
+    else if time_warp == '15m'
+        timeframe := '15'
+    else if time_warp == '20m'
+        timeframe := '20'
+    else if time_warp == '30m'
+        timeframe := '30'
+    else if time_warp == '1h'
+        timeframe := '60'
+    else if time_warp == '2h'
+        timeframe := '120'
+    else if time_warp == '4h'
+        timeframe := '240'
+    else if time_warp == 'D'
+        timeframe := 'D'
+    else if time_warp == 'W'
+        timeframe := 'W'
+    else if time_warp == 'M'
+        timeframe := 'M'
+    else if time_warp == 'Y'
+        timeframe := '12M'
+    else
+        timeframe := timeframe.period
+
+// Calculations
+ticker = ticker.new(syminfo.prefix, syminfo.ticker)
+price = request.security(ticker, timeframe_func(), close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+atr = request.security(ticker, timeframe_func(), ta.atr(14), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+stdev = request.security(ticker, timeframe_func(), ta.stdev(close, 21), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+pivot = request.security(ticker, timeframe_func(), ta.ema(close, 21), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+above_pivot = price >= pivot
+
+// Phases
+extended_up_zone = plot(100.0, color = saty_light_gray, linewidth = 1, display = display.all - display.price_scale)
+distribution_zone = plot(61.8, color = saty_gray, linewidth = 1, display = display.all - display.price_scale)
+neutral_up_zone = plot(23.6, color = saty_dark_gray, linewidth = 1, display = display.all - display.price_scale)
+neutral_down_zone = plot(-23.6, color = saty_dark_gray, linewidth = 1, display = display.all - display.price_scale)
+accumulation_zone = plot(-61.8, color = saty_gray, linewidth = 1, display = display.all - display.price_scale)
+extended_down_zone = plot(-100.0, color = saty_light_gray, linewidth = 1, display = display.all - display.price_scale)
+
+// # Bollinger Band Compression Signal
+bband_offset = 2.0 * stdev
+bband_up = pivot + bband_offset
+bband_down = pivot - bband_offset
+compression_threshold_up = pivot + (2.0 * atr)
+compression_threshold_down = pivot - (2.0 * atr)
+expansion_threshold_up = pivot + (1.854 * atr)
+expansion_threshold_down = pivot - (1.854 * atr)
+compression = above_pivot ? (bband_up - compression_threshold_up) : (compression_threshold_down - bband_down)
+in_expansion_zone = above_pivot ? (bband_up - expansion_threshold_up) : (expansion_threshold_down - bband_down)
+expansion = compression[1] <= compression[0]
+compression_tracker = false
+if expansion and in_expansion_zone > 0
+    compression_tracker := false
+else if compression <= 0 
+    compression_tracker := true
+else 
+    compression_tracker := false
+
+oscillator_compression_color = 
+         compression_tracker and compression_color == "Clean" ? saty_light_gray :
+         compression_tracker and compression_color == "Classic" ? saty_pink :
+         saty_light_gray
+
+compression_signal = plot(0, color = compression_tracker ? oscillator_compression_color : saty_dark_gray, linewidth = 2, display = display.all - display.price_scale)
+
+// # Compressing / Expanding / Expanded
+var tbl = table.new(position.top_right, 1, 1)
+if barstate.islast and show_label
+    table.cell(tbl, 0, 0, 'Compression', bgcolor = oscillator_compression_color)
+if compression_tracker == false and show_label
+    table.clear(tbl,0,0,0,0)    
+
+// Saty Phase Oscillator Signal
+raw_signal = ((price - pivot) / (3.0 * atr)) * 100
+oscillator = request.security(ticker, timeframe_func(), ta.ema(raw_signal, 3), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+phase_oscillator = plot(oscillator, linewidth = 2, color = compression_tracker ? oscillator_compression_color : (oscillator >= 0.0 ? saty_green : saty_red), title = "Phase Oscillator")
+
+// Mean Reversion PO Crossover Signals
+leaving_accumulation = oscillator[1] <= -61.8 and oscillator > -61.8
+leaving_extreme_down = oscillator[1] <= -100 and oscillator > -100
+leaving_distribution = oscillator[1] >= 61.8 and oscillator < 61.8
+leaving_extreme_up = oscillator[1] >= 100 and oscillator < 100
+plot((show_zone_crosses and leaving_accumulation) ? (oscillator[1] - 30) : na, title="Leaving Accumulation", style = plot.style_circles, color = saty_yellow, linewidth = 2, display = display.all - display.price_scale)
+plot((show_extreme_crosses and leaving_extreme_down) ? (oscillator[1] - 30) : na, title="Leaving Extreme Down", style = plot.style_circles, color = saty_yellow, linewidth = 2, display = display.all - display.price_scale)
+plot((show_zone_crosses and leaving_distribution) ? (oscillator[1] + 30) : na, title="Leaving Distribution", style = plot.style_circles, color = saty_yellow, linewidth = 2, display = display.all - display.price_scale)
+plot((show_extreme_crosses and leaving_extreme_up) ? (oscillator[1] + 30) : na, title="Leaving Extreme Up", style = plot.style_circles, color = saty_yellow, linewidth = 2, display = display.all - display.price_scale)

@@ -242,56 +242,7 @@ export interface BullListResponse {
   rows: BullListRow[];
 }
 
-// ─── Performance (Section 4) ────────────────────────────────────────────────
-
-export interface PerfStats {
-  totalTrades: number;
-  wins: number;
-  losses: number;
-  winRate: number;
-  totalPnl: number;
-  avgPnl: number;
-  bestPct: number;
-  worstPct: number;
-  bySource: Record<string, { count: number; wins: number; pnl: number }>;
-}
-
-export interface ClosedPaperTrade {
-  ticker: string;
-  source: "bull" | "daytrade" | "avwap";
-  entry: number;
-  exit: number;
-  qty: number;
-  pnlDollars: number;
-  pnlPct: number;
-  exitReason: string;
-  openedAt: string;
-  closedAt: string;
-}
-
-export interface OpenPaperTrade {
-  ticker: string;
-  source: "bull";
-  entry: number;
-  sl: number;
-  tp: number;
-  qty: number;
-  openedAt: string;
-  currentPrice: number | null;
-  mtmDollars: number | null;
-  mtmPct: number | null;
-}
-
-export interface OpenMtmStats {
-  totalOpen: number;
-  priced: number;
-  totalMtm: number;
-  avgMtmPct: number;
-  winners: number;
-  losers: number;
-  bestPct: number;
-  worstPct: number;
-}
+// ─── Day Trade Alerts (Section 3) ───────────────────────────────────────────
 
 export interface DayTradeAlertRow {
   partitionKey: string;
@@ -303,10 +254,7 @@ export interface DayTradeAlertRow {
   status: string;
 }
 
-export interface PaperTradesResponse {
-  stats: PerfStats;
-  openMtm: OpenMtmStats;
-  open: OpenPaperTrade[];
-  closed: ClosedPaperTrade[];
-  dayTradeAlerts: { total: number; recent: DayTradeAlertRow[] };
+export interface DayTradeAlertsResponse {
+  total: number;
+  recent: DayTradeAlertRow[];
 }

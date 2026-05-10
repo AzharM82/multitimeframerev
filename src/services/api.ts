@@ -1,7 +1,7 @@
 import type {
   AvwapResultsResponse,
   BullListResponse,
-  PaperTradesResponse,
+  DayTradeAlertsResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -37,8 +37,8 @@ export function deleteBullEntry(partition: string, rowKey: string): Promise<{ st
   );
 }
 
-// ─── Section 4: Performance ────────────────────────────────────────────────
+// ─── Section 3: Day Trades (alerts only — Performance tab removed 2026-05-10) ─
 
-export function getPaperTrades(): Promise<PaperTradesResponse> {
-  return request<PaperTradesResponse>("/paper-trades");
+export function getDayTradeAlerts(): Promise<DayTradeAlertsResponse> {
+  return request<DayTradeAlertsResponse>("/day-trade-alerts");
 }
