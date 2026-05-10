@@ -10,3 +10,11 @@ api/local.settings.json
 *.tsbuildinfo
 *.jpg
 dump.rdb
+
+# User-only data files / scratch (kept locally, not in repo)
+-
+*.csv
+*.txt
+morning_capitulation_scanner_prompt.md
+**/__pycache__/
+*.pyc
