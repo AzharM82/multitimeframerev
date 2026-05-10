@@ -55,10 +55,14 @@ and tickers will be parsed but no REV/BUY/SL/TP fields will populate.
 
 ### Schedule it
 Windows Task Scheduler:
-- **Trigger**: Daily, repeat every 10 minutes for 6h 30m starting 6:30 AM
+- **Trigger**: Daily, repeat **every 5 minutes** for 6h 30m starting 6:30 AM
 - **Action**: `C:\Users\reach\MultiTimeframeReversal\tools\chart-ocr\run_finviz_scanner.bat`
 - **Conditions**: Wake the computer to run this task → off (your call)
-- **Settings**: Stop after 8 minutes (one cycle should always finish well before)
+- **Settings**: Stop after 5 minutes (one cycle should always finish before the next tick)
+
+5-min cadence aligns with 5m chart bar prints. With `SCANNER_FRESH_BARS=2`,
+a reversal that just printed (`bars_ago=0`) is caught the same cycle, and
+even if a scan slips by one bar boundary, `bars_ago=1` is still alerted.
 
 The script gates itself on market hours, so triggering it more often than needed is harmless — it returns immediately outside the window.
 

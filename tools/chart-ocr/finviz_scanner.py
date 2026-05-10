@@ -77,7 +77,15 @@ except ImportError:
     HAVE_WIN_AUTOMATION = False
 
 # ─── Config ──────────────────────────────────────────────────────────────────
-FRESH_MINUTES = int(os.environ.get("SCANNER_FRESH_MINUTES", "10"))
+# Freshness rule: bars-based, not time-based. The Azhar_Reversal study only
+# prints a U1/D1 marker on a closed bar, and we want to act on:
+#   - bars_ago = 0  (live — reversal printed on the bar that just closed)
+#   - bars_ago = 1  (one bar after — still actionable)
+#   - bars_ago = 2  (two bars after — final acceptable window)
+#   - bars_ago >= 3 → stale, no alert
+# On a 5m chart this means up to 10 minutes of grace. Bars-based survives
+# accidental timeframe changes (1m vs 5m vs 15m).
+FRESH_BARS    = int(os.environ.get("SCANNER_FRESH_BARS", "2"))
 LOAD_WAIT_S   = float(os.environ.get("SCANNER_LOAD_WAIT_S", "2.0"))
 KEY_INTERVAL_S = float(os.environ.get("SCANNER_KEY_INTERVAL_S", "0.025"))
 MARKET_OPEN_PT_MIN  = 6 * 60 + 30   # 6:30 AM PT
@@ -525,13 +533,15 @@ def main() -> int:
             print(f"no UP reversal (dir={rev['direction']})")
             continue
 
-        mins_ago = rev_minutes_ago(rev["time"]) if rev["time"] else None
-        if mins_ago is None or mins_ago > FRESH_MINUTES:
-            print(f"REV U @ {rev['time']} but {mins_ago} min ago > {FRESH_MINUTES} threshold — stale")
+        bars_ago = rev["bars_ago"]
+        if bars_ago is None or bars_ago > FRESH_BARS:
+            print(f"REV U @ {rev['time']} but {bars_ago} bars ago > {FRESH_BARS} — stale")
             continue
 
         # FRESH up-reversal → alert
-        print(f"FRESH REV U @ ${rev['price']} ({mins_ago} min ago)")
+        mins_ago = rev_minutes_ago(rev["time"]) if rev["time"] else None
+        mins_str = f" ~{mins_ago} min" if mins_ago is not None else ""
+        print(f"FRESH REV U @ ${rev['price']} ({bars_ago} bars ago{mins_str})")
         if args.dry_run:
             print(f"  (dry-run: would alert)")
             continue
