@@ -1,0 +1,15 @@
+[project]
+name = "mtf-autoresearch"
+version = "0.1.0"
+description = "Weekly Claude-Code-driven research loop for the MTF Reversal day-trade pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "azure-data-tables>=12.5.0",
+    "requests>=2.31.0",
+    "pandas>=2.2.0",
+    "pyarrow>=16.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.uv]
+dev-dependencies = []
