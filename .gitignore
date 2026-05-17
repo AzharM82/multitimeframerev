@@ -20,3 +20,7 @@ autoresearch/results.tsv
 autoresearch/run.log
 autoresearch/baseline.log
 autoresearch/reports/draft-*.md
+
+# CI clones tos-reversal-scanner here during weekly-research runs.
+# Not part of this repo — never commit it.
+tos-reversal-scanner/

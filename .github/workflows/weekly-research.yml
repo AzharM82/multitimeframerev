@@ -20,12 +20,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout tos-reversal-scanner as sibling
+      - name: Checkout tos-reversal-scanner into subdir
         uses: actions/checkout@v4
         with:
           repository: AzharM82/tos-reversal-scanner
           token: ${{ secrets.GH_PAT_TOS_REPO }}
-          path: ../tos-reversal-scanner
+          # actions/checkout requires the path to be inside the workspace,
+          # so we clone it as a subdir here. From autoresearch/, the agent
+          # accesses it via ../tos-reversal-scanner/.
+          path: tos-reversal-scanner
           fetch-depth: 0
 
       - name: Setup Python + uv
