@@ -108,11 +108,11 @@ export function DayTradePage() {
       <div className="bg-bg-card border border-border rounded-lg p-4">
         <div className="flex items-baseline justify-between flex-wrap gap-2">
           <div>
-            <div className="text-[10px] uppercase tracking-widest text-text-secondary">10-min Reversal · WhatsApp</div>
+            <div className="text-[10px] uppercase tracking-widest text-text-secondary">5-min Reversal · WhatsApp</div>
             <h2 className="text-xl font-bold mt-1">Day Trade Alerts</h2>
           </div>
           <div className="text-xs text-text-secondary">
-            Scans union of AVWAP top-30 + open Bull List every 10 min, 9:30–15:30 ET ·{" "}
+            Local Finviz scanner reads Azhar_Reversal off TOS via OCR every 5 min, 6:30 AM–1:00 PM PT ·{" "}
             <span className="text-text-primary">{total}</span> alerts logged
           </div>
         </div>
