@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { PaperTradesResponse, DayTradeAlertRow } from "../types.js";
-import { getPaperTrades } from "../services/api.js";
+import type { DayTradeAlertRow } from "../types.js";
+import { getDayTradeAlerts, type DayTradeAlertsResponse } from "../services/api.js";
 
 function ChannelBadge({ channel }: { channel: string }) {
   const isWa = channel === "QUEUED";
@@ -79,13 +79,13 @@ function AlertRow({ alert }: { alert: DayTradeAlertRow }) {
 }
 
 export function DayTradePage() {
-  const [data, setData] = useState<PaperTradesResponse | null>(null);
+  const [data, setData] = useState<DayTradeAlertsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   function load() {
     setLoading(true);
-    getPaperTrades()
+    getDayTradeAlerts(100)
       .then(setData)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -97,8 +97,8 @@ export function DayTradePage() {
     return () => clearInterval(id);
   }, []);
 
-  const alerts = data?.dayTradeAlerts.recent ?? [];
-  const total = data?.dayTradeAlerts.total ?? 0;
+  const alerts = data?.recent ?? [];
+  const total = data?.total ?? 0;
 
   return (
     <div className="space-y-4">

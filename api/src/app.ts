@@ -19,4 +19,5 @@ import "./functions/bullEmailTimer.js";
 import "./functions/bullList.js";
 import "./functions/bullMonitorTimer.js";
 import "./functions/dayTradeTimer.js";
+import "./functions/dayTradeAlerts.js";
 import "./functions/paperTrades.js";

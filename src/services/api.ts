@@ -42,3 +42,18 @@ export function deleteBullEntry(partition: string, rowKey: string): Promise<{ st
 export function getPaperTrades(): Promise<PaperTradesResponse> {
   return request<PaperTradesResponse>("/paper-trades");
 }
+
+// ─── Day Trade Alerts (lightweight feed for the Day Trades page) ──────────
+// Returns the alert table directly, enriched server-side with currentPrice
+// via Polygon snapshot. The DayTradePage uses this instead of the heavier
+// /paper-trades response.
+import type { DayTradeAlertRow } from "../types.js";
+
+export interface DayTradeAlertsResponse {
+  total: number;
+  recent: DayTradeAlertRow[];
+}
+
+export function getDayTradeAlerts(limit = 100): Promise<DayTradeAlertsResponse> {
+  return request<DayTradeAlertsResponse>(`/day-trade-alerts?limit=${limit}`);
+}
