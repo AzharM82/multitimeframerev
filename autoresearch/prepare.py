@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pandas as pd
 import requests
-from azure.data_tables import TableClient
+from azure.data.tables import TableClient
 from dotenv import load_dotenv
 
 load_dotenv()
