@@ -3,7 +3,10 @@ import type { DayTradeAlertRow } from "../types.js";
 import { getDayTradeAlerts, type DayTradeAlertsResponse } from "../services/api.js";
 
 function ChannelBadge({ channel }: { channel: string }) {
-  const isWa = channel === "QUEUED";
+  // Treat both the v2 dayTradeTimer value ("QUEUED") and the v1/scanner
+  // historic value ("WHATSAPP") as "WhatsApp delivered." Anything else
+  // (PUSHOVER_FALLBACK, etc.) renders the amber Pushover badge.
+  const isWa = channel === "QUEUED" || channel === "WHATSAPP";
   const cls = isWa
     ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
     : "bg-amber-500/15 text-amber-300 border-amber-500/40";
