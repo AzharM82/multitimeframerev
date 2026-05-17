@@ -34,10 +34,11 @@ async function dayTradeAlertsHandler(req: HttpRequest): Promise<HttpResponseInit
         for (const r of recent) {
           const snap = snapshots.get(r.ticker);
           // Fallback chain: live trade → minute bar → today's close →
-          // previous day's close. The last one keeps the column populated
-          // overnight / weekends when no fresh print is available.
+          // previous day's close. `||` (not `??`) because Polygon returns
+          // 0 for today's close on weekends/pre-market, and we want that
+          // to fall through to prevDay.c rather than stick on 0.
           const price =
-            snap?.lastTrade?.p ?? snap?.min?.c ?? snap?.day?.c ?? snap?.prevDay?.c;
+            snap?.lastTrade?.p || snap?.min?.c || snap?.day?.c || snap?.prevDay?.c;
           if (typeof price === "number" && price > 0) {
             r.currentPrice = price;
           }
