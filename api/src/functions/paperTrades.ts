@@ -1,5 +1,6 @@
 import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
 import { listByPartition, listAll, TABLES } from "../lib/tables.js";
+import { fetchAllSnapshots } from "../lib/polygonSnapshot.js";
 
 const NOTIONAL_PER_TRADE = 5000;
 
@@ -25,6 +26,9 @@ interface AlertLogRow {
   reversalPrice: number;
   firedAt: string;
   channel: string;
+  sl?: number;
+  slPct?: number;
+  currentPrice?: number; // injected at GET time, not stored
 }
 
 interface ClosedTrade {
@@ -147,6 +151,26 @@ async function paperTradesHandler(req: HttpRequest): Promise<HttpResponseInit> {
     if (view === "closed") return { jsonBody: { closed: closedTrades, stats } };
     if (view === "alerts") return { jsonBody: { alerts: allAlerts } };
 
+    const recentAlerts = allAlerts.slice(-25).reverse();
+    // Enrich each recent alert with the live last-trade price so the UI can
+    // show $1000 paper-trade P&L and target-distance. Snapshot failures are
+    // non-fatal — we just leave currentPrice undefined and the UI renders "-".
+    if (recentAlerts.length > 0 && process.env.POLYGON_API_KEY) {
+      try {
+        const uniqueTickers = Array.from(new Set(recentAlerts.map((a) => a.ticker)));
+        const snapshots = await fetchAllSnapshots(uniqueTickers);
+        for (const a of recentAlerts) {
+          const snap = snapshots.get(a.ticker);
+          const price = snap?.lastTrade?.p ?? snap?.min?.c ?? snap?.day?.c;
+          if (typeof price === "number" && price > 0) {
+            a.currentPrice = price;
+          }
+        }
+      } catch {
+        // ignore — UI handles missing currentPrice
+      }
+    }
+
     return {
       jsonBody: {
         stats,
@@ -154,7 +178,7 @@ async function paperTradesHandler(req: HttpRequest): Promise<HttpResponseInit> {
         closed: closedTrades.slice(-50).reverse(),
         dayTradeAlerts: {
           total: allAlerts.length,
-          recent: allAlerts.slice(-25).reverse(),
+          recent: recentAlerts,
         },
       },
     };

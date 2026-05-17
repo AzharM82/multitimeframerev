@@ -6,6 +6,7 @@ import { enqueueWhatsApp } from "../lib/queue.js";
 
 const PUSHOVER_URL = "https://api.pushover.net/1/messages.json";
 const FRESH_BARS = 2; // U1 must have fired within last N 10m bars
+const SL_LOOKBACK_BARS = 3; // min-low window ending at the U1 bar
 const DEDUP_MINUTES = 30;
 
 function getETMinutesOfDay(): number {
@@ -64,6 +65,8 @@ interface AlertLogRow {
   firedAt: string;
   channel: string;
   status: "QUEUED" | "PUSHOVER_FALLBACK";
+  sl?: number;
+  slPct?: number;
 }
 
 async function shouldDedup(ticker: string): Promise<boolean> {
@@ -73,7 +76,13 @@ async function shouldDedup(ticker: string): Promise<boolean> {
   return recent.some((r) => r.ticker === ticker && new Date(r.firedAt).getTime() > cutoff);
 }
 
-async function logAlert(ticker: string, reversalPrice: number, channel: AlertLogRow["status"]): Promise<void> {
+async function logAlert(
+  ticker: string,
+  reversalPrice: number,
+  channel: AlertLogRow["status"],
+  sl?: number,
+  slPct?: number,
+): Promise<void> {
   const date = new Date().toISOString().split("T")[0];
   const rowKey = `${Date.now()}_${ticker}`;
   await upsert(TABLES.ALERT_LOG, date, rowKey, {
@@ -82,6 +91,8 @@ async function logAlert(ticker: string, reversalPrice: number, channel: AlertLog
     firedAt: new Date().toISOString(),
     channel: "daytrade",
     status: channel,
+    ...(sl !== undefined ? { sl } : {}),
+    ...(slPct !== undefined ? { slPct } : {}),
   });
 }
 
@@ -133,13 +144,35 @@ async function dayTradeHandler(
 
         const zz = computeZigZag(m10);
         const lastBars = zz.slice(-FRESH_BARS);
-        const u1 = lastBars.find((b) => b.U1);
-        if (!u1) continue;
+        // Find the U1 bar's offset from the end of m10 so we can window-select
+        // its low + the bars preceding it for the SL computation.
+        let u1OffsetFromEnd = -1;
+        for (let i = lastBars.length - 1; i >= 0; i--) {
+          if (lastBars[i].U1) {
+            u1OffsetFromEnd = lastBars.length - 1 - i;
+            break;
+          }
+        }
+        if (u1OffsetFromEnd < 0) continue;
+        const u1 = lastBars[lastBars.length - 1 - u1OffsetFromEnd];
 
         if (await shouldDedup(ticker)) continue;
 
         const reversalPrice = u1.reversalPrice ?? m10[m10.length - 1].close;
-        const text = `📈 ${ticker} 10m bullish reversal — entry near $${reversalPrice.toFixed(2)}`;
+
+        // SL = min low over the last SL_LOOKBACK_BARS bars ending at the U1 bar.
+        const u1Idx = m10.length - 1 - u1OffsetFromEnd;
+        const slStart = Math.max(0, u1Idx - (SL_LOOKBACK_BARS - 1));
+        const slEnd = u1Idx + 1;
+        let sl: number | undefined;
+        let slPct: number | undefined;
+        if (slEnd > slStart) {
+          sl = Math.min(...m10.slice(slStart, slEnd).map((b) => b.low));
+          slPct = ((sl - reversalPrice) / reversalPrice) * 100;
+        }
+
+        const slStr = sl !== undefined ? ` · SL $${sl.toFixed(2)} (${slPct!.toFixed(2)}%)` : "";
+        const text = `📈 ${ticker} 10m bullish reversal — entry near $${reversalPrice.toFixed(2)}${slStr}`;
         const title = `Day-Trade: ${ticker}`;
 
         let channel: AlertLogRow["status"] = "QUEUED";
@@ -158,7 +191,7 @@ async function dayTradeHandler(
           channel = "PUSHOVER_FALLBACK";
         }
 
-        await logAlert(ticker, reversalPrice, channel);
+        await logAlert(ticker, reversalPrice, channel, sl, slPct);
         fired.push({ ticker, reversalPrice, channel });
       } catch (err) {
         ctx.warn(`dayTradeTimer ${ticker}: ${err instanceof Error ? err.message : String(err)}`);

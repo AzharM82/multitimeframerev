@@ -287,6 +287,13 @@ export interface DayTradeAlertRow {
   firedAt: string;
   channel: string;
   status: string;
+  // SL = min low over the last 3 10m bars ending at the U1 bar. Optional for
+  // backwards compat with historic rows (pre-SL feature). slPct is negative.
+  sl?: number;
+  slPct?: number;
+  // Live-enriched at GET time by paperTrades.ts (Polygon snapshot).
+  // Undefined if snapshot fetch failed or quote unavailable.
+  currentPrice?: number;
 }
 
 export interface PaperTradesResponse {

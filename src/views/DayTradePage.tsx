@@ -14,7 +14,41 @@ function ChannelBadge({ channel }: { channel: string }) {
   );
 }
 
+const PAPER_NOTIONAL = 1000;
+const TARGET_PCT = 3;
+
+function fmtMoney(n: number | undefined): string {
+  if (n === undefined || !isFinite(n)) return "—";
+  return `$${n.toFixed(2)}`;
+}
+
+function fmtSignedMoney(n: number | undefined): string {
+  if (n === undefined || !isFinite(n)) return "—";
+  const sign = n >= 0 ? "+" : "-";
+  return `${sign}$${Math.abs(n).toFixed(2)}`;
+}
+
+function fmtPct(n: number | undefined): string {
+  if (n === undefined || !isFinite(n)) return "—";
+  const sign = n >= 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
+
 function AlertRow({ alert }: { alert: DayTradeAlertRow }) {
+  const buy = alert.reversalPrice;
+  const target = buy * (1 + TARGET_PCT / 100);
+  const current = alert.currentPrice;
+  // $1000 paper trade: notional / buy = shares; P&L = (current - buy) * shares.
+  const paperPnL = current !== undefined ? ((current - buy) / buy) * PAPER_NOTIONAL : undefined;
+  const pnlClass =
+    paperPnL === undefined
+      ? "text-text-secondary"
+      : paperPnL > 0
+      ? "text-signal-bull"
+      : paperPnL < 0
+      ? "text-signal-bear"
+      : "text-text-secondary";
+
   return (
     <tr className="border-b border-border hover:bg-bg-secondary/40">
       <td className="py-2 px-3 text-xs text-text-secondary tabular-nums">
@@ -30,7 +64,14 @@ function AlertRow({ alert }: { alert: DayTradeAlertRow }) {
           {alert.ticker}
         </a>
       </td>
-      <td className="py-2 px-3 text-right tabular-nums">${alert.reversalPrice.toFixed(2)}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(buy)}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert.sl)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-signal-bear">{fmtPct(alert.slPct)}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(target)}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(current)}</td>
+      <td className={`py-2 px-3 text-right tabular-nums font-medium ${pnlClass}`}>
+        {fmtSignedMoney(paperPnL)}
+      </td>
       <td className="py-2 px-3 text-center"><ChannelBadge channel={alert.status} /></td>
       <td className="py-2 px-3 text-xs text-text-secondary">{new Date(alert.firedAt).toLocaleDateString()}</td>
     </tr>
@@ -82,15 +123,20 @@ export function DayTradePage() {
             <tr>
               <th className="py-2 px-3 text-left">Time</th>
               <th className="py-2 px-3 text-left">Ticker</th>
-              <th className="py-2 px-3 text-right">Reversal Price</th>
+              <th className="py-2 px-3 text-right">Buy</th>
+              <th className="py-2 px-3 text-right">SL</th>
+              <th className="py-2 px-3 text-right">%SL</th>
+              <th className="py-2 px-3 text-right" title="Target = Buy × 1.03. Profit on $1000 if hit = $30.">Target (+3%)</th>
+              <th className="py-2 px-3 text-right">Current</th>
+              <th className="py-2 px-3 text-right" title="$1000 paper trade. P&L = (current − buy) / buy × $1000.">$1K P&L</th>
               <th className="py-2 px-3 text-center">Channel</th>
               <th className="py-2 px-3 text-left">Date</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={5} className="py-8 text-center text-text-secondary text-sm">Loading…</td></tr>}
+            {loading && <tr><td colSpan={10} className="py-8 text-center text-text-secondary text-sm">Loading…</td></tr>}
             {!loading && alerts.length === 0 && (
-              <tr><td colSpan={5} className="py-8 text-center text-text-secondary text-sm">
+              <tr><td colSpan={10} className="py-8 text-center text-text-secondary text-sm">
                 No alerts yet today. The next scan runs in ≤10 min during market hours.
               </td></tr>
             )}
