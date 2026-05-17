@@ -18,7 +18,11 @@ import "./functions/avwapResults.js";
 import "./functions/bullEmailTimer.js";
 import "./functions/bullList.js";
 import "./functions/bullMonitorTimer.js";
-import "./functions/dayTradeTimer.js";
+// dayTradeTimer disabled — the TOS Finviz scanner is the single source for
+// Day Trade alerts (POSTs to /api/scanner-alert below). Keeping this
+// timer registered created duplicate alerts on WhatsApp + portal for the
+// same signal. File kept in tree in case we want to re-enable.
+// import "./functions/dayTradeTimer.js";
 import "./functions/dayTradeAlerts.js";
 import "./functions/scannerAlert.js";
 import "./functions/paperTrades.js";
