@@ -161,7 +161,11 @@ async function paperTradesHandler(req: HttpRequest): Promise<HttpResponseInit> {
         const snapshots = await fetchAllSnapshots(uniqueTickers);
         for (const a of recentAlerts) {
           const snap = snapshots.get(a.ticker);
-          const price = snap?.lastTrade?.p ?? snap?.min?.c ?? snap?.day?.c;
+          // Fallback chain: live trade → minute bar → today's close →
+          // previous day's close. The last one keeps the column populated
+          // overnight / weekends when no fresh print is available.
+          const price =
+            snap?.lastTrade?.p ?? snap?.min?.c ?? snap?.day?.c ?? snap?.prevDay?.c;
           if (typeof price === "number" && price > 0) {
             a.currentPrice = price;
           }
