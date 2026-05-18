@@ -54,9 +54,8 @@ def alert_from_row(row: dict) -> Alert:
 # ─── Filter / sizing / exit ──────────────────────────────────────────────
 
 def should_take(alert: Alert) -> bool:
-    """T6: Skip reversalPrice > $200 — high-price tickers need bigger absolute
-    moves to hit the 3% target, more chance to drift to EOD."""
-    return alert.reversalPrice <= 200.0
+    """T7: tighter price cap (<= $150)."""
+    return alert.reversalPrice <= 150.0
 
 
 def position_size(alert: Alert) -> float:
