@@ -54,8 +54,9 @@ def alert_from_row(row: dict) -> Alert:
 # ─── Filter / sizing / exit ──────────────────────────────────────────────
 
 def should_take(alert: Alert) -> bool:
-    """Default: take every alert. The agent should add filters here."""
-    return True
+    """T6: Skip reversalPrice > $200 — high-price tickers need bigger absolute
+    moves to hit the 3% target, more chance to drift to EOD."""
+    return alert.reversalPrice <= 200.0
 
 
 def position_size(alert: Alert) -> float:
