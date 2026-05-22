@@ -17,7 +17,7 @@ export function useMarketHours() {
     }
 
     check();
-    const id = setInterval(check, 30_000);
+    const id = setInterval(check, 5 * 60_000);
     return () => clearInterval(id);
   }, []);
 
