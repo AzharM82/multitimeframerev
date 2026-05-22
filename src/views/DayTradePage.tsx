@@ -323,7 +323,9 @@ export function DayTradePage() {
 
   useEffect(() => {
     load("tp_sl");
-    const id = setInterval(() => load(), 60_000);
+    // 5-min refresh — matches the TOS scanner's 5-min cycle. Anything
+    // sooner is wasted work; new alerts can't appear between cycles.
+    const id = setInterval(() => load(), 5 * 60_000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
