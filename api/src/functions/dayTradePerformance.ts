@@ -49,7 +49,7 @@ interface PolygonAggResponse {
 }
 
 const NOTIONAL = 1000;
-const TARGET_PCT = 0.03;
+const TARGET_PCT = 0.05;   // +5% take-profit (was 0.03)
 const DEFAULT_SL_PCT_FALLBACK = 0.02;
 
 // Trade-window filters. Skip alerts fired in the first FIRST_SKIP_MIN

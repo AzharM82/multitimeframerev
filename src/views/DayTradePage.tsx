@@ -8,7 +8,7 @@ import {
 } from "../services/api.js";
 
 const PAPER_NOTIONAL = 1000;
-const TARGET_PCT = 3;
+const TARGET_PCT = 5;   // +5% take-profit (was 3)
 
 type SortKey = "time" | "ticker" | "buy" | "sl" | "slPct" | "target" | "current" | "pnl" | "channel" | "date";
 
@@ -352,7 +352,7 @@ export function DayTradePage() {
               <Th label="Buy"     sortKey="buy"     current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="SL"      sortKey="sl"      current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="%SL"     sortKey="slPct"   current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
-              <Th label="Target (+3%)" sortKey="target" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="Target (+5%)" sortKey="target" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="Current" sortKey="current" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="$1K P&L" sortKey="pnl"     current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="Channel" sortKey="channel" current={sortKey} dir={sortDir} onSort={handleSort} align="center" />
