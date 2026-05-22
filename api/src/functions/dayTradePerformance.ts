@@ -49,8 +49,13 @@ interface PolygonAggResponse {
 }
 
 const NOTIONAL = 1000;
-const TARGET_PCT = 0.05;   // +5% take-profit (was 0.03)
-const DEFAULT_SL_PCT_FALLBACK = 0.02;
+const TARGET_PCT = 0.03;   // +3% take-profit
+// SL rule: low of the previous 2 5-min bars before firedAt
+// (= last 10 1-min bars whose ts < firedAt). Static — set at entry,
+// not trailing. Fallback to entry * (1 - SL_PCT_FALLBACK) only if no
+// pre-fire bars exist (alert at session start).
+const SL_PCT_FALLBACK = 0.02;
+const SL_PREV_1MIN_BARS = 10;
 
 // Trade-window filters. Skip alerts fired in the first FIRST_SKIP_MIN
 // minutes after RTH open (9:30 ET) or in the last LAST_SKIP_MIN minutes
@@ -144,18 +149,33 @@ async function fetch1mBars(ticker: string, date: string, apiKey: string): Promis
   return bars;
 }
 
-function simulateExit(entry: number, sl: number, bars: Bar[], firedAtMs: number): { exitPx: number; reason: "TP" | "SL" | "EOD" } {
+function computeSl(entry: number, bars: Bar[], firedAtMs: number): number {
+  // Low of the last SL_PREV_1MIN_BARS 1-min bars before firedAt
+  // (= 2 5-min bars on the scanner's chart timeframe).
+  const pre: Bar[] = [];
+  for (const b of bars) {
+    if (b.ts < firedAtMs) pre.push(b);
+    else break;
+  }
+  const window = pre.slice(-SL_PREV_1MIN_BARS);
+  if (window.length === 0) return entry * (1 - SL_PCT_FALLBACK);
+  let lo = window[0].low;
+  for (const b of window) if (b.low < lo) lo = b.low;
+  return lo;
+}
+
+function simulateExit(entry: number, bars: Bar[], firedAtMs: number): { exitPx: number; reason: "TP" | "SL" | "EOD"; sl: number } {
   const tp = entry * (1 + TARGET_PCT);
-  // bars are chronological; walk from firedAt forward
+  const sl = computeSl(entry, bars, firedAtMs);
   let last: Bar | null = null;
   for (const b of bars) {
     if (b.ts < firedAtMs) continue;
     last = b;
-    if (b.low <= sl)  return { exitPx: sl, reason: "SL" };
-    if (b.high >= tp) return { exitPx: tp, reason: "TP" };
+    if (b.low <= sl)  return { exitPx: sl, reason: "SL", sl };
+    if (b.high >= tp) return { exitPx: tp, reason: "TP", sl };
   }
-  if (!last) return { exitPx: entry, reason: "EOD" };
-  return { exitPx: last.close, reason: "EOD" };
+  if (!last) return { exitPx: entry, reason: "EOD", sl };
+  return { exitPx: last.close, reason: "EOD", sl };
 }
 
 function dateOf(firedAt: string): string {
@@ -201,12 +221,10 @@ async function dayTradePerfHandler(_req: HttpRequest): Promise<HttpResponseInit>
     const takenSoFar = countTakenByDay.get(date) ?? 0;
     if (takenSoFar >= MAX_PER_DAY) { skippedCap++; continue; }
 
-    const sl = (typeof a.sl === "number" && a.sl > 0) ? a.sl : entry * (1 - DEFAULT_SL_PCT_FALLBACK);
-
     const bars = await fetch1mBars(a.ticker, date, apiKey);
     if (bars.length === 0) continue;   // no Polygon data — skip silently
 
-    const { exitPx } = simulateExit(entry, sl, bars, firedMs);
+    const { exitPx } = simulateExit(entry, bars, firedMs);
     const pnl = (exitPx - entry) / entry * NOTIONAL;
 
     let bucket = byDay.get(date);
