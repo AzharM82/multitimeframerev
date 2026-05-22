@@ -57,3 +57,32 @@ export interface DayTradeAlertsResponse {
 export function getDayTradeAlerts(limit = 100): Promise<DayTradeAlertsResponse> {
   return request<DayTradeAlertsResponse>(`/day-trade-alerts?limit=${limit}`);
 }
+
+// ─── Day Trade Performance (daily realized P&L with TP/SL exits) ──────────
+
+export interface DayPerfBucket {
+  date: string;
+  pnl: number;
+  trades: number;
+  wins: number;
+  losses: number;
+}
+
+export interface DayTradePerformanceResponse {
+  stats: {
+    totalPnl: number;
+    totalTrades: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+    bestDay: { date: string; pnl: number } | null;
+    worstDay: { date: string; pnl: number } | null;
+    avgPerTrade: number;
+    daysCovered: number;
+  };
+  days: DayPerfBucket[];
+}
+
+export function getDayTradePerformance(): Promise<DayTradePerformanceResponse> {
+  return request<DayTradePerformanceResponse>("/day-trade-performance");
+}

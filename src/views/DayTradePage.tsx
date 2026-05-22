@@ -1,11 +1,43 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DayTradeAlertRow } from "../types.js";
-import { getDayTradeAlerts, type DayTradeAlertsResponse } from "../services/api.js";
+import {
+  getDayTradeAlerts,
+  getDayTradePerformance,
+  type DayTradeAlertsResponse,
+  type DayTradePerformanceResponse,
+} from "../services/api.js";
+
+const PAPER_NOTIONAL = 1000;
+const TARGET_PCT = 3;
+
+type SortKey = "time" | "ticker" | "buy" | "sl" | "slPct" | "target" | "current" | "pnl" | "channel" | "date";
+
+interface HeaderProps {
+  label: string;
+  sortKey?: SortKey;
+  current: SortKey | null;
+  dir: "asc" | "desc";
+  align?: "left" | "right" | "center";
+  onSort: (k: SortKey) => void;
+}
+
+function Th({ label, sortKey, current, dir, align = "left", onSort }: HeaderProps) {
+  const alignCls = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+  const isActive = sortKey === current;
+  return (
+    <th
+      onClick={() => sortKey && onSort(sortKey)}
+      className={`py-2 px-3 ${alignCls} ${sortKey ? "cursor-pointer hover:text-text-primary select-none" : ""}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {isActive && <span className="text-accent">{dir === "asc" ? "▲" : "▼"}</span>}
+      </span>
+    </th>
+  );
+}
 
 function ChannelBadge({ channel }: { channel: string }) {
-  // Treat both the v2 dayTradeTimer value ("QUEUED") and the v1/scanner
-  // historic value ("WHATSAPP") as "WhatsApp delivered." Anything else
-  // (PUSHOVER_FALLBACK, etc.) renders the amber Pushover badge.
   const isWa = channel === "QUEUED" || channel === "WHATSAPP";
   const cls = isWa
     ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
@@ -17,39 +49,175 @@ function ChannelBadge({ channel }: { channel: string }) {
   );
 }
 
-const PAPER_NOTIONAL = 1000;
-const TARGET_PCT = 3;
-
-function fmtMoney(n: number | undefined): string {
-  if (n === undefined || !isFinite(n)) return "—";
+function fmtMoney(n: number | undefined | null): string {
+  if (n === undefined || n === null || !isFinite(n)) return "—";
   return `$${n.toFixed(2)}`;
 }
 
-function fmtSignedMoney(n: number | undefined): string {
-  if (n === undefined || !isFinite(n)) return "—";
+function fmtSignedMoney(n: number | undefined | null): string {
+  if (n === undefined || n === null || !isFinite(n)) return "—";
   const sign = n >= 0 ? "+" : "-";
   return `${sign}$${Math.abs(n).toFixed(2)}`;
 }
 
-function fmtPct(n: number | undefined): string {
-  if (n === undefined || !isFinite(n)) return "—";
+function fmtPct(n: number | undefined | null): string {
+  if (n === undefined || n === null || !isFinite(n)) return "—";
   const sign = n >= 0 ? "+" : "";
   return `${sign}${n.toFixed(2)}%`;
 }
 
-function AlertRow({ alert }: { alert: DayTradeAlertRow }) {
-  const buy = alert.reversalPrice;
+// ─── Performance panel: stat cards + daily P&L bar chart ──────────────────
+
+function StatCard({ label, value, sub, tone = "neutral" }: {
+  label: string; value: string; sub?: string; tone?: "neutral" | "bull" | "bear";
+}) {
+  const valueColor =
+    tone === "bull" ? "text-signal-bull" :
+    tone === "bear" ? "text-signal-bear" :
+    "text-text-primary";
+  return (
+    <div className="bg-bg-card border border-border rounded-lg p-3">
+      <div className="text-[10px] uppercase tracking-widest text-text-secondary">{label}</div>
+      <div className={`text-xl font-bold tabular-nums mt-1 ${valueColor}`}>{value}</div>
+      {sub && <div className="text-[11px] text-text-secondary mt-0.5 tabular-nums">{sub}</div>}
+    </div>
+  );
+}
+
+function DailyPnlChart({ days }: { days: DayTradePerformanceResponse["days"] }) {
+  if (days.length === 0) {
+    return <div className="text-text-secondary text-sm py-8 text-center">No completed days yet.</div>;
+  }
+  const W = 800;
+  const H = 220;
+  const padL = 40;
+  const padR = 12;
+  const padT = 12;
+  const padB = 28;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  const maxAbs = Math.max(1, ...days.map((d) => Math.abs(d.pnl)));
+  const barW = Math.max(8, Math.min(36, innerW / days.length - 4));
+  const step = innerW / Math.max(1, days.length);
+  const zeroY = padT + innerH / 2;
+  const halfH = innerH / 2;
+
+  function tickLabel(date: string): string {
+    // "2026-05-15" → "5/15"
+    const [, m, d] = date.split("-");
+    return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
+  }
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+      {/* zero line */}
+      <line x1={padL} x2={W - padR} y1={zeroY} y2={zeroY} stroke="currentColor" className="text-border" strokeWidth="1" />
+      {/* Y-axis ticks: +max, 0, -max */}
+      <text x={padL - 6} y={padT + 10} textAnchor="end" className="fill-current text-text-secondary" fontSize="10">+${maxAbs.toFixed(0)}</text>
+      <text x={padL - 6} y={zeroY + 3}   textAnchor="end" className="fill-current text-text-secondary" fontSize="10">0</text>
+      <text x={padL - 6} y={H - padB + 2} textAnchor="end" className="fill-current text-text-secondary" fontSize="10">-${maxAbs.toFixed(0)}</text>
+
+      {days.map((d, i) => {
+        const cx = padL + step * i + step / 2;
+        const h = (Math.abs(d.pnl) / maxAbs) * halfH;
+        const y = d.pnl >= 0 ? zeroY - h : zeroY;
+        const fill = d.pnl >= 0 ? "var(--color-signal-bull, #22c55e)" : "var(--color-signal-bear, #ef4444)";
+        return (
+          <g key={d.date}>
+            <rect x={cx - barW / 2} y={y} width={barW} height={Math.max(1, h)} fill={fill} opacity={0.85}>
+              <title>{`${d.date}: ${d.pnl >= 0 ? "+" : "-"}$${Math.abs(d.pnl).toFixed(2)} (${d.trades} trades, ${d.wins}W / ${d.losses}L)`}</title>
+            </rect>
+            <text
+              x={cx}
+              y={H - padB + 14}
+              textAnchor="middle"
+              className="fill-current text-text-secondary"
+              fontSize="10"
+            >
+              {tickLabel(d.date)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function PerformancePanel({ perf }: { perf: DayTradePerformanceResponse | null }) {
+  if (!perf) {
+    return (
+      <div className="bg-bg-card border border-border rounded-lg p-4">
+        <div className="text-sm text-text-secondary">Loading performance…</div>
+      </div>
+    );
+  }
+  const s = perf.stats;
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <StatCard
+          label="Total P&L"
+          value={fmtSignedMoney(s.totalPnl)}
+          sub={`${s.totalTrades} trades · ${s.daysCovered} days`}
+          tone={s.totalPnl > 0 ? "bull" : s.totalPnl < 0 ? "bear" : "neutral"}
+        />
+        <StatCard
+          label="Win Rate"
+          value={`${(s.winRate * 100).toFixed(1)}%`}
+          sub={`${s.wins}W / ${s.losses}L`}
+        />
+        <StatCard
+          label="Avg / Trade"
+          value={fmtSignedMoney(s.avgPerTrade)}
+          tone={s.avgPerTrade > 0 ? "bull" : s.avgPerTrade < 0 ? "bear" : "neutral"}
+        />
+        <StatCard
+          label="Best Day"
+          value={s.bestDay ? fmtSignedMoney(s.bestDay.pnl) : "—"}
+          sub={s.bestDay?.date}
+          tone="bull"
+        />
+        <StatCard
+          label="Worst Day"
+          value={s.worstDay ? fmtSignedMoney(s.worstDay.pnl) : "—"}
+          sub={s.worstDay?.date}
+          tone="bear"
+        />
+      </div>
+      <div className="bg-bg-card border border-border rounded-lg p-3">
+        <div className="text-[10px] uppercase tracking-widest text-text-secondary mb-2">
+          Daily P&L · $1K paper trade · realized at TP / SL / EOD
+        </div>
+        <DailyPnlChart days={perf.days} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Alert table row ───────────────────────────────────────────────────────
+
+interface EnrichedAlert extends DayTradeAlertRow {
+  _buy: number;
+  _target: number;
+  _pnl: number | null;
+}
+
+function enrich(a: DayTradeAlertRow): EnrichedAlert {
+  const buy = a.reversalPrice;
   const target = buy * (1 + TARGET_PCT / 100);
-  const current = alert.currentPrice;
-  // $1000 paper trade: notional / buy = shares; P&L = (current - buy) * shares.
-  const paperPnL = current !== undefined ? ((current - buy) / buy) * PAPER_NOTIONAL : undefined;
+  const pnl = (a.currentPrice !== undefined && a.currentPrice !== null)
+    ? ((a.currentPrice - buy) / buy) * PAPER_NOTIONAL
+    : null;
+  return { ...a, _buy: buy, _target: target, _pnl: pnl };
+}
+
+function AlertRow({ alert }: { alert: EnrichedAlert }) {
   const pnlClass =
-    paperPnL === undefined
+    alert._pnl === null
       ? "text-text-secondary"
-      : paperPnL > 0
-      ? "text-signal-bull"
-      : paperPnL < 0
-      ? "text-signal-bear"
+      : alert._pnl > 0 ? "text-signal-bull"
+      : alert._pnl < 0 ? "text-signal-bear"
       : "text-text-secondary";
 
   return (
@@ -67,13 +235,13 @@ function AlertRow({ alert }: { alert: DayTradeAlertRow }) {
           {alert.ticker}
         </a>
       </td>
-      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(buy)}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert._buy)}</td>
       <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert.sl)}</td>
       <td className="py-2 px-3 text-right tabular-nums text-signal-bear">{fmtPct(alert.slPct)}</td>
-      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(target)}</td>
-      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(current)}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert._target)}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert.currentPrice)}</td>
       <td className={`py-2 px-3 text-right tabular-nums font-medium ${pnlClass}`}>
-        {fmtSignedMoney(paperPnL)}
+        {fmtSignedMoney(alert._pnl)}
       </td>
       <td className="py-2 px-3 text-center"><ChannelBadge channel={alert.status} /></td>
       <td className="py-2 px-3 text-xs text-text-secondary">{new Date(alert.firedAt).toLocaleDateString()}</td>
@@ -81,17 +249,25 @@ function AlertRow({ alert }: { alert: DayTradeAlertRow }) {
   );
 }
 
+// ─── Page ──────────────────────────────────────────────────────────────────
+
 export function DayTradePage() {
   const [data, setData] = useState<DayTradeAlertsResponse | null>(null);
+  const [perf, setPerf] = useState<DayTradePerformanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey | null>("time");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   function load() {
     setLoading(true);
-    getDayTradeAlerts(100)
-      .then(setData)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+    Promise.all([
+      getDayTradeAlerts(100).catch((e: Error) => { setError(e.message); return null; }),
+      getDayTradePerformance().catch(() => null),  // perf failures are non-fatal
+    ]).then(([alerts, p]) => {
+      if (alerts) setData(alerts);
+      if (p) setPerf(p);
+    }).finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -100,7 +276,44 @@ export function DayTradePage() {
     return () => clearInterval(id);
   }, []);
 
-  const alerts = data?.recent ?? [];
+  const enriched = useMemo<EnrichedAlert[]>(() => (data?.recent ?? []).map(enrich), [data]);
+
+  const sorted = useMemo<EnrichedAlert[]>(() => {
+    if (!sortKey) return enriched;
+    const copy = [...enriched];
+    copy.sort((a, b) => {
+      let av: string | number;
+      let bv: string | number;
+      switch (sortKey) {
+        case "ticker":  av = a.ticker; bv = b.ticker; break;
+        case "buy":     av = a._buy; bv = b._buy; break;
+        case "sl":      av = a.sl ?? -Infinity; bv = b.sl ?? -Infinity; break;
+        case "slPct":   av = a.slPct ?? -Infinity; bv = b.slPct ?? -Infinity; break;
+        case "target":  av = a._target; bv = b._target; break;
+        case "current": av = a.currentPrice ?? -Infinity; bv = b.currentPrice ?? -Infinity; break;
+        case "pnl":     av = a._pnl ?? -Infinity; bv = b._pnl ?? -Infinity; break;
+        case "channel": av = a.status; bv = b.status; break;
+        case "date":
+        case "time":
+        default:        av = a.firedAt; bv = b.firedAt; break;
+      }
+      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }, [enriched, sortKey, sortDir]);
+
+  function handleSort(k: SortKey) {
+    if (sortKey === k) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(k);
+      // strings default asc, numbers default desc
+      const strKeys: SortKey[] = ["ticker", "channel", "time", "date"];
+      setSortDir(strKeys.includes(k) ? "asc" : "desc");
+    }
+  }
+
   const total = data?.total ?? 0;
 
   return (
@@ -118,32 +331,34 @@ export function DayTradePage() {
         </div>
       </div>
 
+      <PerformancePanel perf={perf} />
+
       {error && <div className="p-3 bg-signal-bear/10 border border-signal-bear/30 rounded text-signal-bear text-sm">{error}</div>}
 
       <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-bg-secondary text-[10px] uppercase tracking-wider text-text-secondary">
             <tr>
-              <th className="py-2 px-3 text-left">Time</th>
-              <th className="py-2 px-3 text-left">Ticker</th>
-              <th className="py-2 px-3 text-right">Buy</th>
-              <th className="py-2 px-3 text-right">SL</th>
-              <th className="py-2 px-3 text-right">%SL</th>
-              <th className="py-2 px-3 text-right" title="Target = Buy × 1.03. Profit on $1000 if hit = $30.">Target (+3%)</th>
-              <th className="py-2 px-3 text-right">Current</th>
-              <th className="py-2 px-3 text-right" title="$1000 paper trade. P&L = (current − buy) / buy × $1000.">$1K P&L</th>
-              <th className="py-2 px-3 text-center">Channel</th>
-              <th className="py-2 px-3 text-left">Date</th>
+              <Th label="Time"    sortKey="time"    current={sortKey} dir={sortDir} onSort={handleSort} />
+              <Th label="Ticker"  sortKey="ticker"  current={sortKey} dir={sortDir} onSort={handleSort} />
+              <Th label="Buy"     sortKey="buy"     current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="SL"      sortKey="sl"      current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="%SL"     sortKey="slPct"   current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="Target (+3%)" sortKey="target" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="Current" sortKey="current" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="$1K P&L" sortKey="pnl"     current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="Channel" sortKey="channel" current={sortKey} dir={sortDir} onSort={handleSort} align="center" />
+              <Th label="Date"    sortKey="date"    current={sortKey} dir={sortDir} onSort={handleSort} />
             </tr>
           </thead>
           <tbody>
             {loading && <tr><td colSpan={10} className="py-8 text-center text-text-secondary text-sm">Loading…</td></tr>}
-            {!loading && alerts.length === 0 && (
+            {!loading && sorted.length === 0 && (
               <tr><td colSpan={10} className="py-8 text-center text-text-secondary text-sm">
-                No alerts yet today. The next scan runs in ≤10 min during market hours.
+                No alerts yet today. The next scan runs in ≤5 min during market hours.
               </td></tr>
             )}
-            {!loading && alerts.map((a) => <AlertRow key={a.rowKey} alert={a} />)}
+            {!loading && sorted.map((a) => <AlertRow key={a.rowKey} alert={a} />)}
           </tbody>
         </table>
       </div>
