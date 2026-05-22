@@ -5,6 +5,7 @@ import {
   getDayTradePerformance,
   type DayTradeAlertsResponse,
   type DayTradePerformanceResponse,
+  type PerfMode,
 } from "../services/api.js";
 
 const PAPER_NOTIONAL = 1000;
@@ -144,7 +145,36 @@ function DailyPnlChart({ days }: { days: DayTradePerformanceResponse["days"] }) 
   );
 }
 
-function PerformancePanel({ perf }: { perf: DayTradePerformanceResponse | null }) {
+function ModeToggle({ mode, onChange }: { mode: PerfMode; onChange: (m: PerfMode) => void }) {
+  const btn = (m: PerfMode, label: string, sub: string) => {
+    const active = mode === m;
+    return (
+      <button
+        onClick={() => onChange(m)}
+        className={`px-3 py-1.5 text-xs font-bold border first:rounded-l last:rounded-r transition-colors ${
+          active
+            ? "bg-accent/15 text-accent border-accent/40"
+            : "bg-bg-card text-text-secondary border-border hover:text-text-primary"
+        }`}
+        title={sub}
+      >
+        {label}
+      </button>
+    );
+  };
+  return (
+    <div className="inline-flex">
+      {btn("tp_sl",   "TP +3% / SL",  "Exit at +3% target OR previous-2-bar-low SL OR EOD")}
+      {btn("sl_only", "SL only",      "No TP. Trailing SL (prev 2-bar low) ratchets up; exit on SL hit or EOD")}
+    </div>
+  );
+}
+
+function PerformancePanel({ perf, mode, onModeChange }: {
+  perf: DayTradePerformanceResponse | null;
+  mode: PerfMode;
+  onModeChange: (m: PerfMode) => void;
+}) {
   if (!perf) {
     return (
       <div className="bg-bg-card border border-border rounded-lg p-4">
@@ -155,6 +185,10 @@ function PerformancePanel({ perf }: { perf: DayTradePerformanceResponse | null }
   const s = perf.stats;
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="text-[10px] uppercase tracking-widest text-text-secondary">Exit-rule simulator</div>
+        <ModeToggle mode={mode} onChange={onModeChange} />
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <StatCard
           label="Total P&L"
@@ -188,7 +222,9 @@ function PerformancePanel({ perf }: { perf: DayTradePerformanceResponse | null }
       <div className="bg-bg-card border border-border rounded-lg p-3">
         <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
           <div className="text-[10px] uppercase tracking-widest text-text-secondary">
-            Daily P&L · $1K paper trade · realized at TP / SL / EOD
+            {mode === "sl_only"
+              ? "Daily P&L · $1K paper trade · trailing 2-bar-low SL · no TP"
+              : "Daily P&L · $1K paper trade · realized at TP / SL / EOD"}
           </div>
           <div className="text-[10px] text-text-secondary tabular-nums">
             Rules: skip first {perf.filters.firstSkipMin}m / last {perf.filters.lastSkipMin}m ·
@@ -262,26 +298,34 @@ function AlertRow({ alert }: { alert: EnrichedAlert }) {
 export function DayTradePage() {
   const [data, setData] = useState<DayTradeAlertsResponse | null>(null);
   const [perf, setPerf] = useState<DayTradePerformanceResponse | null>(null);
+  const [perfMode, setPerfMode] = useState<PerfMode>("tp_sl");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey | null>("time");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  function load() {
+  function load(mode: PerfMode = perfMode) {
     setLoading(true);
     Promise.all([
       getDayTradeAlerts(100).catch((e: Error) => { setError(e.message); return null; }),
-      getDayTradePerformance().catch(() => null),  // perf failures are non-fatal
+      getDayTradePerformance(mode).catch(() => null),
     ]).then(([alerts, p]) => {
       if (alerts) setData(alerts);
       if (p) setPerf(p);
     }).finally(() => setLoading(false));
   }
 
+  function handleModeChange(m: PerfMode) {
+    setPerfMode(m);
+    setPerf(null);   // clear stale numbers while the new mode loads
+    load(m);
+  }
+
   useEffect(() => {
-    load();
-    const id = setInterval(load, 60_000);
+    load("tp_sl");
+    const id = setInterval(() => load(), 60_000);
     return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const enriched = useMemo<EnrichedAlert[]>(() => (data?.recent ?? []).map(enrich), [data]);
@@ -339,7 +383,7 @@ export function DayTradePage() {
         </div>
       </div>
 
-      <PerformancePanel perf={perf} />
+      <PerformancePanel perf={perf} mode={perfMode} onModeChange={handleModeChange} />
 
       {error && <div className="p-3 bg-signal-bear/10 border border-signal-bear/30 rounded text-signal-bear text-sm">{error}</div>}
 

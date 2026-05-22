@@ -68,7 +68,10 @@ export interface DayPerfBucket {
   losses: number;
 }
 
+export type PerfMode = "tp_sl" | "sl_only";
+
 export interface DayTradePerformanceResponse {
+  mode: PerfMode;
   stats: {
     totalPnl: number;
     totalTrades: number;
@@ -90,6 +93,6 @@ export interface DayTradePerformanceResponse {
   days: DayPerfBucket[];
 }
 
-export function getDayTradePerformance(): Promise<DayTradePerformanceResponse> {
-  return request<DayTradePerformanceResponse>("/day-trade-performance");
+export function getDayTradePerformance(mode: PerfMode = "tp_sl"): Promise<DayTradePerformanceResponse> {
+  return request<DayTradePerformanceResponse>(`/day-trade-performance?mode=${mode}`);
 }

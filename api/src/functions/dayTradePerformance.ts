@@ -86,10 +86,11 @@ function isAllowed(etMin: number): boolean {
   return true;
 }
 
-// In-process cache for the per-day backtest result. Survives across requests
-// in the same Function instance; invalidated on cold start. 5-min TTL keeps
-// it from drifting too far from live data when new alerts land.
-let cached: { at: number; payload: ResponseShape } | null = null;
+// In-process cache for the per-day backtest result, keyed by mode.
+// Survives across requests in the same Function instance; invalidated
+// on cold start. 5-min TTL keeps it from drifting too far from live
+// data when new alerts land.
+const cachedByMode = new Map<string, { at: number; payload: ResponseShape }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 // Per-(ticker, date) 1-min bar cache. Historical bars don't change so we
@@ -105,6 +106,7 @@ interface DayBucket {
 }
 
 interface ResponseShape {
+  mode: "tp_sl" | "sl_only";
   stats: {
     totalPnl: number;
     totalTrades: number;
@@ -178,14 +180,46 @@ function simulateExit(entry: number, bars: Bar[], firedAtMs: number): { exitPx: 
   return { exitPx: last.close, reason: "EOD", sl };
 }
 
+/**
+ * Mode "sl_only": no TP, trailing SL = min low of last SL_PREV_1MIN_BARS
+ * bars ending at each post-fire bar. SL only ratchets UP (never down).
+ * Trade exits when current bar's low ≤ trailing SL, else EOD close.
+ */
+function simulateExitTrailingSlOnly(entry: number, bars: Bar[], firedAtMs: number): { exitPx: number; reason: "SL" | "EOD"; sl: number } {
+  let sl = computeSl(entry, bars, firedAtMs);
+  let last: Bar | null = null;
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    if (b.ts < firedAtMs) continue;
+    last = b;
+    // Candidate trailing SL: min low of last SL_PREV_1MIN_BARS bars
+    // ending at (but not including) the current bar.
+    const wStart = Math.max(0, i - SL_PREV_1MIN_BARS);
+    let cand = Infinity;
+    for (let j = wStart; j < i; j++) {
+      if (bars[j].low < cand) cand = bars[j].low;
+    }
+    if (Number.isFinite(cand) && cand > sl) sl = cand;   // ratchet only up
+    if (b.low <= sl) return { exitPx: sl, reason: "SL", sl };
+  }
+  if (!last) return { exitPx: entry, reason: "EOD", sl };
+  return { exitPx: last.close, reason: "EOD", sl };
+}
+
 function dateOf(firedAt: string): string {
   return firedAt.slice(0, 10);
 }
 
-async function dayTradePerfHandler(_req: HttpRequest): Promise<HttpResponseInit> {
-  // Serve cache if fresh
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
-    return { jsonBody: cached.payload };
+async function dayTradePerfHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  // ?mode=sl_only  →  trailing SL, no TP. Default "tp_sl" uses +3% TP +
+  // static prev-2-5m-low SL.
+  const mode = (req.query.get("mode") || "tp_sl").toLowerCase() === "sl_only" ? "sl_only" : "tp_sl";
+
+  // Serve cache if fresh — keyed by mode so the two views don't collide.
+  const cacheKey = mode;
+  const hit = cachedByMode.get(cacheKey);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+    return { jsonBody: hit.payload };
   }
 
   const apiKey = process.env.POLYGON_API_KEY;
@@ -224,7 +258,9 @@ async function dayTradePerfHandler(_req: HttpRequest): Promise<HttpResponseInit>
     const bars = await fetch1mBars(a.ticker, date, apiKey);
     if (bars.length === 0) continue;   // no Polygon data — skip silently
 
-    const { exitPx } = simulateExit(entry, bars, firedMs);
+    const { exitPx } = mode === "sl_only"
+      ? simulateExitTrailingSlOnly(entry, bars, firedMs)
+      : simulateExit(entry, bars, firedMs);
     const pnl = (exitPx - entry) / entry * NOTIONAL;
 
     let bucket = byDay.get(date);
@@ -252,6 +288,7 @@ async function dayTradePerfHandler(_req: HttpRequest): Promise<HttpResponseInit>
   const worstDay = days.length ? days.reduce((a, b) => (a.pnl <= b.pnl ? a : b)) : null;
 
   const payload: ResponseShape = {
+    mode,
     stats: {
       totalPnl: round2(totalPnl),
       totalTrades,
@@ -273,7 +310,7 @@ async function dayTradePerfHandler(_req: HttpRequest): Promise<HttpResponseInit>
     days: days.map((d) => ({ ...d, pnl: round2(d.pnl) })),
   };
 
-  cached = { at: Date.now(), payload };
+  cachedByMode.set(cacheKey, { at: Date.now(), payload });
   return { jsonBody: payload };
 }
 
