@@ -186,8 +186,16 @@ function PerformancePanel({ perf }: { perf: DayTradePerformanceResponse | null }
         />
       </div>
       <div className="bg-bg-card border border-border rounded-lg p-3">
-        <div className="text-[10px] uppercase tracking-widest text-text-secondary mb-2">
-          Daily P&L · $1K paper trade · realized at TP / SL / EOD
+        <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+          <div className="text-[10px] uppercase tracking-widest text-text-secondary">
+            Daily P&L · $1K paper trade · realized at TP / SL / EOD
+          </div>
+          <div className="text-[10px] text-text-secondary tabular-nums">
+            Rules: skip first {perf.filters.firstSkipMin}m / last {perf.filters.lastSkipMin}m ·
+            cap {perf.filters.maxPerDay}/day ·{" "}
+            <span className="text-amber-300">{s.skippedFilter}</span> dropped (window),{" "}
+            <span className="text-amber-300">{s.skippedCap}</span> dropped (cap)
+          </div>
         </div>
         <DailyPnlChart days={perf.days} />
       </div>

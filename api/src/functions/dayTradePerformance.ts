@@ -52,6 +52,35 @@ const NOTIONAL = 1000;
 const TARGET_PCT = 0.03;
 const DEFAULT_SL_PCT_FALLBACK = 0.02;
 
+// Trade-window filters. Skip alerts fired in the first FIRST_SKIP_MIN
+// minutes after RTH open (9:30 ET) or in the last LAST_SKIP_MIN minutes
+// before the close (16:00 ET). After filters, take only the first
+// MAX_PER_DAY alerts chronologically per trading date.
+const FIRST_SKIP_MIN = 40;
+const LAST_SKIP_MIN  = 15;
+const MAX_PER_DAY    = 10;
+const RTH_OPEN_ET_MIN  = 9 * 60 + 30;   // 570
+const RTH_CLOSE_ET_MIN = 16 * 60;       // 960
+
+// Returns minutes-since-midnight in America/New_York for the given ISO ts.
+// Handles DST automatically via toLocaleString.
+function etMinutes(iso: string): number {
+  const hhmm = new Date(iso).toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const [h, m] = hhmm.split(":").map((s) => parseInt(s, 10));
+  return h * 60 + m;
+}
+
+function isAllowed(etMin: number): boolean {
+  if (etMin < RTH_OPEN_ET_MIN + FIRST_SKIP_MIN) return false;   // first 40m
+  if (etMin >= RTH_CLOSE_ET_MIN - LAST_SKIP_MIN) return false;  // last 15m
+  return true;
+}
+
 // In-process cache for the per-day backtest result. Survives across requests
 // in the same Function instance; invalidated on cold start. 5-min TTL keeps
 // it from drifting too far from live data when new alerts land.
@@ -81,6 +110,13 @@ interface ResponseShape {
     worstDay: { date: string; pnl: number } | null;
     avgPerTrade: number;
     daysCovered: number;
+    skippedFilter: number;     // alerts dropped by time-of-day window
+    skippedCap: number;        // alerts dropped by per-day cap
+  };
+  filters: {
+    firstSkipMin: number;
+    lastSkipMin: number;
+    maxPerDay: number;
   };
   days: DayBucket[];
 }
@@ -143,8 +179,14 @@ async function dayTradePerfHandler(_req: HttpRequest): Promise<HttpResponseInit>
     return { status: 500, jsonBody: { error: `ALERT_LOG read failed: ${message}` } };
   }
 
-  // Group alerts by trading date, run the simulator for each
+  // Sort alerts chronologically so the per-day cap is deterministic.
+  alerts.sort((a, b) => (a.firedAt ?? "").localeCompare(b.firedAt ?? ""));
+
   const byDay = new Map<string, DayBucket>();
+  const countTakenByDay = new Map<string, number>();
+  let skippedFilter = 0;
+  let skippedCap = 0;
+
   for (const a of alerts) {
     const entry = Number(a.reversalPrice);
     if (!Number.isFinite(entry) || entry <= 0) continue;
@@ -152,10 +194,17 @@ async function dayTradePerfHandler(_req: HttpRequest): Promise<HttpResponseInit>
     const firedMs = new Date(a.firedAt).getTime();
     if (!Number.isFinite(firedMs)) continue;
 
+    // Trade-window filter: skip first 40m / last 15m of RTH.
+    if (!isAllowed(etMinutes(a.firedAt))) { skippedFilter++; continue; }
+
+    // Per-day cap: first MAX_PER_DAY only.
+    const takenSoFar = countTakenByDay.get(date) ?? 0;
+    if (takenSoFar >= MAX_PER_DAY) { skippedCap++; continue; }
+
     const sl = (typeof a.sl === "number" && a.sl > 0) ? a.sl : entry * (1 - DEFAULT_SL_PCT_FALLBACK);
 
     const bars = await fetch1mBars(a.ticker, date, apiKey);
-    if (bars.length === 0) continue;   // skip — no Polygon data
+    if (bars.length === 0) continue;   // no Polygon data — skip silently
 
     const { exitPx } = simulateExit(entry, sl, bars, firedMs);
     const pnl = (exitPx - entry) / entry * NOTIONAL;
@@ -169,6 +218,7 @@ async function dayTradePerfHandler(_req: HttpRequest): Promise<HttpResponseInit>
     bucket.pnl += pnl;
     if (pnl > 0) bucket.wins += 1;
     else if (pnl < 0) bucket.losses += 1;
+    countTakenByDay.set(date, takenSoFar + 1);
   }
 
   const days = Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date));
@@ -194,6 +244,13 @@ async function dayTradePerfHandler(_req: HttpRequest): Promise<HttpResponseInit>
       worstDay: worstDay ? { date: worstDay.date, pnl: round2(worstDay.pnl) } : null,
       avgPerTrade: round2(avgPerTrade),
       daysCovered: days.length,
+      skippedFilter,
+      skippedCap,
+    },
+    filters: {
+      firstSkipMin: FIRST_SKIP_MIN,
+      lastSkipMin:  LAST_SKIP_MIN,
+      maxPerDay:    MAX_PER_DAY,
     },
     days: days.map((d) => ({ ...d, pnl: round2(d.pnl) })),
   };

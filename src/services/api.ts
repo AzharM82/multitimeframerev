@@ -79,6 +79,13 @@ export interface DayTradePerformanceResponse {
     worstDay: { date: string; pnl: number } | null;
     avgPerTrade: number;
     daysCovered: number;
+    skippedFilter: number;
+    skippedCap: number;
+  };
+  filters: {
+    firstSkipMin: number;
+    lastSkipMin: number;
+    maxPerDay: number;
   };
   days: DayPerfBucket[];
 }
