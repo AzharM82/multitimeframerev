@@ -131,12 +131,13 @@ interface ResponseShape {
 async function fetch1mBars(ticker: string, date: string, apiKey: string): Promise<Bar[]> {
   const key = `${ticker}|${date}`;
   const hit = barCache.get(key);
-  if (hit) return hit;
+  if (hit && hit.length > 0) return hit;   // only serve non-empty cache hits
 
   const url = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/minute/${date}/${date}?adjusted=true&sort=asc&limit=5000&apiKey=${apiKey}`;
   const res = await fetch(url);
   if (!res.ok) {
-    barCache.set(key, []);
+    // Don't cache failures — let the next call retry. Rate-limits and
+    // partial-data windows would otherwise pin us to $0 P&L for the day.
     return [];
   }
   const data = (await res.json()) as PolygonAggResponse;
@@ -147,7 +148,7 @@ async function fetch1mBars(ticker: string, date: string, apiKey: string): Promis
     low: r.l,
     close: r.c,
   }));
-  barCache.set(key, bars);
+  if (bars.length > 0) barCache.set(key, bars);   // only cache non-empty
   return bars;
 }
 
@@ -214,12 +215,19 @@ async function dayTradePerfHandler(req: HttpRequest): Promise<HttpResponseInit> 
   // ?mode=sl_only  →  trailing SL, no TP. Default "tp_sl" uses +3% TP +
   // static prev-2-5m-low SL.
   const mode = (req.query.get("mode") || "tp_sl").toLowerCase() === "sl_only" ? "sl_only" : "tp_sl";
+  // ?fresh=1 bypasses both the result cache AND the per-bar cache so a
+  // partial Polygon response can't pin us to stale $0 P&L days.
+  const fresh = req.query.get("fresh") === "1";
 
-  // Serve cache if fresh — keyed by mode so the two views don't collide.
   const cacheKey = mode;
-  const hit = cachedByMode.get(cacheKey);
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
-    return { jsonBody: hit.payload };
+  if (!fresh) {
+    const hit = cachedByMode.get(cacheKey);
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+      return { jsonBody: hit.payload };
+    }
+  } else {
+    barCache.clear();
+    cachedByMode.clear();
   }
 
   const apiKey = process.env.POLYGON_API_KEY;
