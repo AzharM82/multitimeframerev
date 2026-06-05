@@ -32,6 +32,7 @@ import "./functions/paperTrades.js";
 import "./functions/atrEodTimer.js";
 import "./functions/atrScan.js";
 import "./functions/atrLookup.js";
+import "./functions/atrIntraday.js";
 
 // Market breadth / health gauge
 import "./functions/breadth.js";

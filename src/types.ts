@@ -315,6 +315,20 @@ export interface AtrLookupResponse {
   inUniverse: boolean;
 }
 
+export interface IntradayQuote {
+  price: number;
+  prevClose: number;
+  prevHigh: number;
+  dayHigh: number;
+  dayLow: number;
+  changePerc: number;
+}
+
+export interface AtrIntradayResponse {
+  asOf: string;
+  quotes: Record<string, IntradayQuote>;
+}
+
 export interface AtrScanResponse {
   generated: string;
   asOf: string;

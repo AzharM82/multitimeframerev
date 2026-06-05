@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import type { AtrStock, AtrScanResponse, AtrLookupResponse, AtrZone, AtrAction, AtrPosition, BreadthResponse, BreadthStats, Posture } from "../types.js";
-import { getAtrScan, getBreadth, getAtrLookup } from "../services/api.js";
+import type { AtrStock, AtrScanResponse, AtrLookupResponse, IntradayQuote, AtrZone, AtrAction, AtrPosition, BreadthResponse, BreadthStats, Posture } from "../types.js";
+import { getAtrScan, getBreadth, getAtrLookup, getAtrIntraday } from "../services/api.js";
+import { useMarketHours } from "../hooks/useMarketHours.js";
 
 /* ATR Matrix — swing extension scanner. EOD-only: the snapshot is produced once
    after close by atr-eod-timer. Warm "newspaper" theme. Framework credit:
@@ -10,7 +11,7 @@ const TV = (t: string) => `https://www.tradingview.com/chart/?symbol=${encodeURI
 const GRADES = ["A+","A","A-","B+","B","B-","C+","C","C-","D+","D","D-","E+","E","E-","F+","F","F-","G+","G","G-"];
 const POS_KEY = "atr_positions";
 
-type ViewKey = "extension" | "rts" | "positions";
+type ViewKey = "topsetups" | "extension" | "rts" | "positions";
 
 // Zone styling on the warm/light theme: solid bar + light tint + ink text +
 // literal border class (no runtime string-building — Tailwind's JIT can't see
@@ -303,7 +304,7 @@ export function AtrMatrixPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [view, setView] = useState<ViewKey>("extension");
+  const [view, setView] = useState<ViewKey>("topsetups");
   const [search, setSearch] = useState("");
   const [fAtr, setFAtr] = useState(false);
   const [fTrend, setFTrend] = useState(false);
@@ -460,7 +461,7 @@ export function AtrMatrixPage() {
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2 bg-bg-card border border-border rounded p-2.5">
         <div className="flex gap-1">
-          {([["extension", "Extension Matrix"], ["rts", "RTS Matrix"], ["positions", "Positions"]] as const).map(([k, label]) => (
+          {([["topsetups", "Top Setups"], ["extension", "Extension Matrix"], ["rts", "RTS Matrix"], ["positions", "Positions"]] as const).map(([k, label]) => (
             <button
               key={k}
               onClick={() => setView(k)}
@@ -605,6 +606,8 @@ export function AtrMatrixPage() {
         <div className="py-12 text-center text-text-secondary text-sm">Loading…</div>
       ) : !data ? (
         <div className="py-12 text-center text-text-secondary text-sm">No snapshot yet. The scan runs weekdays at 4:30 PM ET.</div>
+      ) : view === "topsetups" ? (
+        <TopSetupsView rows={filtered} />
       ) : view === "extension" ? (
         <ExtensionView rows={filtered} isolate={isolate} setIsolate={setIsolate} onHover={onHover} onLeave={onLeave} />
       ) : view === "rts" ? (
@@ -705,6 +708,123 @@ function RtsView({ rows, onHover, onLeave }: { rows: AtrStock[]; onHover: (t: Ti
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Top Setups view (flat ranked list + intraday "buyable now") ────────────
+
+interface IStatus { label: string; cls: string; tip: string }
+
+/** Intraday tradability for a (long-oriented) setup, from live price vs the
+ *  EOD reference levels. The EOD score says it's a good candidate; this says
+ *  whether it's actually confirming today. */
+function intradayStatus(s: AtrStock, q: IntradayQuote | undefined): IStatus | null {
+  if (!q) return null;
+  const p = q.price;
+  if (p < s.sma50) return { label: "BROKE", cls: "bg-red-100 text-red-700 border-red-300", tip: "below SMA50 — setup broken today, stand aside" };
+  if (p > q.prevHigh) return { label: "BUYABLE", cls: "bg-emerald-200 text-emerald-800 border-emerald-400", tip: "broke prior-day high — breakout entry trigger" };
+  if (p >= q.prevClose && p >= s.sma20) return { label: "BUYABLE", cls: "bg-emerald-100 text-emerald-700 border-emerald-300", tip: "green & holding SMA20 — can enter on strength" };
+  if (p >= s.sma20) return { label: "SETTING UP", cls: "bg-amber-100 text-amber-700 border-amber-300", tip: "above SMA20 — watch for a break of the prior-day high" };
+  return { label: "WAIT", cls: "bg-bg-secondary text-text-secondary border-border", tip: "below SMA20 — not confirming yet" };
+}
+
+function TopSetupsView({ rows }: { rows: AtrStock[] }) {
+  const marketOpen = useMarketHours();
+  const [live, setLive] = useState(false);
+  const [quotes, setQuotes] = useState<Record<string, IntradayQuote>>({});
+  const [liveAt, setLiveAt] = useState<string | null>(null);
+
+  const ranked = useMemo(() => [...rows].sort((a, b) => setupScore(b) - setupScore(a)).slice(0, 60), [rows]);
+  const tickerKey = ranked.map((r) => r.ticker).join(",");
+
+  useEffect(() => {
+    if (!live) return;
+    let cancelled = false;
+    async function poll() {
+      try {
+        const res = await getAtrIntraday(tickerKey.split(",").filter(Boolean));
+        if (!cancelled) { setQuotes(res.quotes); setLiveAt(res.asOf); }
+      } catch { /* keep last */ }
+    }
+    poll();
+    const id = setInterval(poll, 45_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [live, tickerKey]);
+
+  const buyableNow = live ? ranked.filter((s) => intradayStatus(s, quotes[s.ticker])?.label === "BUYABLE").length : 0;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="text-[11px] text-text-secondary">
+          Top {ranked.length} by setup score · <span className="text-text-primary">{rows.length}</span> in current filter.
+          {live && <> Live: <span className="text-emerald-700 font-bold">{buyableNow}</span> buyable now{liveAt ? ` · ${new Date(liveAt).toLocaleTimeString([], { timeZone: "America/Los_Angeles" })} PT` : ""}.</>}
+        </div>
+        <button
+          onClick={() => setLive((v) => !v)}
+          className={`px-3 py-1 text-xs font-bold rounded border ${live ? "bg-signal-bull text-white border-signal-bull" : "border-border text-text-secondary hover:text-text-primary"}`}
+          title={marketOpen ? "Poll live prices and flag intraday triggers" : "Market is closed — live prices are last/prev-day; signal is for the next session"}
+        >
+          {live ? "● live (45s)" : "go live ▶"}
+        </button>
+      </div>
+      {live && !marketOpen && (
+        <div className="text-[11px] text-amber-700">Market closed — showing last prices; the “buyable” signal is meaningful during regular hours.</div>
+      )}
+
+      <div className="bg-bg-card border border-border rounded overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-bg-secondary text-[10px] uppercase tracking-wider text-text-secondary">
+            <tr>
+              {["#", "Ticker", "Score", "Action", "Ext / Zone", "Grade", "RS", "ATR-RS", "RVOL", "Price", "Chg"].map((h, i) => (
+                <th key={i} className="py-2 px-3 text-left whitespace-nowrap">{h}</th>
+              ))}
+              {live && <th className="py-2 px-3 text-left whitespace-nowrap">Intraday</th>}
+              <th className="py-2 px-3 text-left whitespace-nowrap">Sector</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ranked.map((s, i) => {
+              const score = setupScore(s);
+              const q = quotes[s.ticker];
+              const st = live ? intradayStatus(s, q) : null;
+              return (
+                <tr key={s.ticker} className="border-b border-border hover:bg-bg-secondary/40">
+                  <td className="py-1.5 px-3 text-text-secondary tabular-nums">{i + 1}</td>
+                  <td className="py-1.5 px-3">
+                    <a href={TV(s.ticker)} target="_blank" rel="noopener" className="font-bold text-accent hover:underline">{(s.rvol ?? 0) >= 2 ? "🔥" : ""}{s.ticker}</a>
+                  </td>
+                  <td className={`py-1.5 px-3 font-bold tabular-nums ${scoreText(score)}`}><span className={`px-1.5 py-0.5 rounded ${scoreFill(score)}`}>{score}</span></td>
+                  <td className="py-1.5 px-3"><span className={`px-1.5 py-0.5 text-[10px] font-bold uppercase border-l-2 border rounded ${ACTION_BORDER[s.action]}`}>{s.action}</span></td>
+                  <td className="py-1.5 px-3 tabular-nums">{s.ext}x · <span className={ZONE[s.zone].text}>{s.zone}</span></td>
+                  <td className="py-1.5 px-3 font-bold">{s.grade}</td>
+                  <td className="py-1.5 px-3 tabular-nums">{s.rs}</td>
+                  <td className="py-1.5 px-3 tabular-nums">{s.atrRS}</td>
+                  <td className={`py-1.5 px-3 tabular-nums ${(s.rvol ?? 0) >= 2 ? "text-orange-600 font-bold" : ""}`}>{s.rvol != null ? `${s.rvol}×` : "—"}</td>
+                  <td className="py-1.5 px-3 tabular-nums">{q ? `$${q.price.toFixed(2)}` : `$${s.close}`}</td>
+                  <td className={`py-1.5 px-3 tabular-nums ${(q ? q.changePerc : s.chg) >= 0 ? "text-signal-bull" : "text-signal-bear"}`}>{fmtPct(q ? q.changePerc : s.chg)}</td>
+                  {live && (
+                    <td className="py-1.5 px-3">
+                      {st ? <span title={st.tip} className={`px-1.5 py-0.5 text-[10px] font-bold border rounded ${st.cls}`}>{st.label}</span> : <span className="text-text-secondary text-xs">—</span>}
+                    </td>
+                  )}
+                  <td className="py-1.5 px-3 text-xs text-text-secondary truncate max-w-[160px]">{s.sector}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="text-[11px] text-text-secondary px-1">
+        <span className="text-text-primary">Setup score</span> blends extension proximity + structure + RS + RVOL.
+        <span className="text-text-primary"> Go live</span> polls prices every 45s and flags intraday triggers:
+        <span className="text-emerald-700"> BUYABLE</span> (broke prior-day high, or green &amp; holding SMA20) ·
+        <span className="text-amber-700"> SETTING UP</span> ·
+        <span className="text-text-secondary"> WAIT</span> ·
+        <span className="text-red-700"> BROKE</span> (lost SMA50).
       </div>
     </div>
   );

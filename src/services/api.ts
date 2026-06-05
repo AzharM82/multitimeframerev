@@ -3,6 +3,7 @@ import type {
   BullListResponse,
   AtrScanResponse,
   AtrLookupResponse,
+  AtrIntradayResponse,
   BreadthResponse,
 } from "../types.js";
 
@@ -51,6 +52,10 @@ export function getBreadth(): Promise<BreadthResponse> {
 
 export function getAtrLookup(ticker: string): Promise<AtrLookupResponse> {
   return request<AtrLookupResponse>(`/atr-lookup?ticker=${encodeURIComponent(ticker.toUpperCase())}`);
+}
+
+export function getAtrIntraday(tickers: string[]): Promise<AtrIntradayResponse> {
+  return request<AtrIntradayResponse>(`/atr-intraday?tickers=${encodeURIComponent(tickers.join(","))}`);
 }
 
 // ─── Day Trade Alerts (lightweight feed for the Day Trades page) ──────────

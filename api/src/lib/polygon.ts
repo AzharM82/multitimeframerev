@@ -252,6 +252,57 @@ export async function fetchSnapshotPrices(tickers: string[]): Promise<Map<string
   return out;
 }
 
+// ─── Intraday snapshot (live price + prior-day high for breakout triggers) ───
+
+export interface IntradayQuote {
+  price: number;
+  prevClose: number;
+  prevHigh: number;
+  dayHigh: number;
+  dayLow: number;
+  changePerc: number;
+}
+
+export async function fetchIntradaySnapshot(tickers: string[]): Promise<Map<string, IntradayQuote>> {
+  const out = new Map<string, IntradayQuote>();
+  if (tickers.length === 0) return out;
+  const CHUNK = 250;
+  for (let i = 0; i < tickers.length; i += CHUNK) {
+    const slice = tickers.slice(i, i + CHUNK);
+    const url = `${BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${slice.join(",")}&apiKey=${getApiKey()}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json() as {
+        tickers?: Array<{
+          ticker?: string;
+          lastTrade?: { p?: number };
+          day?: { h?: number; l?: number; c?: number };
+          prevDay?: { h?: number; c?: number };
+          todaysChangePerc?: number;
+        }>;
+      };
+      for (const t of data.tickers ?? []) {
+        if (!t.ticker) continue;
+        const price = t.lastTrade?.p || t.day?.c || t.prevDay?.c;
+        const prevClose = t.prevDay?.c;
+        if (!price || !prevClose) continue;
+        out.set(t.ticker, {
+          price,
+          prevClose,
+          prevHigh: t.prevDay?.h ?? prevClose,
+          dayHigh: t.day?.h ?? price,
+          dayLow: t.day?.l ?? price,
+          changePerc: t.todaysChangePerc ?? (price / prevClose - 1) * 100,
+        });
+      }
+    } catch {
+      // skip chunk
+    }
+  }
+  return out;
+}
+
 // ─── Main entry point — uses candle cache for weekly/daily ───────────────────
 
 export async function fetchAllTimeframes(ticker: string): Promise<{
