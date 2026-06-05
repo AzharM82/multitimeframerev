@@ -20,3 +20,7 @@ import "./functions/bullList.js";
 import "./functions/bullMonitorTimer.js";
 import "./functions/dayTradeAlerts.js";
 import "./functions/scannerAlert.js";
+
+// ATR Matrix (swing extension scanner)
+import "./functions/atrEodTimer.js";
+import "./functions/atrScan.js";

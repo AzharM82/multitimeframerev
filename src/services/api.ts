@@ -2,6 +2,7 @@ import type {
   AvwapResultsResponse,
   BullListResponse,
   DayTradeAlertsResponse,
+  AtrScanResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -41,4 +42,10 @@ export function deleteBullEntry(partition: string, rowKey: string): Promise<{ st
 
 export function getDayTradeAlerts(): Promise<DayTradeAlertsResponse> {
   return request<DayTradeAlertsResponse>("/day-trade-alerts");
+}
+
+// ─── ATR Matrix ─────────────────────────────────────────────────────────────
+
+export function getAtrScan(): Promise<AtrScanResponse> {
+  return request<AtrScanResponse>("/atr-scan");
 }
