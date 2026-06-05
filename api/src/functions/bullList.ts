@@ -1,6 +1,6 @@
 import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
 import { listByPartition, getOne, upsert, remove, TABLES } from "../lib/tables.js";
-import { fetchLastTrade } from "../lib/polygon.js";
+import { fetchSnapshotPrices } from "../lib/polygon.js";
 
 interface BullListRow {
   partitionKey: string;
@@ -26,15 +26,15 @@ async function getHandler(req: HttpRequest): Promise<HttpResponseInit> {
 
   const rows = await listByPartition<BullListRow>(TABLES.BULL_LIST, partition);
 
-  // Live mark for open positions
+  // Live mark for open positions — batch one snapshot call per 250 tickers
   if (partition === "open" && rows.length > 0) {
-    const enriched = await Promise.all(
-      rows.map(async (r) => {
-        const last = await fetchLastTrade(r.ticker);
-        const pnlPct = last !== null ? ((last - r.entry) / r.entry) * 100 : null;
-        return { ...r, last, pnlPct };
-      }),
-    );
+    const tickers = Array.from(new Set(rows.map((r) => r.ticker)));
+    const priceMap = await fetchSnapshotPrices(tickers).catch(() => new Map<string, number>());
+    const enriched = rows.map((r) => {
+      const last = priceMap.get(r.ticker) ?? null;
+      const pnlPct = last !== null ? ((last - r.entry) / r.entry) * 100 : null;
+      return { ...r, last, pnlPct };
+    });
     enriched.sort((a, b) => b.addedAt.localeCompare(a.addedAt));
     return { jsonBody: { status: partition, count: enriched.length, rows: enriched } };
   }

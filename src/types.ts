@@ -242,42 +242,7 @@ export interface BullListResponse {
   rows: BullListRow[];
 }
 
-// ─── Performance (Section 4) ────────────────────────────────────────────────
-
-export interface PerfStats {
-  totalTrades: number;
-  wins: number;
-  losses: number;
-  winRate: number;
-  totalPnl: number;
-  avgPnl: number;
-  bestPct: number;
-  worstPct: number;
-  bySource: Record<string, { count: number; wins: number; pnl: number }>;
-}
-
-export interface ClosedPaperTrade {
-  ticker: string;
-  source: "bull" | "daytrade" | "avwap";
-  entry: number;
-  exit: number;
-  qty: number;
-  pnlDollars: number;
-  pnlPct: number;
-  exitReason: string;
-  openedAt: string;
-  closedAt: string;
-}
-
-export interface OpenPaperTrade {
-  ticker: string;
-  source: "bull";
-  entry: number;
-  sl: number;
-  tp: number;
-  qty: number;
-  openedAt: string;
-}
+// ─── Day Trade Alerts (Section 3) ───────────────────────────────────────────
 
 export interface DayTradeAlertRow {
   partitionKey: string;
@@ -296,9 +261,67 @@ export interface DayTradeAlertRow {
   currentPrice?: number;
 }
 
-export interface PaperTradesResponse {
-  stats: PerfStats;
-  open: OpenPaperTrade[];
-  closed: ClosedPaperTrade[];
-  dayTradeAlerts: { total: number; recent: DayTradeAlertRow[] };
+export interface DayTradeAlertsResponse {
+  total: number;
+  recent: DayTradeAlertRow[];
+}
+
+// ─── ATR Matrix (Section: swing extension scanner) ──────────────────────────
+
+export type AtrZone = "LEAVE" | "ENTRY" | "HOLD" | "EXTENDED" | "BLOWOFF";
+export type AtrAction = "sell" | "reduce" | "inflection" | "restore" | "buy" | "hold";
+
+export interface AtrStock {
+  ticker: string;
+  company: string;
+  sector: string;
+  industry: string;
+  marketCap: number;
+  close: number;
+  chg: number;
+  atr: number;
+  atrPct: number;
+  ext: number;
+  extPrev: number;
+  bucket: number;
+  zone: AtrZone;
+  sma50: number;
+  sma20: number;
+  structure: number;
+  ema10: number;
+  ema10Prev: number;
+  sma20Prev: number;
+  prevClose: number;
+  dvol: number;
+  r1w: number;
+  r1m: number;
+  r3m: number;
+  r6m: number;
+  aboveSMA50: boolean;
+  stopSuggest: number;
+  ladder: Record<number, number>;
+  atrRS: number;
+  rs: number;
+  grade: string;
+  action: AtrAction;
+}
+
+export interface AtrScanResponse {
+  generated: string;
+  asOf: string;
+  count: number;
+  avgAtrPct: number;
+  pctAboveSMA50: number;
+  buyable: number;
+  extended7: number;
+  stocks: AtrStock[];
+}
+
+// Client-side (localStorage) position tracking for the ATR Matrix tab.
+export interface AtrPosition {
+  ticker: string;
+  entryDate: string;
+  entryPrice: number;
+  shares: number;
+  stop: number;
 }

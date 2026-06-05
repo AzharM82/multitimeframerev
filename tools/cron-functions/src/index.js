@@ -54,8 +54,13 @@ app.timer("bullMonitorCron", {
   handler: async (_t, ctx) => fire("bull-monitor-timer", ctx),
 });
 
-// Day-trade reversal scan — every 10 min, 9:30 AM to 3:50 PM ET, weekdays
-app.timer("dayTradeCron", {
-  schedule: "0 */10 9-15 * * 1-5",
-  handler: async (_t, ctx) => fire("day-trade-timer", ctx),
+// ATR Matrix EOD swing scan — weekdays at 4:30 PM ET (after AVWAP, daily bar settled)
+app.timer("atrScanCron", {
+  schedule: "0 30 16 * * 1-5",
+  handler: async (_t, ctx) => fire("atr-eod-timer", ctx),
 });
+
+// Day-trade reversal scanning is no longer in this Function App. It moved
+// to a local Python scanner (tools/chart-ocr/finviz_scanner.py) so reversal
+// detection comes off the actual TOS chart instead of a server-side ZigZag.
+// See AzharM82/tos-reversal-scanner repo for that pipeline.

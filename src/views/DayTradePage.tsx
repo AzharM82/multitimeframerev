@@ -41,8 +41,8 @@ function Th({ label, sortKey, current, dir, align = "left", onSort }: HeaderProp
 function ChannelBadge({ channel }: { channel: string }) {
   const isWa = channel === "QUEUED" || channel === "WHATSAPP";
   const cls = isWa
-    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-    : "bg-amber-500/15 text-amber-300 border-amber-500/40";
+    ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/40"
+    : "bg-amber-500/15 text-amber-700 border-amber-500/40";
   return (
     <span className={`px-2 py-0.5 text-[10px] font-bold tracking-wider border rounded ${cls}`}>
       {isWa ? "WHATSAPP" : "PUSHOVER"}
@@ -229,8 +229,8 @@ function PerformancePanel({ perf, mode, onModeChange }: {
           <div className="text-[10px] text-text-secondary tabular-nums">
             Rules: skip first {perf.filters.firstSkipMin}m / last {perf.filters.lastSkipMin}m ·
             cap {perf.filters.maxPerDay}/day ·{" "}
-            <span className="text-amber-300">{s.skippedFilter}</span> dropped (window),{" "}
-            <span className="text-amber-300">{s.skippedCap}</span> dropped (cap)
+            <span className="text-amber-700">{s.skippedFilter}</span> dropped (window),{" "}
+            <span className="text-amber-700">{s.skippedCap}</span> dropped (cap)
           </div>
         </div>
         <DailyPnlChart days={perf.days} />

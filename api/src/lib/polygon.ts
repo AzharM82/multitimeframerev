@@ -212,18 +212,44 @@ export async function fetchDailyBarsExtended(ticker: string, years = 5): Promise
   return fetchAggs(ticker, 1, "day", formatDate(from), formatDate(to));
 }
 
-// ─── Last trade quote for mark-to-market ────────────────────────────────────
+// ─── Live price (mark-to-market) ────────────────────────────────────────────
+//
+// /v2/last/trade requires a paid Polygon plan and returns NOT_AUTHORIZED on
+// the free tier — silently breaking any caller that depended on it. Use the
+// snapshot endpoint below instead, which works on the free tier and batches.
 
-export async function fetchLastTrade(ticker: string): Promise<number | null> {
-  const url = `${BASE_URL}/v2/last/trade/${ticker}?apiKey=${getApiKey()}`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json() as { results?: { p?: number } };
-    return data.results?.p ?? null;
-  } catch {
-    return null;
+// Batch snapshot — fetch current prices for many tickers in one call.
+// Polygon caps `tickers` at 250 per request, so we chunk.
+// Falls back from lastTrade.p → day.c → prevDay.c since lastTrade can be empty.
+export async function fetchSnapshotPrices(tickers: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (tickers.length === 0) return out;
+
+  const CHUNK = 250;
+  for (let i = 0; i < tickers.length; i += CHUNK) {
+    const slice = tickers.slice(i, i + CHUNK);
+    const url = `${BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${slice.join(",")}&apiKey=${getApiKey()}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json() as {
+        tickers?: Array<{
+          ticker?: string;
+          lastTrade?: { p?: number };
+          day?: { c?: number };
+          prevDay?: { c?: number };
+        }>;
+      };
+      for (const t of data.tickers ?? []) {
+        if (!t.ticker) continue;
+        const price = t.lastTrade?.p || t.day?.c || t.prevDay?.c;
+        if (price && price > 0) out.set(t.ticker, price);
+      }
+    } catch {
+      // skip chunk on error — partial map is still useful
+    }
   }
+  return out;
 }
 
 // ─── Main entry point — uses candle cache for weekly/daily ───────────────────

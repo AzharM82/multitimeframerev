@@ -27,3 +27,7 @@ import "./functions/dayTradeAlerts.js";
 import "./functions/dayTradePerformance.js";
 import "./functions/scannerAlert.js";
 import "./functions/paperTrades.js";
+
+// ATR Matrix (swing extension scanner)
+import "./functions/atrEodTimer.js";
+import "./functions/atrScan.js";

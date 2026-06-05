@@ -1,6 +1,6 @@
 # MTF Reversal Cron Functions
 
-Native Azure scheduler — replaces cron-job.org. Four timer-triggered functions in a Consumption-plan Function App, each posting to a SWA endpoint with the timer secret.
+Native Azure scheduler — replaces cron-job.org. Three timer-triggered functions in a Consumption-plan Function App, each posting to a SWA endpoint with the timer secret.
 
 ## Schedules (Eastern Time, via `WEBSITE_TIME_ZONE`)
 
@@ -9,7 +9,11 @@ Native Azure scheduler — replaces cron-job.org. Four timer-triggered functions
 | `avwapEodCron`    | `0 15 16 * * 1-5`    | Weekdays 4:15 PM ET                              | `POST /api/avwap-eod-timer`    |
 | `bullEmailCron`   | `0 0 * * * *`        | Every hour, 24/7                                 | `POST /api/bull-email-timer`   |
 | `bullMonitorCron` | `0 0,30 9-16 * * 1-5`| Every 30 min, 9:00 AM–4:30 PM ET, weekdays       | `POST /api/bull-monitor-timer` |
-| `dayTradeCron`    | `0 */10 9-15 * * 1-5`| Every 10 min, 9:00 AM–3:50 PM ET, weekdays       | `POST /api/day-trade-timer`    |
+
+> **Day-trade scanning is no longer here.** It moved to a local Python scanner
+> ([`AzharM82/tos-reversal-scanner`](https://github.com/AzharM82/tos-reversal-scanner))
+> so the reversal signal comes off the actual TOS chart via OCR instead of
+> being re-derived server-side from Polygon bars.
 
 ## Deploy
 

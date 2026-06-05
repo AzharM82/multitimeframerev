@@ -1,7 +1,7 @@
 import type {
   AvwapResultsResponse,
   BullListResponse,
-  PaperTradesResponse,
+  AtrScanResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -37,10 +37,10 @@ export function deleteBullEntry(partition: string, rowKey: string): Promise<{ st
   );
 }
 
-// ─── Section 4: Performance ────────────────────────────────────────────────
+// ─── ATR Matrix ─────────────────────────────────────────────────────────────
 
-export function getPaperTrades(): Promise<PaperTradesResponse> {
-  return request<PaperTradesResponse>("/paper-trades");
+export function getAtrScan(): Promise<AtrScanResponse> {
+  return request<AtrScanResponse>("/atr-scan");
 }
 
 // ─── Day Trade Alerts (lightweight feed for the Day Trades page) ──────────

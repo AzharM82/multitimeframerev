@@ -1,0 +1,326 @@
+#==============================================
+# Reversal Study — OCR-friendly variant
+#
+# Same trading logic as docs/thinkscript-original.tos.
+# Changes for downstream OCR / vision pipelines:
+#   1. Existing chart bubbles (Reversal, Buy, SL, TP) demoted to small dots
+#      via PaintingStrategy.POINTS — toggle with showBubbleMarkers / showDotMarkers.
+#   2. New top-of-chart label "strip" via AddLabel — the OCR target.
+#      Each cell is a fixed-format text chip with a stable color, e.g.
+#         REV U 213.50 0     BUY 215.42     SL 208.35     TP 226.19
+#   3. Recursive accumulators track the latest REV / BUY / SL / TP so the
+#      labels always show the most recent values (not just on signal bar).
+#   4. Bar-age suffix on REV label so the OCR pipeline knows freshness.
+#==============================================
+
+def price = close;
+def superfast_length = 9;
+def fast_length = 14;
+def slow_length = 21;
+def displace = 0;
+
+def mov_avg9 = ExpAverage(price[-displace], superfast_length);
+def mov_avg14 = ExpAverage(price[-displace], fast_length);
+def mov_avg21 = ExpAverage(price[-displace], slow_length);
+
+def Superfast = mov_avg9;
+def Fast = mov_avg14;
+def Slow = mov_avg21;
+
+def buy = mov_avg9 > mov_avg14 and mov_avg14 > mov_avg21 and low > mov_avg9;
+def stopbuy = mov_avg9 <= mov_avg14;
+def buynow = !buy[1] and buy;
+def buysignal = CompoundValue(1, if buynow and !stopbuy then 1 else if buysignal[1] == 1 and stopbuy then 0 else buysignal[1], 0);
+def Buy_Signal = buysignal[1] == 0 and buysignal == 1;
+def Momentum_Down = buysignal[1] == 1 and buysignal == 0;
+
+def sell = mov_avg9 < mov_avg14 and mov_avg14 < mov_avg21 and high < mov_avg9;
+def stopsell = mov_avg9 >= mov_avg14;
+def sellnow = !sell[1] and sell;
+def sellsignal = CompoundValue(1, if sellnow and !stopsell then 1 else if sellsignal[1] == 1 and stopsell then 0 else sellsignal[1], 0);
+def Sell_Signal = sellsignal[1] == 0 and sellsignal;
+def Momentum_Up = sellsignal[1] == 1 and sellsignal == 0;
+
+plot Colorbars = if buysignal == 1 then 1 else if sellsignal == 1 then 2 else if buysignal == 0 or sellsignal == 0 then 3 else 0;
+Colorbars.Hide();
+Colorbars.DefineColor("Buy_Signal_Bars", Color.GREEN);
+Colorbars.DefineColor("Sell_Signal_Bars", Color.RED);
+Colorbars.DefineColor("Neutral", Color.PLUM);
+
+#─── Reversal (ZigZag) detection — unchanged ────────────────────────────────
+input method = {default average, high_low};
+def bubbleoffset = .0005;
+def percentamount = .01;
+def revAmount = .05;
+def atrreversal = 2.0;
+def atrlength = 5;
+def pricehigh = high;
+def pricelow = low;
+def averagelength = 5;
+def averagetype = AverageType.EXPONENTIAL;
+def mah = MovingAverage(averagetype, pricehigh, averagelength);
+def mal = MovingAverage(averagetype, pricelow, averagelength);
+def priceh = if method == method.high_low then pricehigh else mah;
+def pricel = if method == method.high_low then pricelow else mal;
+def EI = ZigZagHighLow("price h" = priceh, "price l" = pricel, "percentage reversal" = percentamount, "absolute reversal" = revAmount, "atr length" = atrlength, "atr reversal" = atrreversal);
+def reversalAmount = if (close * percentamount / 100) > Max(revAmount < atrreversal * reference ATR(atrlength), revAmount) then (close * percentamount / 100) else if revAmount < atrreversal * reference ATR(atrlength) then atrreversal * reference ATR(atrlength) else revAmount;
+rec EISave = if !IsNaN(EI) then EI else GetValue(EISave, 1);
+def chg = (if EISave == priceh then priceh else pricel) - GetValue(EISave, 1);
+def isUp = chg >= 0;
+rec isConf = AbsValue(chg) >= reversalAmount or (IsNaN(GetValue(EI, 1)) and GetValue(isConf, 1));
+def EId = if isUp then 1 else 0;
+
+def xxhigh = if EISave == priceh then priceh else xxhigh[1];
+def chghigh = priceh - xxhigh[1];
+def xxlow = if EISave == pricel then pricel else xxlow[1];
+def chglow = pricel - xxlow[1];
+
+rec EIcount = if EISave[1] != EISave then 1 else if EISave[1] == EISave then EIcount[1] + 1 else 0;
+def EIcounthilo = if EIcounthilo[1] == 0 and (EISave == priceh or EISave == pricel) then 1 else if EISave == priceh or EISave == pricel then EIcounthilo[1] + 1 else EIcounthilo[1];
+def EIhilo = if EISave == priceh or EISave == pricel then EIcounthilo else EIcounthilo + 1;
+def EIcounthigh = if EISave == priceh then EIcount[1] else Double.NaN;
+def EIcountlow = if EISave == pricel then EIcount[1] else Double.NaN;
+
+def EIL = if !IsNaN(EI) and !isUp then pricel else GetValue(EIL, 1);
+def EIH = if !IsNaN(EI) and isUp then priceh else GetValue(EIH, 1);
+def dir = CompoundValue(1, if EIL != EIL[1] or pricel == EIL[1] and pricel == EISave then 1 else if EIH != EIH[1] or priceh == EIH[1] and priceh == EISave then -1 else dir[1], 0);
+def signal = CompoundValue(1, if dir > 0 and pricel > EIL then if signal[1] <= 0 then 1 else signal[1] else if dir < 0 and priceh < EIH then if signal[1] >= 0 then -1 else signal[1] else signal[1], 0);
+def showarrows = yes;
+def U1 = showarrows and signal > 0 and signal[1] <= 0;
+def D1 = showarrows and signal < 0 and signal[1] >= 0;
+def barnumber = BarNumber()[10];
+
+#─── Reversal markers: bubbles (legacy) OR small dots (OCR-friendly) ────────
+input showBubbleMarkers = no;
+input showDotMarkers = yes;
+
+# Original bubbles, gated so they're off by default in the OCR build
+AddChartBubble(showBubbleMarkers and barnumber and U1, if isUp then low else high, "Reversal:" + low, if Colorbars == 3 then Color.PLUM else Color.UPTICK, no);
+AddChartBubble(showBubbleMarkers and barnumber and D1, if isUp then low else high, "Reversal:" + high, if Colorbars == 3 then Color.PLUM else Color.DOWNTICK, yes);
+
+# Small colored dots — far cleaner across stacked timeframes
+plot revUpDot = if showDotMarkers and barnumber and U1 then low else Double.NaN;
+revUpDot.SetPaintingStrategy(PaintingStrategy.POINTS);
+revUpDot.SetDefaultColor(Color.GREEN);
+revUpDot.SetLineWeight(5);
+revUpDot.HideBubble();
+revUpDot.HideTitle();
+
+plot revDnDot = if showDotMarkers and barnumber and D1 then high else Double.NaN;
+revDnDot.SetPaintingStrategy(PaintingStrategy.POINTS);
+revDnDot.SetDefaultColor(Color.RED);
+revDnDot.SetLineWeight(5);
+revDnDot.HideBubble();
+revDnDot.HideTitle();
+
+#─── Reversal lines (unchanged) ─────────────────────────────────────────────
+def revLineTop;
+def revLineBot;
+
+if barnumber and D1 {
+    revLineBot = Double.NaN;
+    revLineTop = high[1];
+} else if barnumber and U1 {
+    revLineTop = Double.NaN;
+    revLineBot = low[1];
+} else if !IsNaN(revLineBot[1]) and (Colorbars[2] == 2 or Colorbars[1] == 2) {
+    revLineBot = revLineBot[1];
+    revLineTop = Double.NaN;
+} else if !IsNaN(revLineTop[1]) and (Colorbars[2] == 1 or Colorbars[1] == 1) {
+    revLineTop = revLineTop[1];
+    revLineBot = Double.NaN;
+} else {
+    revLineTop = Double.NaN;
+    revLineBot = Double.NaN;
+}
+
+plot botLine = revLineBot[-1];
+botLine.SetDefaultColor(Color.LIGHT_GREEN);
+plot topLine = revLineTop[-1];
+topLine.SetDefaultColor(Color.LIGHT_RED);
+
+#==============================================
+# ENTRY / STOP LOSS / TAKE PROFIT — bubbles vs dots
+#==============================================
+input showOrderBubbles = no;       # legacy bubbles — off by default
+input showOrderDots    = yes;      # new dot markers
+input bubbleSpacing    = 0.004;
+
+def isBuyBar = U1[1];                                  # candle AFTER green Reversal
+def isNewDay = GetDay() != GetDay()[1];
+rec hasBoughtToday = if isNewDay then 0
+                     else if isBuyBar then 1
+                     else hasBoughtToday[1];
+def isTpBar = D1[1] and hasBoughtToday;                # candle AFTER red Reversal, only if bought
+
+# Legacy bubbles (off by default)
+AddChartBubble(showOrderBubbles and isBuyBar, low * (1 - bubbleSpacing * 2), "Buy:" + open, Color.CYAN, no);
+AddChartBubble(showOrderBubbles and isBuyBar, low[2] * (1 - bubbleSpacing * 4), "SL:" + low[2], Color.PINK, no);
+AddChartBubble(showOrderBubbles and isTpBar, high * (1 + bubbleSpacing * 2), "TP:" + open, Color.DOWNTICK, yes);
+
+# OCR-friendly dots
+plot buyDot = if showOrderDots and isBuyBar then open else Double.NaN;
+buyDot.SetPaintingStrategy(PaintingStrategy.POINTS);
+buyDot.SetDefaultColor(Color.CYAN);
+buyDot.SetLineWeight(4);
+buyDot.HideBubble();
+buyDot.HideTitle();
+
+plot slDot = if showOrderDots and isBuyBar then low[2] else Double.NaN;
+slDot.SetPaintingStrategy(PaintingStrategy.POINTS);
+slDot.SetDefaultColor(Color.PINK);
+slDot.SetLineWeight(4);
+slDot.HideBubble();
+slDot.HideTitle();
+
+plot tpDot = if showOrderDots and isTpBar then open else Double.NaN;
+tpDot.SetPaintingStrategy(PaintingStrategy.POINTS);
+tpDot.SetDefaultColor(Color.YELLOW);
+tpDot.SetLineWeight(4);
+tpDot.HideBubble();
+tpDot.HideTitle();
+
+#==============================================
+# ACTIVE-TRADE SL / TP HORIZONTAL LINES
+#
+# Far easier for an LLM to read price levels off horizontal lines than to
+# correlate dots back to the label strip. Lines render only while a trade
+# is live — they appear on the buy bar and disappear when SL is hit, TP is
+# hit, OR a new day begins. Re-entries replace the prior level cleanly.
+#
+# TP price uses the same 5% rule as our paper trading rules
+# (api/src/lib/levels.ts: DEFAULT_TP_PCT). Adjust via input if needed.
+#==============================================
+input showTradeLines = yes;
+input tpPct          = 5.0;
+
+# Carry buy / SL prices forward intra-day; reset on new day.
+rec activeBuyPrice = if isBuyBar then open
+                     else if !isNewDay then activeBuyPrice[1]
+                     else 0;
+rec activeSLPrice  = if isBuyBar then low[2]
+                     else if !isNewDay then activeSLPrice[1]
+                     else 0;
+def activeTPPrice  = if activeBuyPrice > 0 then activeBuyPrice * (1 + tpPct / 100) else 0;
+
+# Trade lifecycle: starts on isBuyBar, ends on SL hit / TP hit / new day.
+def slHit = activeSLPrice > 0 and low  <= activeSLPrice;
+def tpHit = activeTPPrice > 0 and high >= activeTPPrice;
+rec inTrade = if isBuyBar then 1
+              else if inTrade[1] and !isNewDay and !slHit and !tpHit then 1
+              else 0;
+
+plot slLine = if showTradeLines and inTrade then activeSLPrice else Double.NaN;
+slLine.SetDefaultColor(Color.PINK);
+slLine.SetStyle(Curve.FIRM);
+slLine.SetLineWeight(2);
+slLine.HideBubble();
+slLine.HideTitle();
+
+plot tpLine = if showTradeLines and inTrade then activeTPPrice else Double.NaN;
+tpLine.SetDefaultColor(Color.YELLOW);
+tpLine.SetStyle(Curve.FIRM);
+tpLine.SetLineWeight(2);
+tpLine.HideBubble();
+tpLine.HideTitle();
+
+#==============================================
+# OCR LABEL STRIP — fixed-position chips at top of chart
+#==============================================
+input showOcrLabels = yes;
+
+# Track the most recent reversal: direction, price, bar-age, AND wall-clock
+# timestamp so the LLM/OCR can compare reversals across screenshots and pick
+# the most recent one — using bar-count alone would require knowing the chart
+# timeframe. Format: M/D HH:MM (zero-padded), works for intraday and daily.
+rec lastRevDir   = if U1 then 1 else if D1 then -1 else lastRevDir[1];
+rec lastRevPrice = if U1 then low else if D1 then high else lastRevPrice[1];
+rec barsSinceRev = if U1 or D1 then 0 else barsSinceRev[1] + 1;
+
+# ThinkScript has no GetHour/GetMinute — derive from SecondsFromTime(0)
+# (seconds since midnight on this bar) and split into HH/MM.
+#
+# IMPORTANT: SecondsFromTime(0) uses Eastern Time (exchange time) regardless
+# of how the chart x-axis is displayed. Apply timezoneOffsetHours to get the
+# wall-clock time you actually want shown. Default -3 = Pacific Time (both
+# PST and PDT are -3 from ET). Set to 0 if you prefer ET on the label.
+input timezoneOffsetHours = -3.0;
+
+def _secsMidnight = SecondsFromTime(0);
+def _secsLocal    = _secsMidnight + timezoneOffsetHours * 3600;
+def _secsToday    = if _secsLocal < 0       then _secsLocal + 86400
+                    else if _secsLocal >= 86400 then _secsLocal - 86400
+                    else _secsLocal;
+def _hourOfBar    = Floor(_secsToday / 3600);
+def _minOfBar     = Floor((_secsToday - _hourOfBar * 3600) / 60);
+
+rec lastRevMonth = if U1 or D1 then GetMonth()                    else lastRevMonth[1];
+rec lastRevDay   = if U1 or D1 then GetDayOfMonth(GetYYYYMMDD()) else lastRevDay[1];
+rec lastRevHour  = if U1 or D1 then _hourOfBar      else lastRevHour[1];
+rec lastRevMin   = if U1 or D1 then _minOfBar       else lastRevMin[1];
+
+# Strings aren't first-class in ThinkScript — `def` only holds doubles.
+# Zero-padding for HH/MM has to be inlined inside the AddLabel call below.
+
+# Track the most recent Buy / SL / TP and whether we've seen any
+rec lastBuy   = if isBuyBar then open  else lastBuy[1];
+rec lastSL    = if isBuyBar then low[2] else lastSL[1];
+rec lastTP    = if isTpBar  then open  else lastTP[1];
+rec haveBuy   = if isBuyBar then 1 else haveBuy[1];
+rec haveTP    = if isTpBar  then 1 else haveTP[1];
+rec barsSinceBuy = if isBuyBar then 0 else if haveBuy then barsSinceBuy[1] + 1 else 0;
+
+# Trend label (from EMA9/14/21 stack) — gives the model context without re-deriving
+def trendCode = if buysignal == 1 then 1
+                else if sellsignal == 1 then -1
+                else 0;
+
+# Each AddLabel adds a colored chip to the top-left strip. Order matters
+# because that determines OCR read order. Format keeps numbers monospace-ish.
+AddLabel(showOcrLabels,
+    "TREND " + (if trendCode == 1 then "UP" else if trendCode == -1 then "DN" else "FLAT"),
+    if trendCode == 1 then Color.GREEN else if trendCode == -1 then Color.RED else Color.GRAY);
+
+AddLabel(showOcrLabels and lastRevDir != 0,
+    "REV " + (if lastRevDir == 1 then "U" else "D") +
+    " " + AsDollars(lastRevPrice) +
+    " " + lastRevMonth + "/" + lastRevDay + " " +
+    (if lastRevHour < 10 then "0" else "") + lastRevHour + ":" +
+    (if lastRevMin  < 10 then "0" else "") + lastRevMin +
+    " " + barsSinceRev + "b",
+    if lastRevDir == 1 then Color.GREEN else Color.RED);
+
+AddLabel(showOcrLabels and haveBuy,
+    "BUY " + AsDollars(lastBuy) + " " + barsSinceBuy + "b",
+    Color.CYAN);
+
+AddLabel(showOcrLabels and haveBuy,
+    "SL " + AsDollars(lastSL),
+    Color.PINK);
+
+AddLabel(showOcrLabels and haveTP,
+    "TP " + AsDollars(lastTP),
+    Color.YELLOW);
+
+# Risk / reward (R-multiple) — handy for the OCR pipeline to filter low-quality setups
+def risk   = lastBuy - lastSL;
+def reward = lastTP  - lastBuy;
+def rMult  = if risk > 0 and haveTP then reward / risk else Double.NaN;
+
+AddLabel(showOcrLabels and haveTP and !IsNaN(rMult),
+    "R " + Round(rMult, 2),
+    if rMult >= 1.5 then Color.GREEN else if rMult >= 1.0 then Color.YELLOW else Color.RED);
+
+#==============================================
+# Hidden / disabled bubble blocks from the original (kept for reference,
+# all gated by `no` flags so they never render)
+#==============================================
+def showBubbleschange    = no;
+def showBubblesprice     = no;
+def showBubblesbarcount  = no;
+def showBubblesVolume    = no;
+def showBubblesfibratio  = no;
+def showsupplydemandcloud = no;
+def showFibLabel         = no;
+def showFibExtLines      = no;
+def showfiblines         = no;

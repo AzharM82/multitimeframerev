@@ -1,6 +1,6 @@
 import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } from "@azure/functions";
 import { listByPartition, upsert, remove, TABLES } from "../lib/tables.js";
-import { fetchLastTrade } from "../lib/polygon.js";
+import { fetchSnapshotPrices } from "../lib/polygon.js";
 
 interface BullListRow {
   partitionKey: string;
@@ -61,11 +61,18 @@ async function bullMonitorHandler(
     const open = await listByPartition<BullListRow>(TABLES.BULL_LIST, "open");
     ctx.log(`bullMonitorTimer: ${open.length} open positions`);
 
+    const tickers = Array.from(new Set(open.map((r) => r.ticker)));
+    const priceMap = await fetchSnapshotPrices(tickers);
+    const skippedNoPrice: string[] = [];
+
     const transitions: { ticker: string; reason: string; price: number }[] = [];
 
     for (const row of open) {
-      const last = await fetchLastTrade(row.ticker);
-      if (last === null) continue;
+      const last = priceMap.get(row.ticker);
+      if (last === undefined) {
+        skippedNoPrice.push(row.ticker);
+        continue;
+      }
 
       if (last <= row.sl) {
         await moveToClosed(row, last, "SL_HIT");
@@ -88,6 +95,8 @@ async function bullMonitorHandler(
       jsonBody: {
         status: "ok",
         checked: open.length,
+        priced: priceMap.size,
+        skippedNoPrice: skippedNoPrice.length,
         closed: transitions.length,
         transitions,
       },

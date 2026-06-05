@@ -1,26 +1,62 @@
 @import "tailwindcss";
 
+/* Warm "financial newspaper" light theme — matches the StockAgentHub portal.
+   The portal's components use these semantic tokens, so redefining them here
+   re-skins every tab at once. */
 @theme {
-  --color-bg-primary: #0a0e17;
-  --color-bg-secondary: #111827;
-  --color-bg-card: #1a2332;
-  --color-border: #2a3a4e;
-  --color-text-primary: #e2e8f0;
-  --color-text-secondary: #94a3b8;
-  --color-signal-bull: #22c55e;
-  --color-signal-bear: #ef4444;
-  --color-signal-neutral: #a78bfa;
-  --color-accent: #3b82f6;
+  --color-bg-primary: #faf7f2;   /* cream page */
+  --color-bg-secondary: #f0ebe3; /* warm surface */
+  --color-bg-card: #ffffff;      /* white card */
+  --color-border: #d4cfc6;       /* earth border */
+  --color-text-primary: #1a1a1a; /* ink */
+  --color-text-secondary: #6b6459; /* muted */
+  --color-signal-bull: #1a6b3c;  /* dark green */
+  --color-signal-bear: #a8221a;  /* dark red */
+  --color-signal-neutral: #6b3fa0; /* purple */
+  --color-accent: #2c5282;       /* deep blue */
+  --color-dim: #b8b1a6;          /* faint rule/dim text */
+  --color-gold: #8a6d1b;         /* amber */
+
+  --font-playfair: 'Playfair Display', serif;
+  --font-serif: 'Source Serif 4', serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
 body {
   margin: 0;
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 13px;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: var(--color-dim) transparent;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--color-dim); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-secondary); }
+
+/* Newspaper double rule */
+.newspaper-rule {
+  border-top: 2px solid var(--color-text-primary);
+  padding-top: 3px;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0;
+}
+
+/* Card / section headers — Playfair, uppercase, tracked */
+.card-header {
+  font-family: 'Playfair Display', serif;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+  font-weight: 700;
+}
+.section-header {
+  font-family: 'Playfair Display', serif;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
 }

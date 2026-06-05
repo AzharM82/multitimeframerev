@@ -3,9 +3,9 @@ import type { AvwapHit, AvwapResultsResponse } from "../types.js";
 import { getAvwapResults } from "../services/api.js";
 
 const PATTERN_COLORS: Record<string, string> = {
-  PULLBACK: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
-  PINCH: "bg-amber-500/15 text-amber-300 border-amber-500/40",
-  RECLAIM: "bg-sky-500/15 text-sky-300 border-sky-500/40",
+  PULLBACK: "bg-emerald-500/15 text-emerald-700 border-emerald-500/40",
+  PINCH: "bg-amber-500/15 text-amber-700 border-amber-500/40",
+  RECLAIM: "bg-sky-500/15 text-sky-700 border-sky-500/40",
 };
 
 type SortKey = "score" | "ticker" | "pattern" | "price" | "buy" | "sl" | "slPct" | "bandPct" | "volumeMultiple";
@@ -94,7 +94,7 @@ function HitRow({ hit, idx }: { hit: EnrichedHit; idx: number }) {
       </td>
       <td className="py-2 px-3"><ScoreBar score={hit.score} /></td>
       <td className="py-2 px-3 text-right tabular-nums">${hit.price.toFixed(2)}</td>
-      <td className="py-2 px-3 text-right tabular-nums text-emerald-300/80">${hit._buy.toFixed(2)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-emerald-700/90">${hit._buy.toFixed(2)}</td>
       <td className="py-2 px-3 text-right tabular-nums text-signal-bear/80">${hit._sl.toFixed(2)}</td>
       <td className="py-2 px-3 text-right tabular-nums text-xs">{hit._slPct.toFixed(2)}%</td>
       <td className="py-2 px-3 text-right tabular-nums text-xs">{hit.bandPct.toFixed(2)}%</td>
@@ -179,9 +179,9 @@ export function AvwapPage() {
           <div className="text-xs text-text-secondary">
             {data?.date ? `As of ${data.date}` : "—"} ·{" "}
             <span className="text-text-primary">{enriched.length}</span> hits ·{" "}
-            <span className="text-emerald-300">Pullback {counts.PULLBACK ?? 0}</span> ·{" "}
-            <span className="text-amber-300">Pinch {counts.PINCH ?? 0}</span> ·{" "}
-            <span className="text-sky-300">Reclaim {counts.RECLAIM ?? 0}</span>
+            <span className="text-emerald-700">Pullback {counts.PULLBACK ?? 0}</span> ·{" "}
+            <span className="text-amber-700">Pinch {counts.PINCH ?? 0}</span> ·{" "}
+            <span className="text-sky-700">Reclaim {counts.RECLAIM ?? 0}</span>
           </div>
         </div>
       </div>
