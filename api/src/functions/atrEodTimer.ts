@@ -14,7 +14,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 function todayKey(): string {
-  return new Date().toISOString().split("T")[0];
+  // Pacific calendar date (en-CA → YYYY-MM-DD). Avoids the UTC-rollover bug
+  // where an evening-PT run stamps the next day's date.
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 }
 
 /**

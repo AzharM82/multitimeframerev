@@ -91,7 +91,7 @@ function Row({ row, onRemove }: { row: EnrichedRow; onRemove: () => void }) {
           {row.status}
         </span>
       </td>
-      <td className="py-2 px-3 text-xs text-text-secondary">{new Date(row.addedAt).toLocaleString()}</td>
+      <td className="py-2 px-3 text-xs text-text-secondary">{new Date(row.addedAt).toLocaleString([], { timeZone: "America/Los_Angeles" })} PT</td>
       <td className="py-2 px-3 text-right">
         <button
           onClick={onRemove}

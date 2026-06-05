@@ -267,7 +267,7 @@ function AlertRow({ alert }: { alert: EnrichedAlert }) {
   return (
     <tr className="border-b border-border hover:bg-bg-secondary/40">
       <td className="py-2 px-3 text-xs text-text-secondary tabular-nums">
-        {new Date(alert.firedAt).toLocaleTimeString()}
+        {new Date(alert.firedAt).toLocaleTimeString([], { timeZone: "America/Los_Angeles" })} PT
       </td>
       <td className="py-2 px-3">
         <a
@@ -288,7 +288,7 @@ function AlertRow({ alert }: { alert: EnrichedAlert }) {
         {fmtSignedMoney(alert._pnl)}
       </td>
       <td className="py-2 px-3 text-center"><ChannelBadge channel={alert.status} /></td>
-      <td className="py-2 px-3 text-xs text-text-secondary">{new Date(alert.firedAt).toLocaleDateString()}</td>
+      <td className="py-2 px-3 text-xs text-text-secondary">{new Date(alert.firedAt).toLocaleDateString([], { timeZone: "America/Los_Angeles" })}</td>
     </tr>
   );
 }

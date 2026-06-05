@@ -342,7 +342,13 @@ export function AtrMatrixPage() {
       {/* morning focus */}
       <div className="bg-bg-card border border-border rounded p-3">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="section-header text-sm font-bold">Morning Focus <span className="text-text-secondary font-normal text-xs normal-case tracking-normal">· buy · 0–4x · ATR RS ≥ 50 · least-extended first</span></h3>
+          <div>
+            <h3 className="section-header text-sm font-bold">
+              Morning Focus
+              <span className="text-accent font-normal text-xs normal-case tracking-normal"> · for next open{data?.asOf ? ` (from ${data.asOf} close)` : ""}</span>
+            </h3>
+            <div className="text-[11px] text-text-secondary normal-case tracking-normal">buy · 0–4x · ATR RS ≥ 50 · least-extended first · EOD list, not live</div>
+          </div>
           {focus.length > 0 && (
             <button
               onClick={() => navigator.clipboard.writeText(focus.map((s) => `$${s.ticker}`).join(" "))}
