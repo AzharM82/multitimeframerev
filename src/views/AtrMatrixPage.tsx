@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import type { AtrStock, AtrScanResponse, AtrZone, AtrAction, AtrPosition } from "../types.js";
-import { getAtrScan } from "../services/api.js";
+import type { AtrStock, AtrScanResponse, AtrZone, AtrAction, AtrPosition, BreadthResponse, BreadthStats, Posture } from "../types.js";
+import { getAtrScan, getBreadth } from "../services/api.js";
 
 /* ATR Matrix — swing extension scanner. EOD-only: the snapshot is produced once
    after close by atr-eod-timer. Warm "newspaper" theme. Framework credit:
@@ -101,6 +101,64 @@ function Chip({ s, onHover, onLeave }: { s: AtrStock; onHover: (t: TipState) => 
   );
 }
 
+// ─── market posture (whole-index breadth) ──────────────────────────────────
+
+const POSTURE: Record<Posture, { label: string; cls: string }> = {
+  RISK_ON: { label: "RISK-ON", cls: "text-emerald-700 bg-emerald-50 border-emerald-300" },
+  MIXED: { label: "MIXED", cls: "text-amber-700 bg-amber-50 border-amber-300" },
+  RISK_OFF: { label: "RISK-OFF", cls: "text-red-700 bg-red-50 border-red-300" },
+};
+
+function BreadthRow({ label, pct, n, total }: { label: string; pct: number; n: number; total: number }) {
+  const bar = pct >= 55 ? "bg-emerald-600" : pct >= 45 ? "bg-amber-500" : "bg-red-600";
+  return (
+    <div className="mb-1.5">
+      <div className="flex justify-between text-[11px] mb-0.5">
+        <span className="text-text-secondary">{label}</span>
+        <span className="tabular-nums font-bold">{pct}% <span className="text-text-secondary font-normal">({n}/{total})</span></span>
+      </div>
+      <div className="h-1.5 bg-bg-secondary rounded overflow-hidden">
+        <div className={`h-full ${bar} transition-all`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function Gauge({ s }: { s: BreadthStats }) {
+  return (
+    <div className="flex-1 min-w-[260px] bg-bg-card border border-border rounded p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="section-header text-sm font-bold">{s.label}</span>
+        <span className={`px-2 py-0.5 text-[10px] font-bold tracking-wider border rounded ${POSTURE[s.posture].cls}`}>{POSTURE[s.posture].label}</span>
+      </div>
+      <BreadthRow label="Above 50-day" pct={s.pctAboveSma50} n={s.aboveSma50} total={s.total} />
+      <BreadthRow label="Above 200-day" pct={s.pctAboveSma200} n={s.aboveSma200} total={s.total} />
+      <div className="flex items-center justify-between text-[11px] mt-2 pt-2 border-t border-border">
+        <span><span className="text-signal-bull font-bold">{s.advancers}</span> adv · <span className="text-signal-bear font-bold">{s.decliners}</span> dec</span>
+        <span className="text-text-secondary">{s.overbought} OB · {s.oversold} OS</span>
+      </div>
+    </div>
+  );
+}
+
+function MarketPosture({ data, error }: { data: BreadthResponse | null; error: string | null }) {
+  if (error || (data && data.indices.length === 0)) return null;
+  return (
+    <div className="space-y-1.5">
+      <div className="card-header text-text-secondary">
+        Market Posture · whole-index breadth — the "should I be trading?" tone
+      </div>
+      {!data ? (
+        <div className="text-xs text-text-secondary py-2">Loading market posture…</div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {data.indices.map((s) => <Gauge key={s.filter} s={s} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── stat card ──────────────────────────────────────────────────────────────
 
 function Stat({ label, value, color }: { label: string; value: string | number; color?: string }) {
@@ -128,6 +186,8 @@ export function AtrMatrixPage() {
   const [isolate, setIsolate] = useState<number | null>(null);
   const [tip, setTip] = useState<TipState | null>(null);
   const [positions, setPositions] = useState<AtrPosition[]>([]);
+  const [breadth, setBreadth] = useState<BreadthResponse | null>(null);
+  const [breadthErr, setBreadthErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,6 +196,14 @@ export function AtrMatrixPage() {
       .then((d) => { if (!cancelled) { setData(d); setError(null); } })
       .catch((e: Error) => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getBreadth()
+      .then((d) => { if (!cancelled) setBreadth(d); })
+      .catch((e: Error) => { if (!cancelled) setBreadthErr(e.message); });
     return () => { cancelled = true; };
   }, []);
 
@@ -183,6 +251,9 @@ export function AtrMatrixPage() {
     <div className="space-y-3">
       <Tooltip tip={tip} />
 
+      {/* market posture — whole-index breadth (tone-setter) */}
+      <MarketPosture data={breadth} error={breadthErr} />
+
       {/* header */}
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
@@ -202,7 +273,7 @@ export function AtrMatrixPage() {
       {/* breadth */}
       <div className="bg-bg-card border border-border rounded p-3">
         <div className="flex items-center justify-between text-xs mb-1">
-          <span className="card-header text-text-secondary">Breadth · above SMA50</span>
+          <span className="card-header text-text-secondary">This screen · above SMA50 <span className="font-normal normal-case tracking-normal">(pre-filtered uptrend names — not market breadth)</span></span>
           <span className="tabular-nums">{breadthPct}% ({above}/{filtered.length})</span>
         </div>
         <div className="h-2 bg-bg-secondary rounded overflow-hidden">

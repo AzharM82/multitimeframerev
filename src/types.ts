@@ -325,3 +325,29 @@ export interface AtrPosition {
   shares: number;
   stop: number;
 }
+
+// ─── Market Breadth / Health gauge ──────────────────────────────────────────
+
+export type Posture = "RISK_ON" | "MIXED" | "RISK_OFF";
+
+export interface BreadthStats {
+  label: string;
+  filter: string;
+  total: number;
+  aboveSma20: number;
+  aboveSma50: number;
+  aboveSma200: number;
+  pctAboveSma20: number;
+  pctAboveSma50: number;
+  pctAboveSma200: number;
+  advancers: number;
+  decliners: number;
+  overbought: number;
+  oversold: number;
+  posture: Posture;
+}
+
+export interface BreadthResponse {
+  generated: string;
+  indices: BreadthStats[];
+}

@@ -2,6 +2,7 @@ import type {
   AvwapResultsResponse,
   BullListResponse,
   AtrScanResponse,
+  BreadthResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -41,6 +42,10 @@ export function deleteBullEntry(partition: string, rowKey: string): Promise<{ st
 
 export function getAtrScan(): Promise<AtrScanResponse> {
   return request<AtrScanResponse>("/atr-scan");
+}
+
+export function getBreadth(): Promise<BreadthResponse> {
+  return request<BreadthResponse>("/breadth");
 }
 
 // ─── Day Trade Alerts (lightweight feed for the Day Trades page) ──────────
