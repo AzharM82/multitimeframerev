@@ -13,13 +13,13 @@ function ChannelBadge({ channel }: { channel: string }) {
   let cls: string;
   let label: string;
   if (ok) {
-    cls = "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
+    cls = "bg-emerald-500/15 text-emerald-700 border-emerald-500/40";
     label = "WHATSAPP";
   } else if (failed) {
-    cls = "bg-rose-500/15 text-rose-300 border-rose-500/40";
+    cls = "bg-rose-500/15 text-rose-700 border-rose-500/40";
     label = "WA FAILED";
   } else {
-    cls = "bg-amber-500/15 text-amber-300 border-amber-500/40";
+    cls = "bg-amber-500/15 text-amber-700 border-amber-500/40";
     label = "PUSHOVER";
   }
   return (
@@ -33,8 +33,8 @@ function SourceBadge({ source }: { source: string }) {
   // channel column on the row distinguishes which producer wrote it.
   const isScanner = source === "scanner";
   const cls = isScanner
-    ? "bg-sky-500/15 text-sky-300 border-sky-500/40"
-    : "bg-zinc-500/15 text-zinc-300 border-zinc-500/40";
+    ? "bg-sky-500/15 text-sky-700 border-sky-500/40"
+    : "bg-zinc-500/15 text-zinc-600 border-zinc-500/40";
   return (
     <span className={`px-2 py-0.5 text-[10px] font-bold tracking-wider border rounded ${cls}`}>
       {isScanner ? "SCANNER" : (source ?? "?").toUpperCase()}

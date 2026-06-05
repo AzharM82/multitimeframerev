@@ -6,7 +6,7 @@ const STATUS_COLORS: Record<BullStatus, string> = {
   OPEN: "bg-accent/15 text-accent border-accent/40",
   TP_HIT: "bg-signal-bull/15 text-signal-bull border-signal-bull/40",
   SL_HIT: "bg-signal-bear/15 text-signal-bear border-signal-bear/40",
-  EXPIRED: "bg-slate-500/15 text-slate-400 border-slate-500/40",
+  EXPIRED: "bg-slate-500/15 text-slate-600 border-slate-500/40",
 };
 
 type SortKey =
@@ -75,7 +75,7 @@ function Row({ row, onRemove }: { row: EnrichedRow; onRemove: () => void }) {
           {row.ticker}
         </a>
       </td>
-      <td className="py-2 px-3 text-right tabular-nums text-emerald-300/80">${row.entry.toFixed(2)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-emerald-700/90">${row.entry.toFixed(2)}</td>
       <td className="py-2 px-3 text-right tabular-nums text-signal-bear/80">${row.sl.toFixed(2)}</td>
       <td className="py-2 px-3 text-right tabular-nums text-xs">{row._slPct.toFixed(2)}%</td>
       <td className="py-2 px-3 text-right tabular-nums text-signal-bull/80">${row.tp.toFixed(2)}</td>
