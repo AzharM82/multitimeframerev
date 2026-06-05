@@ -1,6 +1,7 @@
 import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
 import { listByPartition, getOne, upsert, remove, TABLES } from "../lib/tables.js";
 import { fetchSnapshotPrices } from "../lib/polygon.js";
+import { pacificDateKey } from "../lib/dates.js";
 
 interface BullListRow {
   partitionKey: string;
@@ -49,7 +50,7 @@ async function postHandler(req: HttpRequest): Promise<HttpResponseInit> {
     return { status: 400, jsonBody: { error: "ticker, entry, sl, tp required" } };
   }
 
-  const date = new Date().toISOString().split("T")[0];
+  const date = pacificDateKey();
   const rowKey = `${date}_${body.ticker.toUpperCase()}`;
   const row: BullListRow = {
     partitionKey: "open",

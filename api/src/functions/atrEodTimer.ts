@@ -4,6 +4,7 @@ import { fetchDailyBarsExtended } from "../lib/polygon.js";
 import { pullUniverse } from "../lib/atrUniverse.js";
 import { computeStock, finalize, MIN_BARS, type AtrStock } from "../lib/atrMatrix.js";
 import { upsert, TABLES } from "../lib/tables.js";
+import { pacificDateKey } from "../lib/dates.js";
 
 // Polygon-friendly batching (same shape as the AVWAP EOD timer).
 const BATCH_SIZE = 10;
@@ -14,9 +15,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function todayKey(): string {
-  // Pacific calendar date (en-CA → YYYY-MM-DD). Avoids the UTC-rollover bug
-  // where an evening-PT run stamps the next day's date.
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  return pacificDateKey();
 }
 
 /**

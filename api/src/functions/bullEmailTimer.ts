@@ -3,6 +3,7 @@ import { fetchBullAlerts } from "../lib/imap.js";
 import { fetchDailyBarsExtended } from "../lib/polygon.js";
 import { computeLevels } from "../lib/levels.js";
 import { upsert, getOne, TABLES } from "../lib/tables.js";
+import { pacificDateKey } from "../lib/dates.js";
 
 interface BullListRow {
   partitionKey: string;
@@ -20,7 +21,7 @@ interface BullListRow {
 }
 
 function todayKey(): string {
-  return new Date().toISOString().split("T")[0];
+  return pacificDateKey();
 }
 
 async function bullEmailHandler(

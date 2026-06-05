@@ -4,7 +4,7 @@ import aboutMd from "../../docs/ABOUT.md?raw";
 
 export function AboutPage() {
   return (
-    <div className="bg-bg-card border border-border rounded-lg p-6 md:p-8 prose prose-invert max-w-none">
+    <div className="bg-bg-card border border-border rounded-lg p-6 md:p-8 prose max-w-none">
       <article
         className="
           [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:text-text-primary

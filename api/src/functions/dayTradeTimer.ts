@@ -3,6 +3,7 @@ import { fetchAllTimeframes } from "../lib/polygon.js";
 import { computeZigZag } from "../lib/indicators.js";
 import { listByPartition, getOne, upsert, listAll, TABLES } from "../lib/tables.js";
 import { enqueueWhatsApp } from "../lib/queue.js";
+import { pacificDateKey } from "../lib/dates.js";
 
 const PUSHOVER_URL = "https://api.pushover.net/1/messages.json";
 const FRESH_BARS = 2; // U1 must have fired within last N 10m bars
@@ -70,7 +71,7 @@ interface AlertLogRow {
 }
 
 async function shouldDedup(ticker: string): Promise<boolean> {
-  const date = new Date().toISOString().split("T")[0];
+  const date = pacificDateKey();
   const recent = await listByPartition<AlertLogRow>(TABLES.ALERT_LOG, date);
   const cutoff = Date.now() - DEDUP_MINUTES * 60_000;
   return recent.some((r) => r.ticker === ticker && new Date(r.firedAt).getTime() > cutoff);
@@ -83,7 +84,7 @@ async function logAlert(
   sl?: number,
   slPct?: number,
 ): Promise<void> {
-  const date = new Date().toISOString().split("T")[0];
+  const date = pacificDateKey();
   const rowKey = `${Date.now()}_${ticker}`;
   await upsert(TABLES.ALERT_LOG, date, rowKey, {
     ticker,

@@ -4,13 +4,14 @@ import { scanAvwap, type AvwapHit } from "../lib/avwap.js";
 import { getCapitulationTickers } from "../lib/capitulationTickers.js";
 import { upsert, TABLES } from "../lib/tables.js";
 import { sendHtmlEmail } from "../lib/email.js";
+import { pacificDateKey } from "../lib/dates.js";
 
 const BATCH_SIZE = 10;
 const BATCH_DELAY_MS = 500;
 const TOP_N = 30;
 
 function todayKey(): string {
-  return new Date().toISOString().split("T")[0];
+  return pacificDateKey();
 }
 
 function sleep(ms: number): Promise<void> {
