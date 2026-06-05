@@ -383,6 +383,7 @@ export function AtrMatrixPage() {
           <Stat label="Showing" value={filtered.length} />
           <Stat label="Avg ATR%" value={data ? `${data.avgAtrPct}%` : "—"} />
           <Stat label="Buyable" value={filtered.filter((r) => r.action === "buy").length} color="text-signal-bull" />
+          <Stat label="Sell" value={filtered.filter((r) => r.action === "sell").length} color="text-signal-bear" />
           <Stat label="7x+ Ext" value={filtered.filter((r) => r.bucket >= 7).length} color="text-orange-600" />
           <Stat label="As of" value={data?.asOf ?? "—"} />
         </div>
