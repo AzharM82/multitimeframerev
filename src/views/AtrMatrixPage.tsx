@@ -177,6 +177,17 @@ function MarketPosture({ data, error }: { data: BreadthResponse | null; error: s
 
 // ─── stat card ──────────────────────────────────────────────────────────────
 
+function Info({ tip }: { tip: string }) {
+  return (
+    <span
+      title={tip}
+      className="inline-flex items-center justify-center w-3.5 h-3.5 shrink-0 rounded-full border border-current text-[9px] font-bold leading-none cursor-help opacity-50 hover:opacity-100"
+    >
+      i
+    </span>
+  );
+}
+
 function Stat({ label, value, color }: { label: string; value: string | number; color?: string }) {
   return (
     <div className="bg-bg-card border border-border rounded px-3 py-2 min-w-[92px]">
@@ -345,15 +356,14 @@ export function AtrMatrixPage() {
     return rows;
   }, [stocks, search, fAtr, fTrend, fAction, fSector, fCandidate, fRvol]);
 
+  // Action dropdown drives Focus; when it's "all", the buy/sell toggle (breadth-defaulted) does.
+  const focusAction: AtrAction = (fAction || focusMode) as AtrAction;
   const focus = useMemo(() => {
-    if (focusMode === "sell") {
-      // exits / breakdowns — below SMA50, most-broken first
-      return stocks.filter((s) => s.action === "sell").sort((a, b) => a.ext - b.ext);
+    if (focusAction === "buy") {
+      return stocks.filter((s) => s.action === "buy" && s.ext >= 0 && s.ext <= 4 && s.atrRS >= 50).sort((a, b) => a.ext - b.ext);
     }
-    return stocks
-      .filter((s) => s.action === "buy" && s.ext >= 0 && s.ext <= 4 && s.atrRS >= 50)
-      .sort((a, b) => a.ext - b.ext);
-  }, [stocks, focusMode]);
+    return stocks.filter((s) => s.action === focusAction).sort((a, b) => a.ext - b.ext);
+  }, [stocks, focusAction]);
 
   const above = filtered.filter((s) => s.aboveSMA50).length;
   const breadthPct = filtered.length ? Math.round((100 * above) / filtered.length) : 0;
@@ -427,23 +437,30 @@ export function AtrMatrixPage() {
         />
         <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
           <input type="checkbox" checked={fAtr} onChange={(e) => setFAtr(e.target.checked)} /> above-avg ATR
+          <Info tip="Only names with ATR-RS ≥ 50 — above-median volatility within the universe (more daily range to swing)." />
         </label>
         <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
           <input type="checkbox" checked={fTrend} onChange={(e) => setFTrend(e.target.checked)} /> trend-aligned
+          <Info tip="Only names with a structure score of 5–6 out of 6 — a clean moving-average uptrend stack (price ≥ SMA20 ≥ SMA50 ≥ SMA200)." />
         </label>
         <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
           <input type="checkbox" checked={fRvol} onChange={(e) => setFRvol(e.target.checked)} /> high RVOL
+          <Info tip="Only names trading ≥ 1.5× their average daily volume — volume confirmation behind the move (🔥 marks ≥ 2×)." />
         </label>
         <label className="flex items-center gap-1.5 text-xs font-semibold text-accent cursor-pointer">
           <input type="checkbox" checked={fCandidate} onChange={(e) => setFCandidate(e.target.checked)} /> trending candidates
+          <Info tip="Re-applies the original swing screener within the universe: mid-cap+, price > $10, avg vol > 750K, ATR > 1.5, weekly volatility > 3%, and SMA20 > SMA50 > SMA200." />
         </label>
-        <select value={fAction} onChange={(e) => setFAction(e.target.value)} className="rounded px-2 py-1 text-xs">
-          <option value="">action: all</option>
-          {(["buy", "reduce", "sell", "hold"] as AtrAction[]).map((a) => (
-            <option key={a} value={a}>action: {a}</option>
-          ))}
-        </select>
-        <select value={fSector} onChange={(e) => setFSector(e.target.value)} className="rounded px-2 py-1 text-xs max-w-[160px]">
+        <span className="flex items-center gap-1">
+          <select value={fAction} onChange={(e) => setFAction(e.target.value)} className="rounded px-2 py-1 text-xs">
+            <option value="">action: all</option>
+            {(["buy", "reduce", "sell", "hold"] as AtrAction[]).map((a) => (
+              <option key={a} value={a}>action: {a}</option>
+            ))}
+          </select>
+          <Info tip="Daily action signal: sell (below SMA50) · reduce (below SMA20) · buy (aligned, 0–4x, above-avg ATR-RS) · hold. Also sets which list the Focus panel shows." />
+        </span>
+        <select value={fSector} onChange={(e) => setFSector(e.target.value)} className="rounded px-2 py-1 text-xs max-w-[160px]" title="Filter to a single sector.">
           <option value="">sector: all</option>
           {sectors.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
@@ -486,31 +503,35 @@ export function AtrMatrixPage() {
         <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
           <div>
             <h3 className="section-header text-sm font-bold">
-              {focusMode === "sell" ? "Sell Focus" : "Morning Focus"}
+              {focusAction === "sell" ? "Sell Focus" : focusAction === "buy" ? "Morning Focus" : `Focus · ${focusAction}`}
               <span className="text-accent font-normal text-xs normal-case tracking-normal"> · for next open{data?.asOf ? ` (from ${data.asOf} close)` : ""}</span>
             </h3>
             <div className="text-[11px] text-text-secondary normal-case tracking-normal">
-              {focusMode === "sell"
+              {focusAction === "buy"
+                ? "buy · 0–4x · ATR RS ≥ 50 · least-extended first"
+                : focusAction === "sell"
                 ? "below SMA50 · breakdowns to exit / avoid · most-broken first"
-                : "buy · 0–4x · ATR RS ≥ 50 · least-extended first"}
-              {" · EOD list · "}
-              <span className={marketBias === "sell" ? "text-red-700" : "text-emerald-700"}>
-                index breadth → {marketBias === "sell" ? "defensive (sell bias)" : "buying environment"}
-              </span>
+                : `action = ${focusAction} · sorted by extension`}
+              {" · EOD list"}
+              {fAction
+                ? " · from action filter"
+                : <> {"· "}<span className={marketBias === "sell" ? "text-red-700" : "text-emerald-700"}>index breadth → {marketBias === "sell" ? "defensive (sell bias)" : "buying environment"}</span></>}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex rounded overflow-hidden border border-border">
-              {(["buy", "sell"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => { setFocusMode(m); setFocusTouched(true); }}
-                  className={`px-3 py-1 text-xs font-bold uppercase ${focusMode === m ? (m === "sell" ? "bg-red-600 text-white" : "bg-emerald-600 text-white") : "bg-bg-card text-text-secondary hover:text-text-primary"}`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
+            {!fAction && (
+              <div className="flex rounded overflow-hidden border border-border">
+                {(["buy", "sell"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => { setFocusMode(m); setFocusTouched(true); }}
+                    className={`px-3 py-1 text-xs font-bold uppercase ${focusMode === m ? (m === "sell" ? "bg-red-600 text-white" : "bg-emerald-600 text-white") : "bg-bg-card text-text-secondary hover:text-text-primary"}`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
             {focus.length > 0 && (
               <button
                 onClick={() => navigator.clipboard.writeText(focus.map((s) => `$${s.ticker}`).join(" "))}
@@ -523,7 +544,9 @@ export function AtrMatrixPage() {
         </div>
         {focus.length === 0 ? (
           <div className="text-xs text-text-secondary py-2">
-            {focusMode === "sell" ? "No breakdown (sell-action) names in the current scan." : "No buy-action, 0–4x candidates in the current scan."}
+            {focusAction === "buy"
+              ? "No buy-action, 0–4x candidates in the current scan."
+              : `No ${focusAction}-action names in the current scan.`}
           </div>
         ) : (
           <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))" }}>
