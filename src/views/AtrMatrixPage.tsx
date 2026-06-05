@@ -60,6 +60,37 @@ function isCandidate(s: AtrStock): boolean {
   );
 }
 
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/* Composite setup score (0–100) — blends the four swing-entry factors:
+   extension proximity to the ideal entry, trend structure, relative strength,
+   and volume confirmation. Long-entry oriented, so below-SMA50 / extended /
+   weak names score low. */
+function extProximity(ext: number): number {
+  let v = 100 - Math.abs(ext - 1.5) * 11; // peak at ~1.5x (in trend, room to run)
+  if (ext < 0) v -= 25;                    // extra penalty below SMA50
+  if (ext > 6) v -= 15;                    // extra penalty when extended
+  return clamp(v, 0, 100);
+}
+function setupScore(s: AtrStock): number {
+  const extS = extProximity(s.ext);
+  const structS = (s.structure / 6) * 100;
+  const rsS = s.rs ?? 50;
+  const rvolS = clamp((s.rvol ?? 1) * 50, 0, 100); // 1×→50, 2×→100
+  return Math.round(0.3 * extS + 0.25 * structS + 0.25 * rsS + 0.2 * rvolS);
+}
+/** Green→red background tint by score (midpoint 50). */
+function scoreFill(score: number): string {
+  if (score >= 60) return "bg-emerald-100";
+  if (score >= 50) return "bg-emerald-50";
+  if (score <= 35) return "bg-red-100";
+  if (score < 50) return "bg-red-50";
+  return "bg-bg-card";
+}
+function scoreText(score: number): string {
+  return score >= 50 ? "text-emerald-700" : "text-red-700";
+}
+
 // ─── tooltip ────────────────────────────────────────────────────────────────
 
 interface TipState { s: AtrStock; x: number; y: number }
@@ -82,7 +113,11 @@ function Tooltip({ tip }: { tip: TipState | null }) {
       className="fixed z-50 w-60 p-3 rounded border border-border bg-bg-card text-xs shadow-lg pointer-events-none space-y-0.5"
       style={style}
     >
-      <div className="font-bold text-sm mb-1 truncate">{s.ticker} · <span className="text-text-secondary font-normal">{s.company}</span></div>
+      <div className="flex items-center justify-between mb-1">
+        <div className="font-bold text-sm truncate">{s.ticker}</div>
+        <div className={`text-sm font-bold tabular-nums ${scoreText(setupScore(s))}`}>{setupScore(s)}<span className="text-text-secondary font-normal text-[10px]">/100</span></div>
+      </div>
+      <div className="text-text-secondary text-[10px] mb-1 truncate">{s.company}</div>
       <Row k="close" v={`$${s.close} (${fmtPct(s.chg)})`} />
       <Row k="ATR" v={`$${s.atr} · ${s.atrPct}%`} />
       <Row k="ATR RS" v={`${s.atrRS}`} />
@@ -100,13 +135,15 @@ function Tooltip({ tip }: { tip: TipState | null }) {
 // ─── chip ───────────────────────────────────────────────────────────────────
 
 function Chip({ s, onHover, onLeave }: { s: AtrStock; onHover: (t: TipState) => void; onLeave: () => void }) {
+  const score = setupScore(s);
   return (
     <button
       onClick={() => window.open(TV(s.ticker), "_blank", "noopener")}
       onMouseEnter={(e) => onHover({ s, x: e.clientX, y: e.clientY })}
       onMouseMove={(e) => onHover({ s, x: e.clientX, y: e.clientY })}
       onMouseLeave={onLeave}
-      className={`flex items-center justify-between gap-1 w-full px-1.5 py-0.5 rounded border-l-2 border bg-bg-card hover:bg-bg-secondary text-[11px] leading-tight ${ACTION_BORDER[s.action]} ${s.bucket >= 7 ? "font-bold" : ""}`}
+      title={`Setup score ${score}/100`}
+      className={`flex items-center justify-between gap-1 w-full px-1.5 py-0.5 rounded border-l-2 border hover:brightness-95 text-[11px] leading-tight ${scoreFill(score)} ${ACTION_BORDER[s.action]} ${s.bucket >= 7 ? "font-bold" : ""}`}
     >
       <span className="font-bold truncate">
         {(s.rvol ?? 0) >= 2 && <span title={`RVOL ${s.rvol}×`}>🔥</span>}
@@ -222,6 +259,7 @@ function StockDetail({ res, onClose }: { res: AtrLookupResponse; onClose: () => 
             <span className={`px-2 py-0.5 text-[10px] font-bold border rounded ${zone.tint} ${zone.text} ${zone.border}`}>{s.zone}</span>
             <span className={`px-2 py-0.5 text-[10px] font-bold uppercase border-l-2 border rounded ${ACTION_BORDER[s.action]}`}>{s.action}</span>
             <span className="px-2 py-0.5 text-[10px] font-bold border border-border rounded">{s.grade}</span>
+            <span className={`px-2 py-0.5 text-[11px] font-bold rounded ${scoreFill(setupScore(s))} ${scoreText(setupScore(s))}`}>setup {setupScore(s)}/100</span>
             {!res.inUniverse && <span className="text-[10px] text-text-secondary">· looked up — not in S&P 500 / Nasdaq 100 (RS &amp; ATR-RS ranked vs that universe)</span>}
           </div>
           <div className="text-xs text-text-secondary mt-1">{s.company} · {s.sector} · {s.industry}</div>
@@ -360,9 +398,14 @@ export function AtrMatrixPage() {
   const focusAction: AtrAction = (fAction || focusMode) as AtrAction;
   const focus = useMemo(() => {
     if (focusAction === "buy") {
-      return stocks.filter((s) => s.action === "buy" && s.ext >= 0 && s.ext <= 4 && s.atrRS >= 50).sort((a, b) => a.ext - b.ext);
+      return stocks
+        .filter((s) => s.action === "buy" && s.ext >= 0 && s.ext <= 4 && s.atrRS >= 50)
+        .sort((a, b) => setupScore(b) - setupScore(a)); // best setups first
     }
-    return stocks.filter((s) => s.action === focusAction).sort((a, b) => a.ext - b.ext);
+    if (focusAction === "sell") {
+      return stocks.filter((s) => s.action === "sell").sort((a, b) => a.ext - b.ext); // most-broken first
+    }
+    return stocks.filter((s) => s.action === focusAction).sort((a, b) => setupScore(b) - setupScore(a));
   }, [stocks, focusAction]);
 
   const above = filtered.filter((s) => s.aboveSMA50).length;
@@ -481,7 +524,9 @@ export function AtrMatrixPage() {
         <span className="text-orange-600">extended (7–10)</span>
         <span className="text-fuchsia-700">blow-off (11+)</span>
         <span className="opacity-50">·</span>
-        <span>🔥 = RVOL ≥ 2× (volume confirmation)</span>
+        <span>🔥 = RVOL ≥ 2×</span>
+        <span className="opacity-50">·</span>
+        <span>fill = setup score (<span className="text-emerald-700">green ≥ 50</span> / <span className="text-red-700">red &lt; 50</span>) — ext + structure + RS + RVOL, hover for the number</span>
       </div>
 
       {/* reverse lookup */}
@@ -508,7 +553,7 @@ export function AtrMatrixPage() {
             </h3>
             <div className="text-[11px] text-text-secondary normal-case tracking-normal">
               {focusAction === "buy"
-                ? "buy · 0–4x · ATR RS ≥ 50 · least-extended first"
+                ? "buy · 0–4x · ATR RS ≥ 50 · ranked by setup score"
                 : focusAction === "sell"
                 ? "below SMA50 · breakdowns to exit / avoid · most-broken first"
                 : `action = ${focusAction} · sorted by extension`}
@@ -615,7 +660,7 @@ function ExtensionView({ rows, isolate, setIsolate, onHover, onLeave }: {
               </button>
               {/* ticker chips */}
               <div className="flex flex-col gap-0.5 p-0.5">
-                {list.sort((a, c) => a.ext - c.ext).map((s) => <Chip key={s.ticker} s={s} onHover={onHover} onLeave={onLeave} />)}
+                {list.sort((a, c) => setupScore(c) - setupScore(a)).map((s) => <Chip key={s.ticker} s={s} onHover={onHover} onLeave={onLeave} />)}
               </div>
             </div>
           );
@@ -655,7 +700,7 @@ function RtsView({ rows, onHover, onLeave }: { rows: AtrStock[]; onHover: (t: Ti
                 <span className="text-[10px] text-text-secondary tabular-nums">{cols[g].length}</span>
               </div>
               <div className="flex flex-col gap-0.5 p-0.5">
-                {cols[g].sort((a, b) => b.rs - a.rs).map((s) => <Chip key={s.ticker} s={s} onHover={onHover} onLeave={onLeave} />)}
+                {cols[g].sort((a, b) => setupScore(b) - setupScore(a)).map((s) => <Chip key={s.ticker} s={s} onHover={onHover} onLeave={onLeave} />)}
               </div>
             </div>
           ))}
