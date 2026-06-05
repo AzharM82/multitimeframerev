@@ -2,6 +2,7 @@ import type {
   AvwapResultsResponse,
   BullListResponse,
   AtrScanResponse,
+  AtrLookupResponse,
   BreadthResponse,
 } from "../types.js";
 
@@ -46,6 +47,10 @@ export function getAtrScan(): Promise<AtrScanResponse> {
 
 export function getBreadth(): Promise<BreadthResponse> {
   return request<BreadthResponse>("/breadth");
+}
+
+export function getAtrLookup(ticker: string): Promise<AtrLookupResponse> {
+  return request<AtrLookupResponse>(`/atr-lookup?ticker=${encodeURIComponent(ticker.toUpperCase())}`);
 }
 
 // ─── Day Trade Alerts (lightweight feed for the Day Trades page) ──────────

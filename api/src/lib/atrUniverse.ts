@@ -113,3 +113,18 @@ export async function pullMatrixUniverse(): Promise<FinvizMatrixRow[]> {
   if (byTicker.size === 0) throw new Error("Finviz returned no ATR Matrix constituents");
   return [...byTicker.values()];
 }
+
+/** Fetch a single ticker's matrix row from Finviz (for the reverse lookup of a
+ *  symbol that isn't in the S&P 500 / Nasdaq 100 universe). Returns null if the
+ *  symbol is unknown or lacks the needed columns. */
+export async function fetchTickerRow(ticker: string): Promise<FinvizMatrixRow | null> {
+  const t = ticker.trim().toUpperCase();
+  if (!t || !isEliteConfigured()) return null;
+  const url = `https://elite.finviz.com/export?v=152&t=${encodeURIComponent(t)}&c=${MATRIX_COLUMNS}`;
+  const rows = await fetchExportFromUrl(url, `atr-lookup:${t}`);
+  for (const raw of rows) {
+    const parsed = parseRow(raw, "LOOKUP");
+    if (parsed && parsed.ticker === t) return parsed;
+  }
+  return null;
+}

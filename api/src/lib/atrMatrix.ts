@@ -314,3 +314,32 @@ export function finalize(
     };
   });
 }
+
+/** Percentile (0–100) of `val` within `arr` — share of values ≤ val. */
+function percentileOf(val: number, arr: number[]): number {
+  if (arr.length === 0) return 50;
+  let le = 0;
+  for (const x of arr) if (x <= val) le++;
+  return Math.round((le / arr.length) * 100);
+}
+
+/**
+ * Finalize a single ticker by ranking it against an already-finalized universe
+ * (used by the reverse lookup for symbols outside the scanned set). Percentiles
+ * are relative to that universe, so the grade/RS read as "vs the S&P 500 + NDX".
+ */
+export function finalizeAgainst(
+  core: NamedCore,
+  universe: AtrStock[],
+  actionFn: (s: NamedCore, atrRS: number) => AtrAction = action,
+): AtrStock {
+  const atrRS = percentileOf(core.atrPct, universe.map((u) => u.atrPct));
+  const rs = Math.round(Math.max(
+    percentileOf(core.r1w, universe.map((u) => u.r1w)),
+    percentileOf(core.r1m, universe.map((u) => u.r1m)),
+    percentileOf(core.r3m, universe.map((u) => u.r3m)),
+    percentileOf(core.r6m, universe.map((u) => u.r6m)),
+  ));
+  const grade = (LETTER[core.structure] ?? "G") + (rs >= 67 ? "+" : rs <= 33 ? "-" : "");
+  return { ...core, atrRS, rs, grade, action: actionFn(core, atrRS) };
+}

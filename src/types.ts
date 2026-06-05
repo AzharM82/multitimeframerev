@@ -310,6 +310,11 @@ export interface AtrStock {
   action: AtrAction;
 }
 
+export interface AtrLookupResponse {
+  stock: AtrStock;
+  inUniverse: boolean;
+}
+
 export interface AtrScanResponse {
   generated: string;
   asOf: string;

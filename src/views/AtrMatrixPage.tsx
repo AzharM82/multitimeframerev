@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import type { AtrStock, AtrScanResponse, AtrZone, AtrAction, AtrPosition, BreadthResponse, BreadthStats, Posture } from "../types.js";
-import { getAtrScan, getBreadth } from "../services/api.js";
+import type { AtrStock, AtrScanResponse, AtrLookupResponse, AtrZone, AtrAction, AtrPosition, BreadthResponse, BreadthStats, Posture } from "../types.js";
+import { getAtrScan, getBreadth, getAtrLookup } from "../services/api.js";
 
 /* ATR Matrix — swing extension scanner. EOD-only: the snapshot is produced once
    after close by atr-eod-timer. Warm "newspaper" theme. Framework credit:
@@ -32,8 +32,6 @@ const ACTION_BORDER: Record<AtrAction, string> = {
 };
 const ACTION_LABEL: { key: AtrAction; cls: string }[] = [
   { key: "buy", cls: "text-emerald-700" },
-  { key: "inflection", cls: "text-orange-600" },
-  { key: "restore", cls: "text-amber-700" },
   { key: "reduce", cls: "text-sky-700" },
   { key: "sell", cls: "text-red-700" },
 ];
@@ -188,6 +186,67 @@ function Stat({ label, value, color }: { label: string; value: string | number; 
   );
 }
 
+// ─── reverse-lookup detail card ─────────────────────────────────────────────
+
+function DetailItem({ k, v, cls }: { k: string; v: string; cls?: string }) {
+  return (
+    <div className="bg-bg-secondary rounded px-2 py-1.5">
+      <div className="card-header text-text-secondary">{k}</div>
+      <div className={`font-bold tabular-nums text-sm mt-0.5 ${cls ?? ""}`}>{v}</div>
+    </div>
+  );
+}
+
+function StockDetail({ res, onClose }: { res: AtrLookupResponse; onClose: () => void }) {
+  const s = res.stock;
+  const zone = ZONE[s.zone];
+  const chgCls = s.chg >= 0 ? "text-signal-bull" : "text-signal-bear";
+  return (
+    <div className="bg-bg-card border-2 border-accent rounded p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <a href={TV(s.ticker)} target="_blank" rel="noopener" className="text-xl font-black text-accent hover:underline">{s.ticker}</a>
+            {(s.rvol ?? 0) >= 2 && <span title={`RVOL ${s.rvol}×`}>🔥</span>}
+            <span className={`px-2 py-0.5 text-[10px] font-bold border rounded ${zone.tint} ${zone.text} ${zone.border}`}>{s.zone}</span>
+            <span className={`px-2 py-0.5 text-[10px] font-bold uppercase border-l-2 border rounded ${ACTION_BORDER[s.action]}`}>{s.action}</span>
+            <span className="px-2 py-0.5 text-[10px] font-bold border border-border rounded">{s.grade}</span>
+            {!res.inUniverse && <span className="text-[10px] text-text-secondary">· looked up — not in S&P 500 / Nasdaq 100 (RS &amp; ATR-RS ranked vs that universe)</span>}
+          </div>
+          <div className="text-xs text-text-secondary mt-1">{s.company} · {s.sector} · {s.industry}</div>
+        </div>
+        <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-lg leading-none">✕</button>
+      </div>
+
+      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2 mt-3">
+        <DetailItem k="Price" v={`$${s.close}`} />
+        <DetailItem k="Change" v={fmtPct(s.chg)} cls={chgCls} />
+        <DetailItem k="Extension" v={`${s.ext}x`} cls={zone.text} />
+        <DetailItem k="Structure" v={`${s.structure}/6`} />
+        <DetailItem k="RS pctile" v={`${s.rs}`} />
+        <DetailItem k="ATR RS" v={`${s.atrRS}`} />
+        <DetailItem k="RVOL" v={s.rvol != null ? `${s.rvol}×` : "—"} cls={(s.rvol ?? 0) >= 2 ? "text-orange-600" : ""} />
+        <DetailItem k="ATR" v={`$${s.atr} · ${s.atrPct}%`} />
+        <DetailItem k="20d $vol" v={`$${s.dvol}M`} />
+        <DetailItem k="SMA50" v={`$${s.sma50}`} />
+        <DetailItem k="Suggested stop" v={`$${s.stopSuggest}`} cls="text-signal-bear" />
+        <DetailItem k="Above SMA50" v={s.aboveSMA50 ? "yes" : "no"} cls={s.aboveSMA50 ? "text-signal-bull" : "text-signal-bear"} />
+      </div>
+
+      <div className="mt-3">
+        <div className="card-header text-text-secondary mb-1">Scale-out ladder · trim levels (ext reaches k×)</div>
+        <div className="flex flex-wrap gap-1">
+          {Object.entries(s.ladder).map(([k, v]) => (
+            <span key={k} className={`px-1.5 py-0.5 text-[11px] rounded border ${s.close >= (v as number) ? "border-emerald-600 text-emerald-700" : "border-border text-text-secondary"}`}>
+              {k}x ${v}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── page ───────────────────────────────────────────────────────────────────
 
 export function AtrMatrixPage() {
@@ -208,6 +267,11 @@ export function AtrMatrixPage() {
   const [positions, setPositions] = useState<AtrPosition[]>([]);
   const [breadth, setBreadth] = useState<BreadthResponse | null>(null);
   const [breadthErr, setBreadthErr] = useState<string | null>(null);
+  const [lookup, setLookup] = useState<AtrLookupResponse | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupErr, setLookupErr] = useState<string | null>(null);
+  const [focusMode, setFocusMode] = useState<"buy" | "sell">("buy");
+  const [focusTouched, setFocusTouched] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -237,6 +301,33 @@ export function AtrMatrixPage() {
 
   const stocks = data?.stocks ?? [];
 
+  // Market bias from index breadth → default Focus to buy or sell.
+  const marketBias: "buy" | "sell" = useMemo(() => {
+    const inds = breadth?.indices ?? [];
+    if (!inds.length) return "buy";
+    const off = inds.filter((i) => i.posture === "RISK_OFF").length;
+    const on = inds.filter((i) => i.posture === "RISK_ON").length;
+    return off > on ? "sell" : "buy";
+  }, [breadth]);
+  useEffect(() => { if (!focusTouched) setFocusMode(marketBias); }, [marketBias, focusTouched]);
+
+  async function doLookup(raw: string) {
+    const t = raw.trim().toUpperCase();
+    if (!t) return;
+    setLookupErr(null);
+    const local = stocks.find((s) => s.ticker === t);
+    if (local) { setLookup({ stock: local, inUniverse: true }); return; }
+    setLookupLoading(true);
+    try {
+      setLookup(await getAtrLookup(t));
+    } catch (e) {
+      setLookupErr(e instanceof Error ? e.message : "lookup failed");
+      setLookup(null);
+    } finally {
+      setLookupLoading(false);
+    }
+  }
+
   const sectors = useMemo(
     () => [...new Set(stocks.map((s) => s.sector).filter(Boolean))].sort(),
     [stocks],
@@ -254,10 +345,15 @@ export function AtrMatrixPage() {
     return rows;
   }, [stocks, search, fAtr, fTrend, fAction, fSector, fCandidate, fRvol]);
 
-  const focus = useMemo(
-    () => stocks.filter((s) => s.action === "buy" && s.ext >= 0 && s.ext <= 4 && s.atrRS >= 50).sort((a, b) => a.ext - b.ext),
-    [stocks],
-  );
+  const focus = useMemo(() => {
+    if (focusMode === "sell") {
+      // exits / breakdowns — below SMA50, most-broken first
+      return stocks.filter((s) => s.action === "sell").sort((a, b) => a.ext - b.ext);
+    }
+    return stocks
+      .filter((s) => s.action === "buy" && s.ext >= 0 && s.ext <= 4 && s.atrRS >= 50)
+      .sort((a, b) => a.ext - b.ext);
+  }, [stocks, focusMode]);
 
   const above = filtered.filter((s) => s.aboveSMA50).length;
   const breadthPct = filtered.length ? Math.round((100 * above) / filtered.length) : 0;
@@ -324,8 +420,9 @@ export function AtrMatrixPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="search ticker…"
-          className="bg-bg-card border border-border rounded px-2 py-1 text-sm w-36 focus:outline-none focus:border-accent"
+          onKeyDown={(e) => { if (e.key === "Enter") doLookup(search); }}
+          placeholder="ticker… (Enter = look up any symbol)"
+          className="bg-bg-card border border-border rounded px-2 py-1 text-sm w-52 focus:outline-none focus:border-accent"
         />
         <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
           <input type="checkbox" checked={fAtr} onChange={(e) => setFAtr(e.target.checked)} /> above-avg ATR
@@ -341,7 +438,7 @@ export function AtrMatrixPage() {
         </label>
         <select value={fAction} onChange={(e) => setFAction(e.target.value)} className="rounded px-2 py-1 text-xs">
           <option value="">action: all</option>
-          {(["buy", "inflection", "restore", "reduce", "sell", "hold"] as AtrAction[]).map((a) => (
+          {(["buy", "reduce", "sell", "hold"] as AtrAction[]).map((a) => (
             <option key={a} value={a}>action: {a}</option>
           ))}
         </select>
@@ -369,27 +466,64 @@ export function AtrMatrixPage() {
         <span>🔥 = RVOL ≥ 2× (volume confirmation)</span>
       </div>
 
-      {/* morning focus */}
+      {/* reverse lookup */}
+      {(lookup || lookupLoading || lookupErr) && (
+        <div>
+          {lookupLoading && <div className="text-xs text-text-secondary py-2">Looking up…</div>}
+          {lookupErr && (
+            <div className="p-3 bg-signal-bear/10 border border-signal-bear/30 rounded text-signal-bear text-sm flex items-center justify-between">
+              <span>Lookup failed: {lookupErr}</span>
+              <button onClick={() => setLookupErr(null)} className="hover:text-text-primary">✕</button>
+            </div>
+          )}
+          {lookup && <StockDetail res={lookup} onClose={() => setLookup(null)} />}
+        </div>
+      )}
+
+      {/* focus — buy or sell, defaulted by index breadth */}
       <div className="bg-bg-card border border-border rounded p-3">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
           <div>
             <h3 className="section-header text-sm font-bold">
-              Morning Focus
+              {focusMode === "sell" ? "Sell Focus" : "Morning Focus"}
               <span className="text-accent font-normal text-xs normal-case tracking-normal"> · for next open{data?.asOf ? ` (from ${data.asOf} close)` : ""}</span>
             </h3>
-            <div className="text-[11px] text-text-secondary normal-case tracking-normal">buy · 0–4x · ATR RS ≥ 50 · least-extended first · EOD list, not live</div>
+            <div className="text-[11px] text-text-secondary normal-case tracking-normal">
+              {focusMode === "sell"
+                ? "below SMA50 · breakdowns to exit / avoid · most-broken first"
+                : "buy · 0–4x · ATR RS ≥ 50 · least-extended first"}
+              {" · EOD list · "}
+              <span className={marketBias === "sell" ? "text-red-700" : "text-emerald-700"}>
+                index breadth → {marketBias === "sell" ? "defensive (sell bias)" : "buying environment"}
+              </span>
+            </div>
           </div>
-          {focus.length > 0 && (
-            <button
-              onClick={() => navigator.clipboard.writeText(focus.map((s) => `$${s.ticker}`).join(" "))}
-              className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary border border-border rounded"
-            >
-              copy $tickers
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            <div className="flex rounded overflow-hidden border border-border">
+              {(["buy", "sell"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => { setFocusMode(m); setFocusTouched(true); }}
+                  className={`px-3 py-1 text-xs font-bold uppercase ${focusMode === m ? (m === "sell" ? "bg-red-600 text-white" : "bg-emerald-600 text-white") : "bg-bg-card text-text-secondary hover:text-text-primary"}`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            {focus.length > 0 && (
+              <button
+                onClick={() => navigator.clipboard.writeText(focus.map((s) => `$${s.ticker}`).join(" "))}
+                className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary border border-border rounded"
+              >
+                copy $tickers
+              </button>
+            )}
+          </div>
         </div>
         {focus.length === 0 ? (
-          <div className="text-xs text-text-secondary py-2">No buy-action, 0–4x candidates in the current scan.</div>
+          <div className="text-xs text-text-secondary py-2">
+            {focusMode === "sell" ? "No breakdown (sell-action) names in the current scan." : "No buy-action, 0–4x candidates in the current scan."}
+          </div>
         ) : (
           <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))" }}>
             {focus.map((s) => <Chip key={s.ticker} s={s} onHover={onHover} onLeave={onLeave} />)}

@@ -31,6 +31,7 @@ import "./functions/paperTrades.js";
 // ATR Matrix (swing extension scanner)
 import "./functions/atrEodTimer.js";
 import "./functions/atrScan.js";
+import "./functions/atrLookup.js";
 
 // Market breadth / health gauge
 import "./functions/breadth.js";
