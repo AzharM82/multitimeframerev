@@ -25,7 +25,7 @@ function addAuth(url: string): string {
   return `${url}${sep}auth=${key}`;
 }
 
-function fetchUrl(url: string, timeout = 60_000): Promise<string> {
+function fetchUrl(url: string, timeout = 60_000, redirects = 3): Promise<string> {
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
@@ -35,23 +35,35 @@ function fetchUrl(url: string, timeout = 60_000): Promise<string> {
         timeout,
       },
       (res: IncomingMessage) => {
-        if (res.statusCode === 429) {
-          const chunks: Buffer[] = [];
-          res.on("data", (c: Buffer) => chunks.push(c));
-          res.on("end", () => reject(new Error("429")));
-          return;
-        }
-        const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
-        res.on("end", () => {
-          const text = Buffer.concat(chunks).toString("utf-8");
-          // Check for redirect to login page
-          if (res.headers.location && /login/i.test(res.headers.location)) {
+        const status = res.statusCode ?? 0;
+        const location = res.headers.location;
+
+        // Follow redirects. Finviz now 301-redirects /export.ashx → /export;
+        // the Location carries the auth token, so just chase it. A redirect to
+        // the login page still means auth failure.
+        if ([301, 302, 303, 307, 308].includes(status) && location) {
+          res.resume(); // drain the socket
+          if (/login/i.test(location)) {
             reject(new Error("Redirected to login"));
             return;
           }
-          resolve(text);
-        });
+          if (redirects <= 0) {
+            reject(new Error("Too many redirects"));
+            return;
+          }
+          resolve(fetchUrl(new URL(location, url).href, timeout, redirects - 1));
+          return;
+        }
+
+        if (status === 429) {
+          res.resume();
+          reject(new Error("429"));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
       },
     );
     req.on("error", reject);
