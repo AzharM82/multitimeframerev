@@ -12,20 +12,24 @@ interface AtrSnapshotRow {
   pctAboveSMA50: number;
   buyable: number;
   extended7: number;
-  payloadGz: string;
+  parts: number;
+  [chunk: string]: unknown; // p0..pN base64 chunks of the gzipped stocks array
 }
 
 /** GET /api/atr-scan — returns the latest EOD ATR Matrix snapshot. The stocks
- *  array is stored gzipped in Table storage; we decode it here so the browser
- *  receives plain JSON. */
+ *  array is stored gzipped + base64, split across p0..pN properties (each under
+ *  the 64KB Table limit); we reassemble + decode it so the browser receives
+ *  plain JSON. */
 async function atrScanHandler(_req: HttpRequest): Promise<HttpResponseInit> {
   try {
     const row = await getOne<AtrSnapshotRow>(TABLES.ATR_MATRIX, "latest", "snapshot");
     if (!row) {
       return { status: 503, jsonBody: { error: "no_snapshot", message: "Run the scan first." } };
     }
-    const stocks = row.payloadGz
-      ? JSON.parse(gunzipSync(Buffer.from(row.payloadGz, "base64")).toString("utf-8"))
+    let b64 = "";
+    for (let i = 0; i < (row.parts ?? 0); i++) b64 += (row[`p${i}`] as string) ?? "";
+    const stocks = b64
+      ? JSON.parse(gunzipSync(Buffer.from(b64, "base64")).toString("utf-8"))
       : [];
     return {
       headers: { "Cache-Control": "no-store" },

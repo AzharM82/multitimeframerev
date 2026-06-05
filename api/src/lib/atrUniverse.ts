@@ -20,8 +20,10 @@ const DEFAULT_SCREENER_URL =
 
 // Finviz export column ids → request a set that carries the metadata we render.
 // Header-name mapping below tolerates id drift; price/bars come from Polygon.
-//   1 Ticker · 2 Company · 3 Sector · 4 Industry · 5 Country · 6 Market Cap
-const EXPORT_COLUMNS = "0,1,2,3,4,5,6,65,66,67";
+// v=111 (Overview) supplies: No · Ticker · Company · Sector · Industry · Country
+// · Market Cap · P/E · Price · Change · Volume.
+const EXPORT_VIEW = "111";
+const EXPORT_COLUMNS = "0,1,2,3,4,5,6";
 
 // Finviz CSV header name → internal field name.
 const COLUMN_MAP: Record<string, keyof FinvizRow> = {
@@ -57,19 +59,26 @@ export function parseMarketCap(text: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Convert a Finviz screener page URL into the CSV export.ashx URL. */
+/**
+ * Convert a Finviz screener page URL into the CSV export URL.
+ *
+ * Note the endpoint is `/export` (not the old `/export.ashx`, which now
+ * 301-redirects and yields an empty body to non-redirect-following clients),
+ * and filter/column lists must use LITERAL commas — Finviz rejects the
+ * percent-encoded `%2C` form, so we assemble the query manually rather than via
+ * URLSearchParams.
+ */
 export function toExportUrl(screenerUrl: string): string {
   const u = new URL(screenerUrl);
-  const f = u.searchParams.get("f") ?? "";
+  const f = u.searchParams.get("f") ?? ""; // decoded → literal commas
   const ft = u.searchParams.get("ft") ?? "4";
   const o = u.searchParams.get("o") ?? "";
-  const params = new URLSearchParams();
-  params.set("v", "152"); // custom/export view — honours the c= column list
-  if (f) params.set("f", f);
-  params.set("ft", ft);
-  if (o) params.set("o", o);
-  params.set("c", EXPORT_COLUMNS);
-  return `https://elite.finviz.com/export.ashx?${params.toString()}`;
+  const parts = [`v=${EXPORT_VIEW}`];
+  if (f) parts.push(`f=${f}`);
+  if (ft) parts.push(`ft=${ft}`);
+  if (o) parts.push(`o=${o}`);
+  parts.push(`c=${EXPORT_COLUMNS}`);
+  return `https://elite.finviz.com/export?${parts.join("&")}`;
 }
 
 /**

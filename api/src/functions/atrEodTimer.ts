@@ -86,14 +86,24 @@ function buildSnapshot(stocks: AtrStock[]): AtrSnapshot {
   };
 }
 
+// Azure Table caps each string property at 64KB (32K UTF-16 chars). The gzipped
+// stocks payload (base64) routinely exceeds that — floats compress poorly — so
+// we split it across p0..pN properties (≤32K chars each) on the single "latest"
+// snapshot entity. atrScan reads `parts` and reassembles.
+const CHUNK_CHARS = 30000;
+
 /**
- * Persist the snapshot. The stocks array can exceed the 64KB Azure Table string
- * limit, so it is gzipped + base64-encoded into a single `payloadGz` property.
- * Stored under a fixed "latest" partition — the swing dashboard only needs the
- * most recent EOD snapshot.
+ * Persist the snapshot under the fixed "latest" partition — the swing dashboard
+ * only needs the most recent EOD snapshot.
  */
 async function persist(snap: AtrSnapshot): Promise<void> {
-  const payloadGz = gzipSync(Buffer.from(JSON.stringify(snap.stocks))).toString("base64");
+  const b64 = gzipSync(Buffer.from(JSON.stringify(snap.stocks))).toString("base64");
+  const chunks: Record<string, string> = {};
+  let parts = 0;
+  for (let i = 0; i < b64.length; i += CHUNK_CHARS) {
+    chunks[`p${parts}`] = b64.slice(i, i + CHUNK_CHARS);
+    parts++;
+  }
   await upsert(TABLES.ATR_MATRIX, "latest", "snapshot", {
     generated: snap.generated,
     asOf: snap.asOf,
@@ -102,7 +112,8 @@ async function persist(snap: AtrSnapshot): Promise<void> {
     pctAboveSMA50: snap.pctAboveSMA50,
     buyable: snap.buyable,
     extended7: snap.extended7,
-    payloadGz,
+    parts,
+    ...chunks,
   });
 }
 
