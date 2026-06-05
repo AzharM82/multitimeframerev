@@ -12,6 +12,7 @@
  */
 
 import { computeATR, computeEMA, type Candle } from "./indicators.js";
+import type { FinvizMatrixRow } from "./atrUniverse.js";
 
 const ATR_LEN = 14;
 
@@ -37,6 +38,7 @@ export interface AtrStock {
   zone: AtrZone;
   sma50: number;
   sma20: number;
+  sma200: number;
   structure: number; // 0–6
   ema10: number;
   ema10Prev: number;
@@ -50,6 +52,9 @@ export interface AtrStock {
   aboveSMA50: boolean;
   stopSuggest: number;
   ladder: Record<number, number>; // extension target prices (7x..11x)
+  rvol?: number;    // relative volume (today vs avg) — volume confirmation
+  volWeek?: number; // weekly volatility % (Finviz path) — for the candidates filter
+  avgVol?: number;  // avg daily volume, shares (Finviz path) — for the candidates filter
   // filled by finalize():
   atrRS: number; // ATR% percentile within universe (0–100)
   rs: number; // max return percentile across 1w/1m/3m/6m (0–100)
@@ -155,6 +160,7 @@ export function computeStock(candles: Candle[]): StockCore | null {
     zone: zoneForBucket(bucket),
     sma50: round2(sma50),
     sma20: round2(sma20),
+    sma200: round2(sma200),
     structure,
     ema10,
     ema10Prev,
@@ -182,6 +188,81 @@ export function action(s: { close: number; sma50: number; sma20: number; prevClo
   return "hold";
 }
 
+/** Action for the Finviz path — same gates as action() but without the reclaim
+ *  (inflection/restore) branches, which need prior-bar data a screener snapshot
+ *  doesn't carry. */
+export function actionFinviz(
+  s: { close: number; sma50: number; sma20: number; structure: number; ext: number },
+  atrRS: number,
+): AtrAction {
+  if (s.close < s.sma50) return "sell";
+  if (s.close < s.sma20) return "reduce";
+  if (s.structure >= 5 && s.ext >= 0 && s.ext <= 4 && atrRS >= 50) return "buy";
+  return "hold";
+}
+
+// ─── per-ticker metrics from a Finviz row (no Polygon) ──────────────────────
+
+/**
+ * Metrics computed directly from a Finviz matrix row. Coarser than computeStock:
+ * structure uses only the 20/50/200 SMAs and there is no prior-bar data, so
+ * EMA10 is stood in by SMA20 and the reclaim actions are dropped (actionFinviz).
+ */
+export function computeFromFinviz(r: FinvizMatrixRow): StockCore | null {
+  const { price, atr } = r;
+  if (!(price > 0) || !(atr > 0)) return null;
+
+  const atrPct = (100 * atr) / price;
+  const sma50 = price / (1 + r.d50 / 100);
+  const sma20 = price / (1 + r.d20 / 100);
+  const sma200 = price / (1 + r.d200 / 100);
+  const ext = (price - sma50) / atr;
+  const bucket = extensionBucket(ext);
+
+  // 6-point structure proxy (smaller %-distance = higher MA → d20≤d50 means SMA20≥SMA50)
+  const structure =
+    (r.d20 >= 0 ? 1 : 0) +
+    (r.d50 >= 0 ? 1 : 0) +
+    (r.d200 >= 0 ? 1 : 0) +
+    (r.d20 <= r.d50 ? 1 : 0) +
+    (r.d50 <= r.d200 ? 1 : 0) +
+    (r.perfM >= 0 ? 1 : 0);
+
+  const round2 = (x: number) => Math.round(x * 100) / 100;
+  const ladder: Record<number, number> = {};
+  for (const k of [7, 8, 9, 10, 11]) ladder[k] = round2(sma50 + k * atr);
+
+  return {
+    close: round2(price),
+    chg: round2(r.change),
+    atr: round2(atr),
+    atrPct: round2(atrPct),
+    ext: round2(ext),
+    extPrev: round2(ext), // no prior-bar data
+    bucket,
+    zone: zoneForBucket(bucket),
+    sma50: round2(sma50),
+    sma20: round2(sma20),
+    sma200: round2(sma200),
+    structure,
+    ema10: round2(sma20), // no EMA10 from Finviz
+    ema10Prev: round2(sma20),
+    sma20Prev: round2(sma20),
+    prevClose: round2(price / (1 + r.change / 100)),
+    dvol: Math.round((r.avgVol * price / 1e6) * 10) / 10,
+    r1w: r.perfW / 100,
+    r1m: r.perfM / 100,
+    r3m: r.perfQ / 100,
+    r6m: r.perfH / 100,
+    aboveSMA50: r.d50 >= 0,
+    stopSuggest: round2(price - 1.5 * atr),
+    ladder,
+    rvol: r.rvol,
+    volWeek: round2(r.volWeek),
+    avgVol: r.avgVol,
+  };
+}
+
 // ─── universe-relative columns ──────────────────────────────────────────────
 
 /** Percentile rank (0–100) matching pandas Series.rank(pct=True)*100 with the
@@ -206,7 +287,12 @@ function pctRank(values: number[]): number[] {
  * Add universe-relative columns: atrRS, rs (max of 1w/1m/3m/6m percentiles),
  * grade, action. All percentiles are relative to the scanned universe.
  */
-export function finalize(rows: Array<StockCore & { ticker: string; company: string; sector: string; industry: string; marketCap: number }>): AtrStock[] {
+type NamedCore = StockCore & { ticker: string; company: string; sector: string; industry: string; marketCap: number };
+
+export function finalize(
+  rows: NamedCore[],
+  actionFn: (s: NamedCore, atrRS: number) => AtrAction = action,
+): AtrStock[] {
   if (rows.length === 0) return [];
 
   const atrRSArr = pctRank(rows.map((r) => r.atrPct)).map((x) => Math.round(x));
@@ -224,7 +310,7 @@ export function finalize(rows: Array<StockCore & { ticker: string; company: stri
       atrRS,
       rs,
       grade,
-      action: action(r, atrRS),
+      action: actionFn(r, atrRS),
     };
   });
 }

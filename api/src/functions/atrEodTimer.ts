@@ -1,65 +1,34 @@
 import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } from "@azure/functions";
 import { gzipSync } from "zlib";
-import { fetchDailyBarsExtended } from "../lib/polygon.js";
-import { pullUniverse } from "../lib/atrUniverse.js";
-import { computeStock, finalize, MIN_BARS, type AtrStock } from "../lib/atrMatrix.js";
+import { pullMatrixUniverse } from "../lib/atrUniverse.js";
+import { computeFromFinviz, finalize, actionFinviz, type AtrStock } from "../lib/atrMatrix.js";
 import { upsert, TABLES } from "../lib/tables.js";
 import { pacificDateKey } from "../lib/dates.js";
-
-// Polygon-friendly batching (same shape as the AVWAP EOD timer).
-const BATCH_SIZE = 10;
-const BATCH_DELAY_MS = 500;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
 
 function todayKey(): string {
   return pacificDateKey();
 }
 
 /**
- * Run the EOD ATR Matrix scan: Finviz screen → Polygon daily bars (2y) →
- * per-ticker metrics → universe-relative finalize().
+ * Run the EOD ATR Matrix scan: pull the S&P 500 + Nasdaq 100 from Finviz (one
+ * call per index, all metrics in the columns) → compute per-ticker → finalize.
+ * No Polygon: the whole index map is computed from the Finviz response.
  */
 async function runScan(ctx: InvocationContext): Promise<AtrStock[]> {
-  const universe = await pullUniverse();
-  const tickers = [...universe.keys()];
-  ctx.log(`ATR Matrix scan: ${tickers.length} tickers from Finviz screen`);
+  const universe = await pullMatrixUniverse();
+  ctx.log(`ATR Matrix: ${universe.length} index constituents (S&P 500 + Nasdaq 100)`);
 
-  type Core = NonNullable<ReturnType<typeof computeStock>> & {
+  type Core = NonNullable<ReturnType<typeof computeFromFinviz>> & {
     ticker: string; company: string; sector: string; industry: string; marketCap: number;
   };
   const rows: Core[] = [];
-
-  for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
-    const batch = tickers.slice(i, i + BATCH_SIZE);
-    const results = await Promise.all(
-      batch.map(async (t) => {
-        try {
-          const bars = await fetchDailyBarsExtended(t, 2);
-          if (bars.length < MIN_BARS) return null;
-          const core = computeStock(bars);
-          if (!core) return null;
-          const fv = universe.get(t)!;
-          return {
-            ...core,
-            ticker: t,
-            company: fv.company,
-            sector: fv.sector,
-            industry: fv.industry,
-            marketCap: fv.marketCap,
-          } as Core;
-        } catch {
-          return null;
-        }
-      }),
-    );
-    for (const r of results) if (r) rows.push(r);
-    if (i + BATCH_SIZE < tickers.length) await sleep(BATCH_DELAY_MS);
+  for (const r of universe) {
+    const core = computeFromFinviz(r);
+    if (!core) continue;
+    rows.push({ ...core, ticker: r.ticker, company: r.company, sector: r.sector, industry: r.industry, marketCap: r.marketCap });
   }
 
-  return finalize(rows);
+  return finalize(rows, actionFinviz);
 }
 
 interface AtrSnapshot {

@@ -48,6 +48,20 @@ function zoneOf(b: number): AtrZone {
 const fmtPct = (v: number | null | undefined) =>
   v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
 
+// "Trending candidates" = your original hand-picked screener, re-applied as a
+// filter within the broad S&P 500 + Nasdaq 100 universe.
+function isCandidate(s: AtrStock): boolean {
+  return (
+    s.marketCap >= 2e9 &&
+    s.close >= 10 &&
+    (s.avgVol ?? 0) >= 750_000 &&
+    s.atr >= 1.5 &&
+    (s.volWeek ?? 0) >= 3 &&
+    s.sma20 >= s.sma50 &&
+    s.sma50 >= s.sma200
+  );
+}
+
 // ─── tooltip ────────────────────────────────────────────────────────────────
 
 interface TipState { s: AtrStock; x: number; y: number }
@@ -74,6 +88,7 @@ function Tooltip({ tip }: { tip: TipState | null }) {
       <Row k="close" v={`$${s.close} (${fmtPct(s.chg)})`} />
       <Row k="ATR" v={`$${s.atr} · ${s.atrPct}%`} />
       <Row k="ATR RS" v={`${s.atrRS}`} />
+      <Row k="RVOL" v={s.rvol != null ? `${s.rvol}×` : "—"} />
       <Row k="ext now / prev" v={`${s.ext} / ${s.extPrev}`} />
       <Row k="structure" v={`${s.structure}/6 · ${s.grade}`} />
       <Row k="RS pctile" v={`${s.rs}`} />
@@ -95,7 +110,10 @@ function Chip({ s, onHover, onLeave }: { s: AtrStock; onHover: (t: TipState) => 
       onMouseLeave={onLeave}
       className={`flex items-center justify-between gap-1 w-full px-1.5 py-0.5 rounded border-l-2 border bg-bg-card hover:bg-bg-secondary text-[11px] leading-tight ${ACTION_BORDER[s.action]} ${s.bucket >= 7 ? "font-bold" : ""}`}
     >
-      <span className="font-bold truncate">{s.ticker}</span>
+      <span className="font-bold truncate">
+        {(s.rvol ?? 0) >= 2 && <span title={`RVOL ${s.rvol}×`}>🔥</span>}
+        {s.ticker}
+      </span>
       <span className={`tabular-nums shrink-0 ${s.chg >= 0 ? "text-signal-bull" : "text-signal-bear"}`}>{fmtPct(s.chg)}</span>
     </button>
   );
@@ -183,6 +201,8 @@ export function AtrMatrixPage() {
   const [fTrend, setFTrend] = useState(false);
   const [fAction, setFAction] = useState("");
   const [fSector, setFSector] = useState("");
+  const [fCandidate, setFCandidate] = useState(false);
+  const [fRvol, setFRvol] = useState(false);
   const [isolate, setIsolate] = useState<number | null>(null);
   const [tip, setTip] = useState<TipState | null>(null);
   const [positions, setPositions] = useState<AtrPosition[]>([]);
@@ -229,8 +249,10 @@ export function AtrMatrixPage() {
     if (fTrend) rows = rows.filter((s) => s.structure >= 5);
     if (fAction) rows = rows.filter((s) => s.action === fAction);
     if (fSector) rows = rows.filter((s) => s.sector === fSector);
+    if (fCandidate) rows = rows.filter(isCandidate);
+    if (fRvol) rows = rows.filter((s) => (s.rvol ?? 0) >= 1.5);
     return rows;
-  }, [stocks, search, fAtr, fTrend, fAction, fSector]);
+  }, [stocks, search, fAtr, fTrend, fAction, fSector, fCandidate, fRvol]);
 
   const focus = useMemo(
     () => stocks.filter((s) => s.action === "buy" && s.ext >= 0 && s.ext <= 4 && s.atrRS >= 50).sort((a, b) => a.ext - b.ext),
@@ -241,7 +263,7 @@ export function AtrMatrixPage() {
   const breadthPct = filtered.length ? Math.round((100 * above) / filtered.length) : 0;
 
   function resetFilters() {
-    setSearch(""); setFAtr(false); setFTrend(false); setFAction(""); setFSector(""); setIsolate(null);
+    setSearch(""); setFAtr(false); setFTrend(false); setFAction(""); setFSector(""); setFCandidate(false); setFRvol(false); setIsolate(null);
   }
 
   const onHover = (t: TipState) => setTip(t);
@@ -273,7 +295,7 @@ export function AtrMatrixPage() {
       {/* breadth */}
       <div className="bg-bg-card border border-border rounded p-3">
         <div className="flex items-center justify-between text-xs mb-1">
-          <span className="card-header text-text-secondary">This screen · above SMA50 <span className="font-normal normal-case tracking-normal">(pre-filtered uptrend names — not market breadth)</span></span>
+          <span className="card-header text-text-secondary">Shown names · above SMA50 <span className="font-normal normal-case tracking-normal">(filtered view — see Market Posture above for the market read)</span></span>
           <span className="tabular-nums">{breadthPct}% ({above}/{filtered.length})</span>
         </div>
         <div className="h-2 bg-bg-secondary rounded overflow-hidden">
@@ -311,6 +333,12 @@ export function AtrMatrixPage() {
         <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
           <input type="checkbox" checked={fTrend} onChange={(e) => setFTrend(e.target.checked)} /> trend-aligned
         </label>
+        <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+          <input type="checkbox" checked={fRvol} onChange={(e) => setFRvol(e.target.checked)} /> high RVOL
+        </label>
+        <label className="flex items-center gap-1.5 text-xs font-semibold text-accent cursor-pointer">
+          <input type="checkbox" checked={fCandidate} onChange={(e) => setFCandidate(e.target.checked)} /> trending candidates
+        </label>
         <select value={fAction} onChange={(e) => setFAction(e.target.value)} className="rounded px-2 py-1 text-xs">
           <option value="">action: all</option>
           {(["buy", "inflection", "restore", "reduce", "sell", "hold"] as AtrAction[]).map((a) => (
@@ -337,6 +365,8 @@ export function AtrMatrixPage() {
         <span className="text-amber-700">hold (5–6)</span>
         <span className="text-orange-600">extended (7–10)</span>
         <span className="text-fuchsia-700">blow-off (11+)</span>
+        <span className="opacity-50">·</span>
+        <span>🔥 = RVOL ≥ 2× (volume confirmation)</span>
       </div>
 
       {/* morning focus */}

@@ -287,6 +287,7 @@ export interface AtrStock {
   zone: AtrZone;
   sma50: number;
   sma20: number;
+  sma200: number;
   structure: number;
   ema10: number;
   ema10Prev: number;
@@ -300,6 +301,9 @@ export interface AtrStock {
   aboveSMA50: boolean;
   stopSuggest: number;
   ladder: Record<number, number>;
+  rvol?: number;
+  volWeek?: number;
+  avgVol?: number;
   atrRS: number;
   rs: number;
   grade: string;

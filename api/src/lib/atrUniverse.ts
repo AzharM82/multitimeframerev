@@ -1,120 +1,115 @@
 /**
- * ATR Matrix universe — pulls the swing-scan candidate list from a Finviz Elite
- * screener. Finviz is the *screen* (which tickers + metadata); price history for
- * the extension math comes from Polygon (lib/polygon.ts).
+ * ATR Matrix universe — the full index map, pulled from Finviz Elite.
  *
- * The screener filters live in a single URL (overridable via ATR_SCREENER_URL).
- * We convert the screener page URL to the export.ashx endpoint and let
- * finvizElite.fetchExportFromUrl append the auth token server-side. Columns are
- * mapped by header NAME (not position) so Finviz id/order drift can't silently
- * corrupt fields.
+ * The matrix is meant to map a whole liquid universe (every zone from LEAVE to
+ * BLOW-OFF), not a pre-filtered uptrend screen. We pull the S&P 500 + Nasdaq 100
+ * from the Finviz custom export, which carries Price, ATR, the 20/50/200-day SMA
+ * distances, performance returns, volatility and avg-volume as columns — so the
+ * entire matrix is computed from ONE call per index, with no Polygon load.
+ *
+ * Column ids (verified against the live export, 2026-06): they have drifted from
+ * older references, so we map by header NAME, not position.
+ *   1 Ticker · 2 Company · 3 Sector · 4 Industry · 6 Market Cap(M) ·
+ *   63 Avg Volume(K) · 65 Price · 66 Change · 67 Volume · 49 ATR ·
+ *   52/53/54 SMA20/50/200 dist · 42/43/44/45/47 Perf W/M/Q/H/YTD · 50 Volatility(W)
  */
 
 import { fetchExportFromUrl, isEliteConfigured } from "./finvizElite.js";
 
-// Default = the swing screener supplied by the user:
-//   mid-cap+, USA, stocks only, avg vol > 750K, optionable, price > $10,
-//   ATR > 1.5, SMA20 > SMA50 > SMA200 (uptrend stack), weekly volatility > 3%.
-const DEFAULT_SCREENER_URL =
-  "https://elite.finviz.com/screener?v=151&f=cap_midover,geo_usa,ind_stocksonly,sh_avgvol_o750,sh_opt_option,sh_price_o10,ta_averagetruerange_o1.5,ta_sma20_sa50,ta_sma50_sa200,ta_volatility_wo3&ft=4&o=-changeopen";
+const MATRIX_INDICES: { tag: string; filter: string }[] = [
+  { tag: "SP500", filter: "idx_sp500" },
+  { tag: "NDX", filter: "idx_ndx" },
+];
 
-// Finviz export column ids → request a set that carries the metadata we render.
-// Header-name mapping below tolerates id drift; price/bars come from Polygon.
-// v=111 (Overview) supplies: No · Ticker · Company · Sector · Industry · Country
-// · Market Cap · P/E · Price · Change · Volume.
-const EXPORT_VIEW = "111";
-const EXPORT_COLUMNS = "0,1,2,3,4,5,6";
+const MATRIX_COLUMNS = "1,2,3,4,6,63,65,66,67,49,52,53,54,42,43,44,45,47,50";
 
-// Finviz CSV header name → internal field name.
-const COLUMN_MAP: Record<string, keyof FinvizRow> = {
-  Ticker: "ticker",
-  Company: "company",
-  Sector: "sector",
-  Industry: "industry",
-  Country: "country",
-  "Market Cap": "marketCapText",
-};
-
-export interface FinvizRow {
+export interface FinvizMatrixRow {
   ticker: string;
   company: string;
   sector: string;
   industry: string;
-  country: string;
-  marketCapText: string;
   marketCap: number; // dollars
+  avgVol: number; // shares
+  price: number;
+  change: number; // %
+  rvol: number; // today's volume / avg volume (relative volume)
+  atr: number; // $
+  d20: number; // % distance of price from SMA20 (positive = above)
+  d50: number;
+  d200: number;
+  perfW: number; // % returns
+  perfM: number;
+  perfQ: number;
+  perfH: number;
+  perfYTD: number;
+  volWeek: number; // weekly volatility %
+  indexes: string[];
 }
 
-/** Finviz market cap like '1.23B' / '950.00M' / '2.1T' → dollars. */
-export function parseMarketCap(text: string): number {
-  if (!text) return 0;
-  const t = text.trim().toUpperCase().replace(/,/g, "");
-  const mult: Record<string, number> = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 };
-  const last = t[t.length - 1];
-  if (last in mult) {
-    const n = parseFloat(t.slice(0, -1));
-    return Number.isFinite(n) ? n * mult[last] : 0;
-  }
+/** Parse a Finviz numeric/percent cell ("17.45%", "138.37", "-") → number|null. */
+function num(s: string | undefined): number | null {
+  if (s === undefined || s === null) return null;
+  const t = s.replace("%", "").replace(/,/g, "").trim();
+  if (!t || t === "-") return null;
   const n = parseFloat(t);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseRow(r: Record<string, string>, tag: string): FinvizMatrixRow | null {
+  const ticker = (r["Ticker"] || "").toUpperCase();
+  const price = num(r["Price"]);
+  const atr = num(r["Average True Range"]);
+  const d50 = num(r["50-Day Simple Moving Average"]);
+  if (!ticker || price === null || atr === null || d50 === null) return null;
+  const avgVol = (num(r["Average Volume"]) ?? 0) * 1e3; // thousands → shares
+  const volToday = num(r["Volume"]) ?? 0; // EOD: full-day volume
+  return {
+    ticker,
+    company: r["Company"] ?? "",
+    sector: r["Sector"] ?? "",
+    industry: r["Industry"] ?? "",
+    marketCap: (num(r["Market Cap"]) ?? 0) * 1e6, // Finviz custom export = millions
+    avgVol,
+    price,
+    change: num(r["Change"]) ?? 0,
+    rvol: avgVol > 0 ? Math.round((volToday / avgVol) * 100) / 100 : 0,
+    atr,
+    d20: num(r["20-Day Simple Moving Average"]) ?? 0,
+    d50,
+    d200: num(r["200-Day Simple Moving Average"]) ?? 0,
+    perfW: num(r["Performance (Week)"]) ?? 0,
+    perfM: num(r["Performance (Month)"]) ?? 0,
+    perfQ: num(r["Performance (Quarter)"]) ?? 0,
+    perfH: num(r["Performance (Half Year)"]) ?? 0,
+    perfYTD: num(r["Performance (YTD)"]) ?? 0,
+    volWeek: num(r["Volatility (Week)"]) ?? 0,
+    indexes: [tag],
+  };
 }
 
 /**
- * Convert a Finviz screener page URL into the CSV export URL.
- *
- * Note the endpoint is `/export` (not the old `/export.ashx`, which now
- * 301-redirects and yields an empty body to non-redirect-following clients),
- * and filter/column lists must use LITERAL commas — Finviz rejects the
- * percent-encoded `%2C` form, so we assemble the query manually rather than via
- * URLSearchParams.
+ * Pull the S&P 500 + Nasdaq 100 constituents, deduped by ticker (a name in both
+ * indices carries both tags). Throws if Finviz is unconfigured or returns nothing.
  */
-export function toExportUrl(screenerUrl: string): string {
-  const u = new URL(screenerUrl);
-  const f = u.searchParams.get("f") ?? ""; // decoded → literal commas
-  const ft = u.searchParams.get("ft") ?? "4";
-  const o = u.searchParams.get("o") ?? "";
-  const parts = [`v=${EXPORT_VIEW}`];
-  if (f) parts.push(`f=${f}`);
-  if (ft) parts.push(`ft=${ft}`);
-  if (o) parts.push(`o=${o}`);
-  parts.push(`c=${EXPORT_COLUMNS}`);
-  return `https://elite.finviz.com/export?${parts.join("&")}`;
-}
-
-/**
- * Pull the universe. Returns a map keyed by ticker so downstream code can attach
- * metadata after computing per-ticker metrics. Throws if Finviz is unconfigured
- * or returns nothing (so the timer surfaces the failure instead of writing an
- * empty snapshot).
- */
-export async function pullUniverse(): Promise<Map<string, FinvizRow>> {
+export async function pullMatrixUniverse(): Promise<FinvizMatrixRow[]> {
   if (!isEliteConfigured()) {
     throw new Error("FINVIZ_API_KEY is not set — cannot pull ATR Matrix universe");
   }
-  const url = toExportUrl(process.env.ATR_SCREENER_URL || DEFAULT_SCREENER_URL);
-  const rows = await fetchExportFromUrl(url, "ATRMatrix");
-  if (rows.length === 0) {
-    throw new Error("Finviz returned no rows for the ATR Matrix screener");
-  }
-
-  const out = new Map<string, FinvizRow>();
-  for (const raw of rows) {
-    const rec: Partial<FinvizRow> = {};
-    for (const [header, value] of Object.entries(raw)) {
-      const key = COLUMN_MAP[header.trim()];
-      if (key) (rec as Record<string, string>)[key] = (value ?? "").trim();
+  const byTicker = new Map<string, FinvizMatrixRow>();
+  for (const idx of MATRIX_INDICES) {
+    const url = `https://elite.finviz.com/export?v=152&f=${idx.filter}&c=${MATRIX_COLUMNS}`;
+    const rows = await fetchExportFromUrl(url, `atr:${idx.filter}`);
+    for (const raw of rows) {
+      const parsed = parseRow(raw, idx.tag);
+      if (!parsed) continue;
+      const existing = byTicker.get(parsed.ticker);
+      if (existing) {
+        if (!existing.indexes.includes(idx.tag)) existing.indexes.push(idx.tag);
+      } else {
+        byTicker.set(parsed.ticker, parsed);
+      }
     }
-    const ticker = (rec.ticker ?? "").toUpperCase();
-    if (!ticker) continue;
-    out.set(ticker, {
-      ticker,
-      company: rec.company ?? "",
-      sector: rec.sector ?? "",
-      industry: rec.industry ?? "",
-      country: rec.country ?? "",
-      marketCapText: rec.marketCapText ?? "",
-      marketCap: parseMarketCap(rec.marketCapText ?? ""),
-    });
   }
-  return out;
+  if (byTicker.size === 0) throw new Error("Finviz returned no ATR Matrix constituents");
+  return [...byTicker.values()];
 }
