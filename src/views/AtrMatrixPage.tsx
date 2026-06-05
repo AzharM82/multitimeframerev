@@ -730,11 +730,20 @@ function intradayStatus(s: AtrStock, q: IntradayQuote | undefined): IStatus | nu
   return { label: "WAIT", cls: "bg-bg-secondary text-text-secondary border-border", tip: "below SMA20 — not confirming yet" };
 }
 
+type TopSortKey = "score" | "ticker" | "action" | "ext" | "grade" | "rs" | "atrRS" | "rvol" | "price" | "chg" | "chgOpen" | "sector";
+
+function chgOpenOf(s: AtrStock, q: IntradayQuote | undefined): number {
+  if (q && q.open > 0) return ((q.price - q.open) / q.open) * 100;
+  return s.chgOpen ?? 0;
+}
+
 function TopSetupsView({ rows }: { rows: AtrStock[] }) {
   const marketOpen = useMarketHours();
   const [live, setLive] = useState(false);
   const [quotes, setQuotes] = useState<Record<string, IntradayQuote>>({});
   const [liveAt, setLiveAt] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<TopSortKey>("score");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const ranked = useMemo(() => [...rows].sort((a, b) => setupScore(b) - setupScore(a)).slice(0, 60), [rows]);
   const tickerKey = ranked.map((r) => r.ticker).join(",");
@@ -753,13 +762,54 @@ function TopSetupsView({ rows }: { rows: AtrStock[] }) {
     return () => { cancelled = true; clearInterval(id); };
   }, [live, tickerKey]);
 
+  function valOf(s: AtrStock, key: TopSortKey, q: IntradayQuote | undefined): number | string {
+    switch (key) {
+      case "ticker": return s.ticker;
+      case "action": return s.action;
+      case "sector": return s.sector;
+      case "ext": return s.ext;
+      case "grade": return GRADES.length - GRADES.indexOf(s.grade); // higher = better grade
+      case "rs": return s.rs;
+      case "atrRS": return s.atrRS;
+      case "rvol": return s.rvol ?? 0;
+      case "price": return q ? q.price : s.close;
+      case "chg": return q ? q.changePerc : s.chg;
+      case "chgOpen": return chgOpenOf(s, q);
+      case "score": default: return setupScore(s);
+    }
+  }
+  const sorted = useMemo(() => {
+    return [...ranked].sort((a, b) => {
+      const av = valOf(a, sortKey, quotes[a.ticker]);
+      const bv = valOf(b, sortKey, quotes[b.ticker]);
+      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ranked, sortKey, sortDir, quotes]);
+
+  function handleSort(k: TopSortKey) {
+    if (sortKey === k) { setSortDir((d) => (d === "asc" ? "desc" : "asc")); return; }
+    setSortKey(k);
+    setSortDir(k === "ticker" || k === "action" || k === "sector" ? "asc" : "desc");
+  }
+
   const buyableNow = live ? ranked.filter((s) => intradayStatus(s, quotes[s.ticker])?.label === "BUYABLE").length : 0;
+
+  const TH = ({ label, k }: { label: string; k?: TopSortKey }) => (
+    <th
+      onClick={() => k && handleSort(k)}
+      className={`py-2 px-3 text-left whitespace-nowrap ${k ? "cursor-pointer hover:text-text-primary select-none" : ""}`}
+    >
+      <span className="inline-flex items-center gap-1">{label}{k === sortKey && <span className="text-accent">{sortDir === "asc" ? "▲" : "▼"}</span>}</span>
+    </th>
+  );
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="text-[11px] text-text-secondary">
-          Top {ranked.length} by setup score · <span className="text-text-primary">{rows.length}</span> in current filter.
+          Top {ranked.length} by setup score · <span className="text-text-primary">{rows.length}</span> in current filter · click a header to sort.
           {live && <> Live: <span className="text-emerald-700 font-bold">{buyableNow}</span> buyable now{liveAt ? ` · ${new Date(liveAt).toLocaleTimeString([], { timeZone: "America/Los_Angeles" })} PT` : ""}.</>}
         </div>
         <button
@@ -778,18 +828,28 @@ function TopSetupsView({ rows }: { rows: AtrStock[] }) {
         <table className="w-full text-sm">
           <thead className="bg-bg-secondary text-[10px] uppercase tracking-wider text-text-secondary">
             <tr>
-              {["#", "Ticker", "Score", "Action", "Ext / Zone", "Grade", "RS", "ATR-RS", "RVOL", "Price", "Chg"].map((h, i) => (
-                <th key={i} className="py-2 px-3 text-left whitespace-nowrap">{h}</th>
-              ))}
+              <th className="py-2 px-3 text-left">#</th>
+              <TH label="Ticker" k="ticker" />
+              <TH label="Score" k="score" />
+              <TH label="Action" k="action" />
+              <TH label="Ext / Zone" k="ext" />
+              <TH label="Grade" k="grade" />
+              <TH label="RS" k="rs" />
+              <TH label="ATR-RS" k="atrRS" />
+              <TH label="RVOL" k="rvol" />
+              <TH label="Price" k="price" />
+              <TH label="Chg" k="chg" />
+              <TH label="Chg Open" k="chgOpen" />
               {live && <th className="py-2 px-3 text-left whitespace-nowrap">Intraday</th>}
-              <th className="py-2 px-3 text-left whitespace-nowrap">Sector</th>
+              <TH label="Sector" k="sector" />
             </tr>
           </thead>
           <tbody>
-            {ranked.map((s, i) => {
+            {sorted.map((s, i) => {
               const score = setupScore(s);
               const q = quotes[s.ticker];
               const st = live ? intradayStatus(s, q) : null;
+              const co = chgOpenOf(s, q);
               return (
                 <tr key={s.ticker} className="border-b border-border hover:bg-bg-secondary/40">
                   <td className="py-1.5 px-3 text-text-secondary tabular-nums">{i + 1}</td>
@@ -805,6 +865,7 @@ function TopSetupsView({ rows }: { rows: AtrStock[] }) {
                   <td className={`py-1.5 px-3 tabular-nums ${(s.rvol ?? 0) >= 2 ? "text-orange-600 font-bold" : ""}`}>{s.rvol != null ? `${s.rvol}×` : "—"}</td>
                   <td className="py-1.5 px-3 tabular-nums">{q ? `$${q.price.toFixed(2)}` : `$${s.close}`}</td>
                   <td className={`py-1.5 px-3 tabular-nums ${(q ? q.changePerc : s.chg) >= 0 ? "text-signal-bull" : "text-signal-bear"}`}>{fmtPct(q ? q.changePerc : s.chg)}</td>
+                  <td className={`py-1.5 px-3 tabular-nums ${co >= 0 ? "text-signal-bull" : "text-signal-bear"}`}>{fmtPct(co)}</td>
                   {live && (
                     <td className="py-1.5 px-3">
                       {st ? <span title={st.tip} className={`px-1.5 py-0.5 text-[10px] font-bold border rounded ${st.cls}`}>{st.label}</span> : <span className="text-text-secondary text-xs">—</span>}

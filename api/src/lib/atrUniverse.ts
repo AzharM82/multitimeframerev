@@ -21,7 +21,7 @@ const MATRIX_INDICES: { tag: string; filter: string }[] = [
   { tag: "NDX", filter: "idx_ndx" },
 ];
 
-const MATRIX_COLUMNS = "1,2,3,4,6,63,65,66,67,49,52,53,54,42,43,44,45,47,50";
+const MATRIX_COLUMNS = "1,2,3,4,6,63,65,66,67,49,52,53,54,42,43,44,45,47,50,86";
 
 export interface FinvizMatrixRow {
   ticker: string;
@@ -31,6 +31,7 @@ export interface FinvizMatrixRow {
   marketCap: number; // dollars
   avgVol: number; // shares
   price: number;
+  open: number; // session open
   change: number; // %
   rvol: number; // today's volume / avg volume (relative volume)
   atr: number; // $
@@ -71,6 +72,7 @@ function parseRow(r: Record<string, string>, tag: string): FinvizMatrixRow | nul
     marketCap: (num(r["Market Cap"]) ?? 0) * 1e6, // Finviz custom export = millions
     avgVol,
     price,
+    open: num(r["Open"]) ?? price,
     change: num(r["Change"]) ?? 0,
     rvol: avgVol > 0 ? Math.round((volToday / avgVol) * 100) / 100 : 0,
     atr,

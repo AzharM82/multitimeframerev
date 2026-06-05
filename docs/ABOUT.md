@@ -55,34 +55,39 @@ A daily swing-trade dashboard built on the **@SteveDJacobs "ATR Matrix"** framew
 
 **Grade.** Each stock gets a 0–6 **structure score** for how cleanly its moving-average stack is aligned (Close ≥ EMA10 ≥ SMA20 ≥ SMA50 ≥ SMA100 ≥ SMA200, plus a rising 50-day): 6 = grade **A**, 0 = grade **G**. A `+`/`−` is appended from the stock's **RS percentile** (its 1w/1m/3m/6m return rank within the scanned universe). So **A+** = perfect trend structure *and* top-tier relative strength.
 
-**Action signal** (the chip's left-border color): `sell` (below 50-day) · `reduce` (below 20-day) · `inflection`/`restore` (reclaiming a moving average) · **`buy`** (structure ≥ 5, 0–4x extended, above-average ATR-RS) · `hold`.
+**Action signal** (the chip's left-border color): `sell` (below 50-day) · `reduce` (below 20-day) · **`buy`** (structure ≥ 5, 0–4x extended, above-average ATR-RS) · `hold`.
 
-**Universe.** A Finviz Elite screen of mid-cap+ US optionable names in a confirmed uptrend (SMA20 > SMA50 > SMA200), price > $10, ATR > 1.5, decent volume (~215 names). Daily bars from Polygon. The scan runs once after the close (**4:30 PM ET**) and is **EOD-only** — it does not update intraday.
+**Setup score (0–100).** A single composite that blends the four swing-entry factors so the strongest combinations sort to the top: **extension proximity** to the ideal entry (peaks near 1.5x, penalized below SMA50 / when extended) 30%, **structure** 25%, **RS** 25%, **RVOL** (relative volume — today's volume ÷ its average, volume confirmation) 20%. Every chip's **background fills green (≥ 50) → red (< 50)** by this score; 🔥 marks RVOL ≥ 2×.
 
-#### How to use the three views
+**Universe.** The **whole S&P 500 + Nasdaq 100** (~500 names), pulled once after the close (**4:30 PM ET**) from the Finviz Elite columns — price, ATR, the 20/50/200-day SMA distances, performance returns, volume — so the entire matrix is computed from two API calls with **no per-stock price fetching**. This is a *true map*: every zone from LEAVE to BLOW-OFF is populated and breadth is real (not a pre-filtered uptrend list). The scan is **EOD-only** (it does not recompute intraday — see Top Setups → go live for that). Toggle **trending candidates** to re-apply the old swing screener (mid-cap+, price > $10, avg vol > 750K, ATR > 1.5, weekly vol > 3%, SMA20 > SMA50 > SMA200) within the universe.
 
-**1 · Extension Matrix** — the main view. Stocks are laid out left-to-right by extension bucket (−5x … 11x), each column header carrying a mini-histogram of how crowded that bucket is. Read it left-to-right: names on the **left (ENTRY, 0–4x)** are fresh, un-stretched entries; names on the **right (7x+)** are overextended — manage, don't chase. Click a column header to isolate that bucket; click any chip to open it on TradingView; hover for full stats (ATR, RS, structure, suggested stop, scale-out ladder).
+#### How to use the four views
 
-**2 · RTS Matrix** — the same stocks sorted by **grade** (A+ → G−) into Strong / Transitional / Weak bands. This is the quality lens: which names have the best trend structure and relative strength, regardless of extension. Strongest RS sits at the top of each grade column.
+**1 · Top Setups** *(default)* — a flat list of the whole universe **ranked by setup score**, with score / action / zone / grade / RS / ATR-RS / RVOL / price / change / change-from-open columns. **Click any header to sort.** Hit **go live** during market hours and it polls live prices every 45s and tags each name's **intraday tradability**: 🟢 **BUYABLE** (broke the prior-day high, or green & holding SMA20) · 🟡 **SETTING UP** · ⚪ **WAIT** · 🔴 **BROKE** (lost SMA50). This is the bridge from "good EOD candidate" to "take it now."
 
-**3 · Positions** — a personal tracker stored **in your browser only** (nothing is sent to the server). Add a ticker, entry, shares, and stop; it shows live P&L in R-multiples and %, the current zone, your stop, and a **scale-out ladder** — the price levels where the stock would reach 7x/8x/9x/10x/11x extension (i.e., where to trim).
+**2 · Extension Matrix** — stocks laid out left-to-right by extension bucket (−5x … 11x), each column header carrying a mini-histogram. Names on the **left (ENTRY, 0–4x)** are fresh entries; names on the **right (7x+)** are overextended. Within each column, best setup score is on top. Click a header to isolate a bucket; click a chip for TradingView; hover for full stats.
+
+**3 · RTS Matrix** — the same stocks by **grade** (A+ → G−) into Strong / Transitional / Weak bands — the quality lens, sorted by setup score within each grade.
+
+**4 · Positions** — a personal tracker stored **in your browser only**. Entry / shares / stop → live P&L in R-multiples and %, the current zone, and a **scale-out ladder** (prices where extension reaches 7x…11x — where to trim).
+
+**Reverse lookup** — type any ticker in the search box and press **Enter** for a full detail card (works for any symbol, not just the universe — off-universe names are fetched live and ranked against the S&P 500 + Nasdaq 100).
 
 #### Two breadth reads — don't confuse them
 
-- **Market Posture** (top strip) — *whole-index* breadth for the **S&P 500 + Nasdaq 100**: % above the 50/200-day, advancers vs decliners, and a **RISK-ON / MIXED / RISK-OFF** verdict. The "*should I be trading at all today?*" tone-setter.
-- **This screen · above SMA50** (bar under the stat cards) — breadth of *only the scanned names*. Because the screen pre-filters for uptrends it runs ~90%+, so it is **not** a market-health read.
+- **Market Posture** (top strip) — *whole-index* breadth for the **S&P 500 + Nasdaq 100**: % above the 50/200-day, advancers vs decliners, and a **RISK-ON / MIXED / RISK-OFF** verdict. The "*should I be trading at all today?*" tone-setter — it also sets the Focus panel's default buy/sell bias.
+- **Shown names · above SMA50** (bar under the stat cards) — breadth of just the currently-filtered view.
 
-#### Morning Focus
+#### Focus (buy *or* sell)
 
-The curated "best to buy" shortlist: `buy` action, 0–4x extension, above-average ATR-RS, least-extended first. **These are prep for the next session's open**, built from the prior close (the date is shown on the panel) — an EOD watchlist to confirm at the open, not a live/intraday list. **copy $tickers** pastes the list into TOS / TradingView.
+A shortlist for the next session's open, built from the prior close. A **BUY / SELL toggle** defaults from index breadth (RISK-OFF → sell bias) — buy mode lists `buy`-action, 0–4x, above-avg-ATR-RS names **ranked by setup score**; sell mode lists the below-SMA50 breakdowns to exit/avoid. Selecting an action in the **action filter** drives the list too. **copy $tickers** pastes it into TOS / TradingView.
 
 #### As a daily workflow
 
-1. **Market Posture** — RISK-ON? Entries have a tailwind. RISK-OFF? Tighten up or sit out.
-2. **Morning Focus** — your shortlist of clean entries for the next open.
-3. **Extension Matrix** — scan the ENTRY (0–4x) columns for A/B-grade, `buy`-action names; avoid the 7x+ right side.
-4. **RTS Matrix** — sanity-check quality; prefer A/B over D/E at the same extension.
-5. **Positions** — track what you took; watch the scale-out ladder for where to trim.
+1. **Market Posture** — RISK-ON? Entries have a tailwind. RISK-OFF? Flip Focus to sell / sit out.
+2. **Top Setups** — the ranked shortlist; turn on **trending candidates** + **action: buy** to narrow to the cleanest names.
+3. Next morning, **go live** — take the ones that flip 🟢 BUYABLE as they trigger.
+4. **Positions** — track what you took; watch the scale-out ladder for where to trim.
 
 ### 5 · Performance
 

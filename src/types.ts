@@ -279,6 +279,7 @@ export interface AtrStock {
   marketCap: number;
   close: number;
   chg: number;
+  chgOpen: number;
   atr: number;
   atrPct: number;
   ext: number;
@@ -317,6 +318,7 @@ export interface AtrLookupResponse {
 
 export interface IntradayQuote {
   price: number;
+  open: number;
   prevClose: number;
   prevHigh: number;
   dayHigh: number;

@@ -30,6 +30,7 @@ export interface AtrStock {
   marketCap: number; // dollars (0 if unknown)
   close: number;
   chg: number; // % change vs prev close
+  chgOpen: number; // % change vs session open
   atr: number;
   atrPct: number;
   ext: number; // (close - sma50) / atr
@@ -149,9 +150,11 @@ export function computeStock(candles: Candle[]): StockCore | null {
   const ladder: Record<number, number> = {};
   for (const k of [7, 8, 9, 10, 11]) ladder[k] = round2(sma50 + k * atrD);
 
+  const lastOpen = candles[L - 1].open;
   return {
     close: round2(close),
     chg: round2(100 * (close / prev - 1)),
+    chgOpen: round2(lastOpen > 0 ? ((close - lastOpen) / lastOpen) * 100 : 0),
     atr: round2(atrD),
     atrPct: round2(atrPct),
     ext: round2(ext),
@@ -235,6 +238,7 @@ export function computeFromFinviz(r: FinvizMatrixRow): StockCore | null {
   return {
     close: round2(price),
     chg: round2(r.change),
+    chgOpen: round2(r.open > 0 ? ((price - r.open) / r.open) * 100 : 0),
     atr: round2(atr),
     atrPct: round2(atrPct),
     ext: round2(ext),

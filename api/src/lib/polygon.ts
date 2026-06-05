@@ -256,6 +256,7 @@ export async function fetchSnapshotPrices(tickers: string[]): Promise<Map<string
 
 export interface IntradayQuote {
   price: number;
+  open: number;
   prevClose: number;
   prevHigh: number;
   dayHigh: number;
@@ -277,7 +278,7 @@ export async function fetchIntradaySnapshot(tickers: string[]): Promise<Map<stri
         tickers?: Array<{
           ticker?: string;
           lastTrade?: { p?: number };
-          day?: { h?: number; l?: number; c?: number };
+          day?: { o?: number; h?: number; l?: number; c?: number };
           prevDay?: { h?: number; c?: number };
           todaysChangePerc?: number;
         }>;
@@ -289,6 +290,7 @@ export async function fetchIntradaySnapshot(tickers: string[]): Promise<Map<stri
         if (!price || !prevClose) continue;
         out.set(t.ticker, {
           price,
+          open: t.day?.o ?? price,
           prevClose,
           prevHigh: t.prevDay?.h ?? prevClose,
           dayHigh: t.day?.h ?? price,
