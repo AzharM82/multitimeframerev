@@ -2,7 +2,7 @@ import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } 
 import { fetchBullAlerts } from "../lib/imap.js";
 import { fetchDailyBarsExtended } from "../lib/polygon.js";
 import { computeLevels } from "../lib/levels.js";
-import { upsert, getOne, TABLES } from "../lib/tables.js";
+import { upsert, getOne, listByPartition, TABLES } from "../lib/tables.js";
 import { pacificDateKey } from "../lib/dates.js";
 
 interface BullListRow {
@@ -23,6 +23,13 @@ interface BullListRow {
 function todayKey(): string {
   return pacificDateKey();
 }
+
+// A D-Bull-Sig email means a reversal printed on the chart TODAY. If the
+// server-side ZigZag's most recent U1 is older than this many daily bars,
+// it failed to reproduce the signal that fired the email — entering at that
+// months-old bar's price produces bogus instant SL/TP hits (e.g. GOOG
+// "entered" at its 2026-03-31 open while trading 27% higher). Skip instead.
+const MAX_U1_AGE_BARS = 2;
 
 async function bullEmailHandler(
   req: HttpRequest,
@@ -49,8 +56,15 @@ async function bullEmailHandler(
     const added: BullListRow[] = [];
     const skipped: { ticker: string; reason: string }[] = [];
 
+    const openRows = await listByPartition<BullListRow>(TABLES.BULL_LIST, "open");
+    const openTickers = new Set(openRows.map((r) => r.ticker));
+
     for (const alert of alerts) {
       const rowKey = `${date}_${alert.ticker}`;
+      if (openTickers.has(alert.ticker)) {
+        skipped.push({ ticker: alert.ticker, reason: "already has open position" });
+        continue;
+      }
       const existing = await getOne<BullListRow>(TABLES.BULL_LIST, "open", rowKey);
       if (existing) {
         skipped.push({ ticker: alert.ticker, reason: "already on list today" });
@@ -62,6 +76,15 @@ async function bullEmailHandler(
         const levels = computeLevels(alert.ticker, bars);
         if (!levels) {
           skipped.push({ ticker: alert.ticker, reason: "insufficient bars" });
+          continue;
+        }
+
+        const u1AgeBars = bars.length - 1 - levels.reversalBarIdx;
+        if (levels.source !== "u1_lookback" || u1AgeBars > MAX_U1_AGE_BARS) {
+          skipped.push({
+            ticker: alert.ticker,
+            reason: `stale U1 (${levels.reversalBarTs.slice(0, 10)}, ${u1AgeBars} bars old)`,
+          });
           continue;
         }
 
@@ -80,6 +103,7 @@ async function bullEmailHandler(
           reversalBarTs: levels.reversalBarTs,
         };
         await upsert(TABLES.BULL_LIST, "open", rowKey, row);
+        openTickers.add(alert.ticker);
         added.push(row);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

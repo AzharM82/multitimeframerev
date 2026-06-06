@@ -40,8 +40,14 @@ async function getHandler(req: HttpRequest): Promise<HttpResponseInit> {
     return { jsonBody: { status: partition, count: enriched.length, rows: enriched } };
   }
 
-  rows.sort((a, b) => b.addedAt.localeCompare(a.addedAt));
-  return { jsonBody: { status: partition, count: rows.length, rows } };
+  // Closed positions — P&L is fixed at the recorded exit price
+  const enriched = rows.map((r) => {
+    const last = r.exitPrice ?? null;
+    const pnlPct = last !== null && r.entry > 0 ? ((last - r.entry) / r.entry) * 100 : null;
+    return { ...r, last, pnlPct };
+  });
+  enriched.sort((a, b) => b.addedAt.localeCompare(a.addedAt));
+  return { jsonBody: { status: partition, count: enriched.length, rows: enriched } };
 }
 
 async function postHandler(req: HttpRequest): Promise<HttpResponseInit> {

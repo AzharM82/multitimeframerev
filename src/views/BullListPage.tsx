@@ -37,6 +37,92 @@ function pnlClass(pct: number | null | undefined): string {
   return "text-text-secondary";
 }
 
+// ─── Closed-trades stats strip ($5k notional per trade, mirrors /api/paper-trades) ───
+
+const NOTIONAL_PER_TRADE = 5000;
+
+interface ClosedStats {
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalPnl: number;
+  avgPnl: number;
+  bestPct: number;
+  worstPct: number;
+}
+
+function computeClosedStats(rows: BullListRow[]): ClosedStats | null {
+  const done = rows.filter((r) => r.exitPrice !== undefined && r.exitPrice !== null && r.entry > 0);
+  if (done.length === 0) return null;
+  let wins = 0;
+  let totalPnl = 0;
+  let bestPct = -Infinity;
+  let worstPct = Infinity;
+  for (const r of done) {
+    const exit = r.exitPrice as number;
+    const qty = Math.floor(NOTIONAL_PER_TRADE / r.entry);
+    const pnl = (exit - r.entry) * qty;
+    const pct = ((exit - r.entry) / r.entry) * 100;
+    if (pnl > 0) wins++;
+    totalPnl += pnl;
+    if (pct > bestPct) bestPct = pct;
+    if (pct < worstPct) worstPct = pct;
+  }
+  return {
+    trades: done.length,
+    wins,
+    losses: done.length - wins,
+    winRate: (wins / done.length) * 100,
+    totalPnl,
+    avgPnl: totalPnl / done.length,
+    bestPct,
+    worstPct,
+  };
+}
+
+function fmtUsd(n: number): string {
+  const sign = n >= 0 ? "+" : "-";
+  return `${sign}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function StatCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "bull" | "bear" }) {
+  const toneCls = tone === "bull" ? "text-signal-bull" : tone === "bear" ? "text-signal-bear" : "text-text-primary";
+  return (
+    <div className="bg-bg-card border border-border rounded-lg p-3 flex-1 min-w-[140px]">
+      <div className="text-[10px] uppercase tracking-widest text-text-secondary">{label}</div>
+      <div className={`text-lg font-bold tabular-nums mt-1 ${toneCls}`}>{value}</div>
+      {sub && <div className="text-[11px] text-text-secondary mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function ClosedStatsStrip({ stats }: { stats: ClosedStats }) {
+  return (
+    <div className="flex flex-wrap gap-3">
+      <StatCard
+        label="Total P&L"
+        value={fmtUsd(stats.totalPnl)}
+        sub={`${stats.trades} trades · $5k notional each`}
+        tone={stats.totalPnl >= 0 ? "bull" : "bear"}
+      />
+      <StatCard
+        label="Win Rate"
+        value={`${stats.winRate.toFixed(1)}%`}
+        sub={`${stats.wins}W / ${stats.losses}L`}
+        tone={stats.winRate >= 50 ? "bull" : "bear"}
+      />
+      <StatCard
+        label="Avg / Trade"
+        value={fmtUsd(stats.avgPnl)}
+        tone={stats.avgPnl >= 0 ? "bull" : "bear"}
+      />
+      <StatCard label="Best" value={`+${stats.bestPct.toFixed(2)}%`} tone="bull" />
+      <StatCard label="Worst" value={`${stats.worstPct.toFixed(2)}%`} tone="bear" />
+    </div>
+  );
+}
+
 interface ThProps {
   label: string;
   sortKey?: SortKey;
@@ -140,6 +226,11 @@ export function BullListPage() {
 
   const enriched = useMemo<EnrichedRow[]>(() => (data?.rows ?? []).map(enrich), [data]);
 
+  const closedStats = useMemo<ClosedStats | null>(
+    () => (tab === "closed" && data ? computeClosedStats(data.rows) : null),
+    [tab, data],
+  );
+
   const sorted = useMemo<EnrichedRow[]>(() => {
     if (!sortKey) return enriched;
     const copy = [...enriched];
@@ -204,6 +295,8 @@ export function BullListPage() {
       </div>
 
       {error && <div className="p-3 bg-signal-bear/10 border border-signal-bear/30 rounded text-signal-bear text-sm">{error}</div>}
+
+      {closedStats && <ClosedStatsStrip stats={closedStats} />}
 
       <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
