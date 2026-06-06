@@ -6,12 +6,12 @@ import {
   type DayTradeAlertsResponse,
   type DayTradePerformanceResponse,
   type PerfMode,
+  type PerTradeResult,
 } from "../services/api.js";
 
-const PAPER_NOTIONAL = 1000;
 const TARGET_PCT = 3;   // +3% take-profit
 
-type SortKey = "time" | "ticker" | "buy" | "sl" | "slPct" | "target" | "current" | "pnl" | "channel" | "date";
+type SortKey = "time" | "ticker" | "buy" | "sl" | "slPct" | "target" | "exit" | "pnl" | "channel" | "date";
 
 interface HeaderProps {
   label: string;
@@ -244,16 +244,37 @@ function PerformancePanel({ perf, mode, onModeChange }: {
 interface EnrichedAlert extends DayTradeAlertRow {
   _buy: number;
   _target: number;
-  _pnl: number | null;
+  _trade: PerTradeResult | null;   // simulated exit-rule result for this alert
+  _pnl: number | null;             // realized P&L from the simulator
 }
 
-function enrich(a: DayTradeAlertRow): EnrichedAlert {
+function enrich(a: DayTradeAlertRow, trade: PerTradeResult | null): EnrichedAlert {
   const buy = a.reversalPrice;
   const target = buy * (1 + TARGET_PCT / 100);
-  const pnl = (a.currentPrice !== undefined && a.currentPrice !== null)
-    ? ((a.currentPrice - buy) / buy) * PAPER_NOTIONAL
-    : null;
-  return { ...a, _buy: buy, _target: target, _pnl: pnl };
+  const pnl = trade?.pnl ?? null;
+  return { ...a, _buy: buy, _target: target, _trade: trade, _pnl: pnl };
+}
+
+const EXIT_BADGE: Record<PerTradeResult["result"], { label: string; cls: string }> = {
+  TP:          { label: "TP",      cls: "bg-signal-bull/15 text-signal-bull border-signal-bull/40" },
+  SL:          { label: "SL",      cls: "bg-signal-bear/15 text-signal-bear border-signal-bear/40" },
+  EOD:         { label: "EOD",     cls: "bg-slate-500/15 text-slate-600 border-slate-500/40" },
+  SKIP_WINDOW: { label: "SKIP",    cls: "bg-amber-500/15 text-amber-700 border-amber-500/40" },
+  SKIP_CAP:    { label: "CAP",     cls: "bg-amber-500/15 text-amber-700 border-amber-500/40" },
+  NO_DATA:     { label: "NO DATA", cls: "bg-slate-500/15 text-slate-600 border-slate-500/40" },
+};
+
+function ExitCell({ trade }: { trade: PerTradeResult | null }) {
+  if (!trade) return <span className="text-text-secondary text-xs">…</span>;
+  const badge = EXIT_BADGE[trade.result];
+  return (
+    <span className="inline-flex items-center gap-1.5 justify-end">
+      {trade.exitPx !== undefined && <span className="tabular-nums">{fmtMoney(trade.exitPx)}</span>}
+      <span className={`px-1.5 py-0.5 text-[9px] font-bold tracking-wider border rounded ${badge.cls}`}>
+        {badge.label}
+      </span>
+    </span>
+  );
 }
 
 function AlertRow({ alert }: { alert: EnrichedAlert }) {
@@ -280,10 +301,12 @@ function AlertRow({ alert }: { alert: EnrichedAlert }) {
         </a>
       </td>
       <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert._buy)}</td>
-      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert.sl)}</td>
+      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert._trade?.sl ?? alert.sl)}</td>
       <td className="py-2 px-3 text-right tabular-nums text-signal-bear">{fmtPct(alert.slPct)}</td>
       <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert._target)}</td>
-      <td className="py-2 px-3 text-right tabular-nums">{fmtMoney(alert.currentPrice)}</td>
+      <td className="py-2 px-3 text-right">
+        <ExitCell trade={alert._trade} />
+      </td>
       <td className={`py-2 px-3 text-right tabular-nums font-medium ${pnlClass}`}>
         {fmtSignedMoney(alert._pnl)}
       </td>
@@ -330,7 +353,16 @@ export function DayTradePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const enriched = useMemo<EnrichedAlert[]>(() => (data?.recent ?? []).map(enrich), [data]);
+  const tradeMap = useMemo<Map<string, PerTradeResult>>(() => {
+    const m = new Map<string, PerTradeResult>();
+    for (const t of perf?.trades ?? []) m.set(t.rowKey, t);
+    return m;
+  }, [perf]);
+
+  const enriched = useMemo<EnrichedAlert[]>(
+    () => (data?.recent ?? []).map((a) => enrich(a, tradeMap.get(a.rowKey) ?? null)),
+    [data, tradeMap],
+  );
 
   const sorted = useMemo<EnrichedAlert[]>(() => {
     if (!sortKey) return enriched;
@@ -344,7 +376,7 @@ export function DayTradePage() {
         case "sl":      av = a.sl ?? -Infinity; bv = b.sl ?? -Infinity; break;
         case "slPct":   av = a.slPct ?? -Infinity; bv = b.slPct ?? -Infinity; break;
         case "target":  av = a._target; bv = b._target; break;
-        case "current": av = a.currentPrice ?? -Infinity; bv = b.currentPrice ?? -Infinity; break;
+        case "exit":    av = a._trade?.exitPx ?? -Infinity; bv = b._trade?.exitPx ?? -Infinity; break;
         case "pnl":     av = a._pnl ?? -Infinity; bv = b._pnl ?? -Infinity; break;
         case "channel": av = a.status; bv = b.status; break;
         case "date":
@@ -399,7 +431,7 @@ export function DayTradePage() {
               <Th label="SL"      sortKey="sl"      current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="%SL"     sortKey="slPct"   current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="Target (+3%)" sortKey="target" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
-              <Th label="Current" sortKey="current" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+              <Th label="Exit"    sortKey="exit"    current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="$1K P&L" sortKey="pnl"     current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="Channel" sortKey="channel" current={sortKey} dir={sortDir} onSort={handleSort} align="center" />
               <Th label="Date"    sortKey="date"    current={sortKey} dir={sortDir} onSort={handleSort} />
@@ -415,6 +447,14 @@ export function DayTradePage() {
             {!loading && sorted.map((a) => <AlertRow key={a.rowKey} alert={a} />)}
           </tbody>
         </table>
+      </div>
+
+      <div className="text-[11px] text-text-secondary px-1">
+        <span className="text-text-primary">$1K P&L</span> is realized per the exit-rule
+        simulator above ({perfMode === "sl_only" ? "trailing 2-bar-low SL, no TP" : "+3% TP / 2-bar-low SL"} · EOD close otherwise) —
+        not a live mark. <span className="text-text-primary">SKIP</span> = fired outside the trade window
+        (first {perf?.filters.firstSkipMin ?? 40}m / last {perf?.filters.lastSkipMin ?? 15}m),{" "}
+        <span className="text-text-primary">CAP</span> = over the {perf?.filters.maxPerDay ?? 10}/day limit.
       </div>
     </div>
   );

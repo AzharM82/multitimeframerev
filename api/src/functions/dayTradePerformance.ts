@@ -35,6 +35,16 @@ interface AlertLogRow {
   sl?: number;
 }
 
+// Per-alert simulated result, keyed by rowKey so the alerts table can show
+// realized (exit-rule) P&L instead of a misleading hold-forever live mark.
+interface TradeResult {
+  rowKey: string;
+  result: "TP" | "SL" | "EOD" | "SKIP_WINDOW" | "SKIP_CAP" | "NO_DATA";
+  exitPx?: number;
+  sl?: number;
+  pnl?: number;
+}
+
 interface Bar {
   ts: number;        // unix ms
   open: number;
@@ -126,6 +136,7 @@ interface ResponseShape {
     maxPerDay: number;
   };
   days: DayBucket[];
+  trades: TradeResult[];
 }
 
 async function fetch1mBars(ticker: string, date: string, apiKey: string): Promise<Bar[]> {
@@ -246,6 +257,7 @@ async function dayTradePerfHandler(req: HttpRequest): Promise<HttpResponseInit> 
 
   const byDay = new Map<string, DayBucket>();
   const countTakenByDay = new Map<string, number>();
+  const trades: TradeResult[] = [];
   let skippedFilter = 0;
   let skippedCap = 0;
 
@@ -257,19 +269,31 @@ async function dayTradePerfHandler(req: HttpRequest): Promise<HttpResponseInit> 
     if (!Number.isFinite(firedMs)) continue;
 
     // Trade-window filter: skip first 40m / last 15m of RTH.
-    if (!isAllowed(etMinutes(a.firedAt))) { skippedFilter++; continue; }
+    if (!isAllowed(etMinutes(a.firedAt))) {
+      skippedFilter++;
+      trades.push({ rowKey: a.rowKey, result: "SKIP_WINDOW" });
+      continue;
+    }
 
     // Per-day cap: first MAX_PER_DAY only.
     const takenSoFar = countTakenByDay.get(date) ?? 0;
-    if (takenSoFar >= MAX_PER_DAY) { skippedCap++; continue; }
+    if (takenSoFar >= MAX_PER_DAY) {
+      skippedCap++;
+      trades.push({ rowKey: a.rowKey, result: "SKIP_CAP" });
+      continue;
+    }
 
     const bars = await fetch1mBars(a.ticker, date, apiKey);
-    if (bars.length === 0) continue;   // no Polygon data — skip silently
+    if (bars.length === 0) {
+      trades.push({ rowKey: a.rowKey, result: "NO_DATA" });
+      continue;   // no Polygon data — skip silently
+    }
 
-    const { exitPx } = mode === "sl_only"
+    const { exitPx, reason, sl } = mode === "sl_only"
       ? simulateExitTrailingSlOnly(entry, bars, firedMs)
       : simulateExit(entry, bars, firedMs);
     const pnl = (exitPx - entry) / entry * NOTIONAL;
+    trades.push({ rowKey: a.rowKey, result: reason, exitPx: round2(exitPx), sl: round2(sl), pnl: round2(pnl) });
 
     let bucket = byDay.get(date);
     if (!bucket) {
@@ -316,6 +340,7 @@ async function dayTradePerfHandler(req: HttpRequest): Promise<HttpResponseInit> 
       maxPerDay:    MAX_PER_DAY,
     },
     days: days.map((d) => ({ ...d, pnl: round2(d.pnl) })),
+    trades,
   };
 
   cachedByMode.set(cacheKey, { at: Date.now(), payload });

@@ -85,6 +85,16 @@ export interface DayPerfBucket {
 
 export type PerfMode = "tp_sl" | "sl_only";
 
+// Per-alert simulated result, keyed by AlertLog rowKey. The alerts table
+// joins on this to show realized (exit-rule) P&L per alert.
+export interface PerTradeResult {
+  rowKey: string;
+  result: "TP" | "SL" | "EOD" | "SKIP_WINDOW" | "SKIP_CAP" | "NO_DATA";
+  exitPx?: number;
+  sl?: number;
+  pnl?: number;
+}
+
 export interface DayTradePerformanceResponse {
   mode: PerfMode;
   stats: {
@@ -106,6 +116,7 @@ export interface DayTradePerformanceResponse {
     maxPerDay: number;
   };
   days: DayPerfBucket[];
+  trades?: PerTradeResult[];
 }
 
 export function getDayTradePerformance(mode: PerfMode = "tp_sl"): Promise<DayTradePerformanceResponse> {
