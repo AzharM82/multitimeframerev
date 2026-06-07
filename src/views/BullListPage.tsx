@@ -30,6 +30,22 @@ function enrich(r: BullListRow): EnrichedRow {
   return { ...r, _slPct: Math.round(slPct * 100) / 100 };
 }
 
+// Explicit Pacific timestamp — "Jun 6, 4:30 AM PDT". The PDT/PST label comes
+// from the timezone engine (not a hardcoded suffix), so it's always correct
+// across daylight-saving changes. NOTE: TOS legitimately fires D-Bull-Sig
+// emails premarket (~3:30-4:30 AM PT) and overnight as its scan refreshes —
+// early-morning stamps here are real, not a timezone bug.
+function fmtPacific(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
 function pnlClass(pct: number | null | undefined): string {
   if (pct === null || pct === undefined) return "text-text-secondary";
   if (pct > 0) return "text-signal-bull";
@@ -177,7 +193,7 @@ function Row({ row, onRemove }: { row: EnrichedRow; onRemove: () => void }) {
           {row.status}
         </span>
       </td>
-      <td className="py-2 px-3 text-xs text-text-secondary">{new Date(row.addedAt).toLocaleString([], { timeZone: "America/Los_Angeles" })} PT</td>
+      <td className="py-2 px-3 text-xs text-text-secondary">{fmtPacific(row.addedAt)}</td>
       <td className="py-2 px-3 text-right">
         <button
           onClick={onRemove}
