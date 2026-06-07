@@ -214,30 +214,33 @@ export interface AvwapResultsResponse {
 
 // ─── Bull List (Section 2) ──────────────────────────────────────────────────
 
-export type BullStatus = "OPEN" | "TP_HIT" | "SL_HIT" | "EXPIRED";
+export type BullStatus = "PENDING" | "OPEN" | "TP_HIT" | "SL_HIT" | "EXPIRED" | "CANCELLED";
 
 export interface BullListRow {
   partitionKey: string;
   rowKey: string;
   ticker: string;
-  entry: number;
-  sl: number;
-  tp: number;
-  rPct: number;
+  entry?: number;
+  sl?: number;
+  tp?: number;
+  rPct?: number;
   status: BullStatus;
   addedAt: string;
+  confirmedAt?: string;   // when the 30m U1 confirmed and the trade opened
+  confirmBarTs?: string;  // timestamp of the confirming 30m U1 bar
+  signalBarTs?: string;   // daily U1 bar from the email signal
   closedAt?: string;
   exitPrice?: number;
   exitReason?: string;
   source: string;
   emailSubject: string;
-  reversalBarTs: string;
+  reversalBarTs?: string;
   last?: number | null;
   pnlPct?: number | null;
 }
 
 export interface BullListResponse {
-  status: "open" | "closed";
+  status: "pending" | "open" | "closed";
   count: number;
   rows: BullListRow[];
 }

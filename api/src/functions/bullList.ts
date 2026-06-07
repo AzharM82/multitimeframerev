@@ -7,23 +7,26 @@ interface BullListRow {
   partitionKey: string;
   rowKey: string;
   ticker: string;
-  entry: number;
-  sl: number;
-  tp: number;
-  rPct: number;
-  status: "OPEN" | "TP_HIT" | "SL_HIT" | "EXPIRED";
+  entry?: number;
+  sl?: number;
+  tp?: number;
+  rPct?: number;
+  status: "PENDING" | "OPEN" | "TP_HIT" | "SL_HIT" | "EXPIRED" | "CANCELLED";
   addedAt: string;
+  confirmedAt?: string;
+  confirmBarTs?: string;
+  signalBarTs?: string;
   closedAt?: string;
   exitPrice?: number;
   exitReason?: string;
   source: string;
   emailSubject: string;
-  reversalBarTs: string;
+  reversalBarTs?: string;
 }
 
 async function getHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const status = (req.query.get("status") ?? "open").toLowerCase();
-  const partition = status === "closed" ? "closed" : "open";
+  const partition = status === "closed" ? "closed" : status === "pending" ? "pending" : "open";
 
   const rows = await listByPartition<BullListRow>(TABLES.BULL_LIST, partition);
 
@@ -33,17 +36,17 @@ async function getHandler(req: HttpRequest): Promise<HttpResponseInit> {
     const priceMap = await fetchSnapshotPrices(tickers).catch(() => new Map<string, number>());
     const enriched = rows.map((r) => {
       const last = priceMap.get(r.ticker) ?? null;
-      const pnlPct = last !== null ? ((last - r.entry) / r.entry) * 100 : null;
+      const pnlPct = last !== null && r.entry !== undefined && r.entry > 0 ? ((last - r.entry) / r.entry) * 100 : null;
       return { ...r, last, pnlPct };
     });
     enriched.sort((a, b) => b.addedAt.localeCompare(a.addedAt));
     return { jsonBody: { status: partition, count: enriched.length, rows: enriched } };
   }
 
-  // Closed positions — P&L is fixed at the recorded exit price
+  // Closed/pending positions — P&L (if any) is fixed at the recorded exit price
   const enriched = rows.map((r) => {
     const last = r.exitPrice ?? null;
-    const pnlPct = last !== null && r.entry > 0 ? ((last - r.entry) / r.entry) * 100 : null;
+    const pnlPct = last !== null && r.entry !== undefined && r.entry > 0 ? ((last - r.entry) / r.entry) * 100 : null;
     return { ...r, last, pnlPct };
   });
   enriched.sort((a, b) => b.addedAt.localeCompare(a.addedAt));

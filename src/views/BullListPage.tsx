@@ -3,11 +3,28 @@ import type { BullListResponse, BullListRow, BullStatus } from "../types.js";
 import { getBullList, deleteBullEntry } from "../services/api.js";
 
 const STATUS_COLORS: Record<BullStatus, string> = {
+  PENDING: "bg-amber-500/15 text-amber-700 border-amber-500/40",
   OPEN: "bg-accent/15 text-accent border-accent/40",
   TP_HIT: "bg-signal-bull/15 text-signal-bull border-signal-bull/40",
   SL_HIT: "bg-signal-bear/15 text-signal-bear border-signal-bear/40",
   EXPIRED: "bg-slate-500/15 text-slate-600 border-slate-500/40",
+  CANCELLED: "bg-slate-500/15 text-slate-600 border-slate-500/40",
 };
+
+const PENDING_EXPIRY_DAYS = 3;
+
+// Trading days elapsed since an ISO timestamp (mirrors the API's counter).
+function tradingDaysSince(iso: string): number {
+  const cur = new Date(iso);
+  const now = new Date();
+  let count = 0;
+  while (cur < now) {
+    cur.setUTCDate(cur.getUTCDate() + 1);
+    const day = cur.getUTCDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+}
 
 type SortKey =
   | "ticker"
@@ -22,12 +39,14 @@ type SortKey =
   | "addedAt";
 
 interface EnrichedRow extends BullListRow {
-  _slPct: number; // (entry - sl) / entry * 100
+  _slPct: number | null; // (entry - sl) / entry * 100
 }
 
 function enrich(r: BullListRow): EnrichedRow {
-  const slPct = r.entry > 0 ? ((r.entry - r.sl) / r.entry) * 100 : 0;
-  return { ...r, _slPct: Math.round(slPct * 100) / 100 };
+  const slPct = r.entry !== undefined && r.entry > 0 && r.sl !== undefined
+    ? ((r.entry - r.sl) / r.entry) * 100
+    : null;
+  return { ...r, _slPct: slPct !== null ? Math.round(slPct * 100) / 100 : null };
 }
 
 // Explicit Pacific timestamp — "Jun 6, 4:30 AM PDT". The PDT/PST label comes
@@ -69,7 +88,7 @@ interface ClosedStats {
 }
 
 function computeClosedStats(rows: BullListRow[]): ClosedStats | null {
-  const done = rows.filter((r) => r.exitPrice !== undefined && r.exitPrice !== null && r.entry > 0);
+  const done = rows.filter((r) => r.exitPrice !== undefined && r.exitPrice !== null && r.entry !== undefined && r.entry > 0);
   if (done.length === 0) return null;
   let wins = 0;
   let totalPnl = 0;
@@ -77,9 +96,10 @@ function computeClosedStats(rows: BullListRow[]): ClosedStats | null {
   let worstPct = Infinity;
   for (const r of done) {
     const exit = r.exitPrice as number;
-    const qty = Math.floor(NOTIONAL_PER_TRADE / r.entry);
-    const pnl = (exit - r.entry) * qty;
-    const pct = ((exit - r.entry) / r.entry) * 100;
+    const entry = r.entry as number;
+    const qty = Math.floor(NOTIONAL_PER_TRADE / entry);
+    const pnl = (exit - entry) * qty;
+    const pct = ((exit - entry) / entry) * 100;
     if (pnl > 0) wins++;
     totalPnl += pnl;
     if (pct > bestPct) bestPct = pct;
@@ -164,6 +184,10 @@ function Th({ label, sortKey, current, dir, align = "left", onSort }: ThProps) {
   );
 }
 
+function num(v: number | null | undefined, prefix = "$", suffix = ""): string {
+  return v !== undefined && v !== null ? `${prefix}${v.toFixed(2)}${suffix}` : "—";
+}
+
 function Row({ row, onRemove }: { row: EnrichedRow; onRemove: () => void }) {
   return (
     <tr className="border-b border-border hover:bg-bg-secondary/40">
@@ -177,11 +201,11 @@ function Row({ row, onRemove }: { row: EnrichedRow; onRemove: () => void }) {
           {row.ticker}
         </a>
       </td>
-      <td className="py-2 px-3 text-right tabular-nums text-emerald-700/90">${row.entry.toFixed(2)}</td>
-      <td className="py-2 px-3 text-right tabular-nums text-signal-bear/80">${row.sl.toFixed(2)}</td>
-      <td className="py-2 px-3 text-right tabular-nums text-xs">{row._slPct.toFixed(2)}%</td>
-      <td className="py-2 px-3 text-right tabular-nums text-signal-bull/80">${row.tp.toFixed(2)}</td>
-      <td className="py-2 px-3 text-right tabular-nums text-xs text-text-secondary">{row.rPct.toFixed(2)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-emerald-700/90">{num(row.entry)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-signal-bear/80">{num(row.sl)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-xs">{num(row._slPct, "", "%")}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-signal-bull/80">{num(row.tp)}</td>
+      <td className="py-2 px-3 text-right tabular-nums text-xs text-text-secondary">{num(row.rPct, "")}</td>
       <td className="py-2 px-3 text-right tabular-nums">
         {row.last !== undefined && row.last !== null && row.last > 0 ? `$${row.last.toFixed(2)}` : "—"}
       </td>
@@ -193,7 +217,7 @@ function Row({ row, onRemove }: { row: EnrichedRow; onRemove: () => void }) {
           {row.status}
         </span>
       </td>
-      <td className="py-2 px-3 text-xs text-text-secondary">{fmtPacific(row.addedAt)}</td>
+      <td className="py-2 px-3 text-xs text-text-secondary">{fmtPacific(row.confirmedAt ?? row.addedAt)}</td>
       <td className="py-2 px-3 text-right">
         <button
           onClick={onRemove}
@@ -207,8 +231,72 @@ function Row({ row, onRemove }: { row: EnrichedRow; onRemove: () => void }) {
   );
 }
 
+// ─── Pending signals table (daily signal waiting for 30m confirmation) ─────
+
+function PendingTable({ rows, onRemove }: { rows: BullListRow[]; onRemove: (r: BullListRow) => void }) {
+  return (
+    <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-bg-secondary text-[10px] uppercase tracking-wider text-text-secondary">
+          <tr>
+            <th className="py-2 px-3 text-left">Ticker</th>
+            <th className="py-2 px-3 text-left">Daily Signal Bar</th>
+            <th className="py-2 px-3 text-left">Signal Received</th>
+            <th className="py-2 px-3 text-center">Waiting For</th>
+            <th className="py-2 px-3 text-right">Days Left</th>
+            <th className="py-2 px-3 text-right"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={6} className="py-8 text-center text-text-secondary text-sm">
+              No pending signals. New D-Bull-Sig emails land here until a 30-min reversal confirms.
+            </td></tr>
+          )}
+          {rows.map((r) => {
+            const daysLeft = Math.max(0, PENDING_EXPIRY_DAYS - tradingDaysSince(r.addedAt));
+            return (
+              <tr key={r.rowKey} className="border-b border-border hover:bg-bg-secondary/40">
+                <td className="py-2 px-3">
+                  <a
+                    href={`https://www.tradingview.com/chart/?symbol=${r.ticker}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="font-bold text-accent hover:underline"
+                  >
+                    {r.ticker}
+                  </a>
+                </td>
+                <td className="py-2 px-3 text-xs text-text-secondary">{r.signalBarTs ? r.signalBarTs.slice(0, 10) : "—"}</td>
+                <td className="py-2 px-3 text-xs text-text-secondary">{fmtPacific(r.addedAt)}</td>
+                <td className="py-2 px-3 text-center">
+                  <span className="px-2 py-0.5 text-[10px] font-bold tracking-wider border rounded bg-amber-500/15 text-amber-700 border-amber-500/40">
+                    30M REVERSAL
+                  </span>
+                </td>
+                <td className={`py-2 px-3 text-right tabular-nums font-semibold ${daysLeft <= 1 ? "text-signal-bear" : "text-text-primary"}`}>
+                  {daysLeft}
+                </td>
+                <td className="py-2 px-3 text-right">
+                  <button
+                    onClick={() => onRemove(r)}
+                    className="text-xs text-text-secondary hover:text-signal-bear"
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function BullListPage() {
-  const [tab, setTab] = useState<"open" | "closed">("open");
+  const [tab, setTab] = useState<"pending" | "open" | "closed">("open");
   const [data, setData] = useState<BullListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -255,11 +343,11 @@ export function BullListPage() {
       let bv: string | number;
       switch (sortKey) {
         case "ticker": av = a.ticker; bv = b.ticker; break;
-        case "entry": av = a.entry; bv = b.entry; break;
-        case "sl": av = a.sl; bv = b.sl; break;
-        case "slPct": av = a._slPct; bv = b._slPct; break;
-        case "tp": av = a.tp; bv = b.tp; break;
-        case "rPct": av = a.rPct; bv = b.rPct; break;
+        case "entry": av = a.entry ?? -1; bv = b.entry ?? -1; break;
+        case "sl": av = a.sl ?? -1; bv = b.sl ?? -1; break;
+        case "slPct": av = a._slPct ?? -1; bv = b._slPct ?? -1; break;
+        case "tp": av = a.tp ?? -1; bv = b.tp ?? -1; break;
+        case "rPct": av = a.rPct ?? -1; bv = b.rPct ?? -1; break;
         case "last": av = a.last ?? -1; bv = b.last ?? -1; break;
         case "pnlPct": av = a.pnlPct ?? -9999; bv = b.pnlPct ?? -9999; break;
         case "status": av = a.status; bv = b.status; break;
@@ -287,17 +375,18 @@ export function BullListPage() {
         <div className="flex items-baseline justify-between flex-wrap gap-2">
           <div>
             <div className="text-[10px] uppercase tracking-widest text-text-secondary">TOS · D-Bull-Sig</div>
-            <h2 className="text-xl font-bold mt-1">Bull List</h2>
+            <h2 className="text-xl font-bold mt-1">Swing List</h2>
           </div>
           <div className="text-xs text-text-secondary">
-            Auto-ingested from <code className="text-accent">tosbullalert@gmail.com</code> hourly.
-            SL/TP computed via reversal pivot · Default TP +5%
+            Daily signal from <code className="text-accent">tosbullalert@gmail.com</code> →
+            waits up to {PENDING_EXPIRY_DAYS} trading days for a fresh <span className="text-text-primary">30-min reversal</span> during
+            market hours → entry at live price · SL = 30m swing low · TP +5%
           </div>
         </div>
       </div>
 
       <div className="flex gap-1 border-b border-border">
-        {(["open", "closed"] as const).map((t) => (
+        {(["pending", "open", "closed"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -314,6 +403,14 @@ export function BullListPage() {
 
       {closedStats && <ClosedStatsStrip stats={closedStats} />}
 
+      {tab === "pending" && !loading && (
+        <PendingTable rows={data?.rows ?? []} onRemove={handleRemove} />
+      )}
+      {tab === "pending" && loading && (
+        <div className="bg-bg-card border border-border rounded-lg p-8 text-center text-text-secondary text-sm">Loading…</div>
+      )}
+
+      {tab !== "pending" && (
       <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-bg-secondary text-[10px] uppercase tracking-wider text-text-secondary">
@@ -327,7 +424,7 @@ export function BullListPage() {
               <Th label="Last"    sortKey="last"    current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="P&L"     sortKey="pnlPct"  current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
               <Th label="Status"  sortKey="status"  current={sortKey} dir={sortDir} onSort={handleSort} align="center" />
-              <Th label="Added"   sortKey="addedAt" current={sortKey} dir={sortDir} onSort={handleSort} />
+              <Th label="Entered" sortKey="addedAt" current={sortKey} dir={sortDir} onSort={handleSort} />
               <th className="py-2 px-3 text-right"></th>
             </tr>
           </thead>
@@ -342,10 +439,13 @@ export function BullListPage() {
           </tbody>
         </table>
       </div>
+      )}
 
       <div className="text-[11px] text-text-secondary px-1">
-        <span className="text-text-primary">%SL</span> = (entry − stop) / entry · risk size per share.
-        &nbsp;·&nbsp; <span className="text-text-primary">R</span> = (target − entry) / (entry − stop) · reward-to-risk multiple.
+        <span className="text-text-primary">Execution model:</span> daily D-Bull-Sig signal → PENDING until a fresh 30-min U1 prints
+        during market hours (max {PENDING_EXPIRY_DAYS} trading days, else CANCELLED) → entry at the live price at confirmation.
+        &nbsp;·&nbsp; <span className="text-text-primary">%SL</span> = (entry − stop) / entry.
+        &nbsp;·&nbsp; <span className="text-text-primary">R</span> = (target − entry) / (entry − stop).
         &nbsp;·&nbsp; Click any column header to sort.
       </div>
     </div>

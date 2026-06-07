@@ -124,7 +124,7 @@ async function fetch60mCandles(ticker: string): Promise<Candle[]> {
   return filterMarketHours(candles);
 }
 
-async function fetch30mCandles(ticker: string): Promise<Candle[]> {
+export async function fetch30mCandles(ticker: string): Promise<Candle[]> {
   const to = new Date();
   const from = new Date();
   // 45 calendar days (~30 trading days, ~390 bars) — enough for EMA(21) convergence

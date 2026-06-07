@@ -10,7 +10,7 @@ type Page = "avwap" | "bull" | "daytrade" | "atr" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "avwap", label: "AVWAP" },
-  { key: "bull", label: "Bull List" },
+  { key: "bull", label: "Swing List" },
   { key: "daytrade", label: "Day Trades" },
   { key: "atr", label: "ATR Matrix" },
   { key: "about", label: "About" },

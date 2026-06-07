@@ -5,19 +5,30 @@ import { computeLevels } from "../lib/levels.js";
 import { upsert, getOne, listByPartition, TABLES } from "../lib/tables.js";
 import { pacificDateKey } from "../lib/dates.js";
 
-interface BullListRow {
+/**
+ * Swing List ingest — STAGE 1 of the two-stage execution model.
+ *
+ * A D-Bull-Sig email is a HIGHER-TIMEFRAME (daily) signal, not a trade.
+ * This handler only validates the daily reversal is fresh and parks the
+ * ticker as PENDING. The actual entry happens in bullMonitorTimer when a
+ * fresh 30-min U1 prints during market hours — filled at the live price,
+ * never at a back-derived chart price.
+ */
+
+interface PendingRow {
   partitionKey: string;
   rowKey: string;
   ticker: string;
-  entry: number;
-  sl: number;
-  tp: number;
-  rPct: number;
-  status: "OPEN" | "TP_HIT" | "SL_HIT" | "EXPIRED";
-  addedAt: string;
-  source: string;
+  status: "PENDING";
+  addedAt: string;        // email receive time
+  signalBarTs: string;    // daily U1 bar the signal refers to
   emailSubject: string;
-  reversalBarTs: string;
+  source: string;
+}
+
+interface OpenRowLite {
+  rowKey: string;
+  ticker: string;
 }
 
 function todayKey(): string {
@@ -26,9 +37,7 @@ function todayKey(): string {
 
 // A D-Bull-Sig email means a reversal printed on the chart TODAY. If the
 // server-side ZigZag's most recent U1 is older than this many daily bars,
-// it failed to reproduce the signal that fired the email — entering at that
-// months-old bar's price produces bogus instant SL/TP hits (e.g. GOOG
-// "entered" at its 2026-03-31 open while trading 27% higher). Skip instead.
+// it failed to reproduce the signal that fired the email — skip instead.
 const MAX_U1_AGE_BARS = 2;
 
 async function bullEmailHandler(
@@ -53,21 +62,24 @@ async function bullEmailHandler(
     }
 
     const date = todayKey();
-    const added: BullListRow[] = [];
+    const added: PendingRow[] = [];
     const skipped: { ticker: string; reason: string }[] = [];
 
-    const openRows = await listByPartition<BullListRow>(TABLES.BULL_LIST, "open");
-    const openTickers = new Set(openRows.map((r) => r.ticker));
+    const [pendingRows, openRows] = await Promise.all([
+      listByPartition<OpenRowLite>(TABLES.BULL_LIST, "pending"),
+      listByPartition<OpenRowLite>(TABLES.BULL_LIST, "open"),
+    ]);
+    const activeTickers = new Set([...pendingRows, ...openRows].map((r) => r.ticker));
 
     for (const alert of alerts) {
       const rowKey = `${date}_${alert.ticker}`;
-      if (openTickers.has(alert.ticker)) {
-        skipped.push({ ticker: alert.ticker, reason: "already has open position" });
+      if (activeTickers.has(alert.ticker)) {
+        skipped.push({ ticker: alert.ticker, reason: "already pending or open" });
         continue;
       }
-      const existing = await getOne<BullListRow>(TABLES.BULL_LIST, "open", rowKey);
+      const existing = await getOne<PendingRow>(TABLES.BULL_LIST, "pending", rowKey);
       if (existing) {
-        skipped.push({ ticker: alert.ticker, reason: "already on list today" });
+        skipped.push({ ticker: alert.ticker, reason: "already pending today" });
         continue;
       }
 
@@ -88,22 +100,18 @@ async function bullEmailHandler(
           continue;
         }
 
-        const row: BullListRow = {
-          partitionKey: "open",
+        const row: PendingRow = {
+          partitionKey: "pending",
           rowKey,
           ticker: alert.ticker,
-          entry: levels.entry,
-          sl: levels.sl,
-          tp: levels.tp,
-          rPct: levels.rPct,
-          status: "OPEN",
+          status: "PENDING",
           addedAt: alert.receivedAt,
-          source: levels.source,
+          signalBarTs: levels.reversalBarTs,
           emailSubject: alert.subject,
-          reversalBarTs: levels.reversalBarTs,
+          source: "u1_daily",
         };
-        await upsert(TABLES.BULL_LIST, "open", rowKey, row);
-        openTickers.add(alert.ticker);
+        await upsert(TABLES.BULL_LIST, "pending", rowKey, row);
+        activeTickers.add(alert.ticker);
         added.push(row);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -115,7 +123,7 @@ async function bullEmailHandler(
       jsonBody: {
         status: "ok",
         alertsFound: alerts.length,
-        added: added.length,
+        pendingAdded: added.length,
         skipped: skipped.length,
         details: { added, skipped },
       },

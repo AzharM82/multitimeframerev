@@ -29,7 +29,7 @@ export function getAvwapResults(date?: string): Promise<AvwapResultsResponse> {
 
 // ─── Section 2: Bull List ──────────────────────────────────────────────────
 
-export function getBullList(status: "open" | "closed" = "open"): Promise<BullListResponse> {
+export function getBullList(status: "pending" | "open" | "closed" = "open"): Promise<BullListResponse> {
   return request<BullListResponse>(`/bull-list?status=${status}`);
 }
 
