@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Day Trading with an Algo — Reversal × Multi-Timeframe</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#111827; --panel-2:#1f2937; --border:#374151;
+    --text:#e5e7eb; --muted:#9ca3af;
+    --blue:#3b82f6; --blue-l:#60a5fa; --green:#22c55e; --green-l:#4ade80;
+    --purple:#a855f7; --red:#f87171; --yellow:#facc15; --teal:#2dd4bf;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:radial-gradient(1200px 800px at 75% -10%,rgba(59,130,246,.13),transparent 60%),
+               radial-gradient(900px 700px at 0% 110%,rgba(34,197,94,.10),transparent 55%),
+               var(--bg);
+    color:var(--text);overflow:hidden;
+  }
+  .deck{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+  .slide{position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;
+    padding:5vh 7vw 9vh;animation:fade .5s ease}
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+  .brand{position:fixed;top:26px;left:34px;z-index:30;display:flex;align-items:center;gap:10px;
+    font-weight:700;letter-spacing:.3px;font-size:15px}
+  .brand .dot{width:12px;height:12px;border-radius:50%;
+    background:linear-gradient(135deg,var(--green),var(--blue));box-shadow:0 0 14px rgba(34,197,94,.7)}
+  .brand .url{color:var(--muted);font-weight:500;font-size:13px}
+
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:2.5px;
+    font-size:12px;font-weight:700;color:var(--green-l);margin-bottom:18px}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--green-l);display:inline-block}
+  .eyebrow.b{color:var(--blue-l)}.eyebrow.b::before{background:var(--blue-l)}
+  .eyebrow.p{color:var(--purple)}.eyebrow.p::before{background:var(--purple)}
+  .eyebrow.y{color:var(--yellow)}.eyebrow.y::before{background:var(--yellow)}
+  h1{font-size:clamp(32px,5.2vw,66px);line-height:1.05;font-weight:800;letter-spacing:-1px}
+  h2{font-size:clamp(25px,3.5vw,44px);line-height:1.1;font-weight:800;letter-spacing:-.5px;margin-bottom:8px}
+  .sub{color:var(--muted);font-size:clamp(15px,1.5vw,20px);max-width:62ch;line-height:1.6;margin-top:18px}
+  .grad{background:linear-gradient(120deg,var(--green-l),var(--blue-l) 55%,var(--purple));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+
+  .grid{display:grid;gap:16px;margin-top:30px}
+  .g2{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}.g5{grid-template-columns:repeat(5,1fr)}
+  .card{background:linear-gradient(180deg,rgba(31,41,55,.9),rgba(17,24,39,.9));
+    border:1px solid var(--border);border-radius:16px;padding:20px}
+  .card .lbl{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-top:6px}
+  .card p.d{color:var(--muted);font-size:13.5px;line-height:1.5;margin-top:8px}
+  .card h4{font-size:17px}
+  .stat{font-size:clamp(26px,3.6vw,46px);font-weight:800;line-height:1}
+  .b{color:var(--blue-l)}.gr{color:var(--green-l)}.pu{color:var(--purple)}.ye{color:var(--yellow)}.rd{color:var(--red)}.tl{color:var(--teal)}
+
+  .steps{display:flex;flex-direction:column;gap:13px;margin-top:26px;max-width:1000px}
+  .step{display:flex;gap:16px;align-items:flex-start;background:rgba(31,41,55,.55);
+    border:1px solid var(--border);border-radius:14px;padding:14px 18px}
+  .num{flex:0 0 auto;width:38px;height:38px;border-radius:50%;
+    background:linear-gradient(135deg,var(--green),#15803d);
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;color:#fff}
+  .num.b{background:linear-gradient(135deg,var(--blue),#1d4ed8)}
+  .step h4{font-size:17px;margin-bottom:3px}
+  .step p{color:var(--muted);font-size:14px;line-height:1.5}
+
+  .row{display:flex;gap:40px;align-items:center;flex-wrap:wrap}
+  .flex1{flex:1 1 360px;min-width:300px}
+  .lead{font-size:clamp(22px,2.6vw,34px);font-weight:700;line-height:1.35;max-width:20ch}
+  .quote{font-size:clamp(26px,4vw,50px);font-weight:800;line-height:1.2;letter-spacing:-.5px;max-width:20ch}
+
+  .tag{display:inline-block;font-size:12px;font-weight:700;padding:4px 11px;border-radius:999px;margin:6px 6px 0 0}
+  .tag.g{color:var(--green-l);background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3)}
+  .tag.b{color:var(--blue-l);background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3)}
+  .tag.p{color:var(--purple);background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.3)}
+
+  /* MTF confluence grid mock */
+  .mtf{display:flex;flex-direction:column;gap:8px;background:#0e1422;border:1px solid var(--border);
+    border-radius:14px;padding:16px;max-width:520px}
+  .mtf .hr{display:grid;grid-template-columns:1.4fr repeat(4,1fr) .7fr;gap:8px;align-items:center}
+  .mtf .hh{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;text-align:center}
+  .mtf .sym{font-weight:700;color:#fff;font-size:15px}
+  .cell{height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700}
+  .cg{background:rgba(34,197,94,.22);color:var(--green-l);border:1px solid rgba(34,197,94,.45)}
+  .crd{background:rgba(248,113,113,.20);color:var(--red);border:1px solid rgba(248,113,113,.4)}
+  .score{font-weight:800;text-align:center;font-size:14px}
+
+  /* candle diagram */
+  .chartbox{background:#0e1422;border:1px solid var(--border);border-radius:14px;padding:22px;max-width:520px}
+  .candles{display:flex;align-items:flex-end;gap:10px;height:200px;position:relative;padding:0 6px}
+  .candle{position:relative;width:22px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+  .wick{position:absolute;width:2px;background:#6b7280;top:0;bottom:0;left:50%;transform:translateX(-50%)}
+  .body{width:100%;border-radius:2px;z-index:1}
+  .up{background:var(--green)}.dn{background:var(--red)}
+  .lbl-u{position:absolute;font-size:10px;font-weight:800;color:#022c22;background:var(--green-l);
+    padding:2px 5px;border-radius:4px;white-space:nowrap;z-index:3}
+  .marker{position:absolute;left:0;right:0;border-top:2px dashed;font-size:11px;font-weight:700;padding-left:4px}
+
+  .feat{display:flex;gap:14px;align-items:flex-start}
+  .feat .pill{flex:0 0 auto;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;
+    background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.3)}
+  .feat h4{font-size:17px;margin-bottom:3px}
+  .feat p{color:var(--muted);font-size:13.5px;line-height:1.5}
+
+  .pipe{display:flex;align-items:stretch;gap:0;margin-top:30px;flex-wrap:wrap}
+  .pnode{flex:1 1 0;min-width:150px;background:rgba(31,41,55,.6);border:1px solid var(--border);
+    border-radius:12px;padding:16px;text-align:center;position:relative}
+  .pnode .ic{font-size:26px}
+  .pnode h4{font-size:15px;margin:8px 0 4px}
+  .pnode p{color:var(--muted);font-size:12px;line-height:1.45}
+  .arr{display:flex;align-items:center;justify-content:center;color:var(--green-l);font-size:22px;padding:0 6px}
+
+  .note{color:#64748b;font-size:12.5px;margin-top:18px;font-style:italic}
+
+  .nav{position:fixed;bottom:22px;right:30px;z-index:30;display:flex;align-items:center;gap:14px}
+  .nav button{background:var(--panel-2);border:1px solid var(--border);color:var(--text);
+    width:42px;height:42px;border-radius:11px;font-size:18px;cursor:pointer;transition:.15s}
+  .nav button:hover{background:#374151;transform:translateY(-1px)}
+  .counter{color:var(--muted);font-size:13px;min-width:54px;text-align:center;font-variant-numeric:tabular-nums}
+  .dots{position:fixed;bottom:30px;left:30px;z-index:30;display:flex;gap:8px;flex-wrap:wrap;max-width:55vw}
+  .dots span{width:9px;height:9px;border-radius:50%;background:#374151;cursor:pointer;transition:.2s}
+  .dots span.on{background:var(--green-l);width:26px;border-radius:5px}
+  .progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--green),var(--blue));z-index:40;transition:width .35s ease}
+  .hint{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);color:#475569;font-size:12px;z-index:20}
+
+  @media (max-width:760px){.g3,.g4,.g5,.g2{grid-template-columns:1fr 1fr}.slide{padding:9vh 6vw}.brand .url{display:none}}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<div class="brand"><span class="dot"></span> Reversal Algo <span class="url">· Multi-Timeframe Day-Trading System</span></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 — TITLE -->
+  <section class="slide active">
+    <div class="eyebrow">Algorithmic Day Trading</div>
+    <h1>Catching the turn,<br/><span class="grad">mechanically.</span></h1>
+    <p class="sub">One reversal signal, ported penny-perfect from ThinkOrSwim, scanned across four timeframes
+       and traded by rule — not by gut. This is how I day-trade with an algorithm.</p>
+    <div class="row" style="margin-top:38px;gap:14px">
+      <span class="tag b">ThinkScript “Azhar_Reversal” port</span>
+      <span class="tag g">Weekly · Daily · 65m · 10m confluence</span>
+      <span class="tag p">Mechanical entry / stop / target</span>
+      <span class="tag b">Live on Schwab + paper-tracked</span>
+    </div>
+  </section>
+
+  <!-- 2 — THESIS -->
+  <section class="slide">
+    <div class="row">
+      <div class="flex1">
+        <div class="eyebrow b">The Thesis</div>
+        <div class="quote">A reversal is a <span class="grad">fact</span>, not a feeling.</div>
+        <p class="sub">Every trade comes from one question: <strong style="color:#fff">has price just turned up?</strong>
+           If a bullish reversal confirms, the entry, stop, and target are already defined by the chart.
+           No discretion, no FOMO, no LLM guessing in the hot path.</p>
+      </div>
+      <div class="flex1">
+        <div class="grid g2" style="margin-top:0">
+          <div class="card"><div class="stat gr">1</div><div class="lbl">Signal that drives it all</div></div>
+          <div class="card"><div class="stat b">4</div><div class="lbl">Timeframes for confluence</div></div>
+          <div class="card"><div class="stat pu">3</div><div class="lbl">Mechanical trade rules</div></div>
+          <div class="card"><div class="stat ye">0</div><div class="lbl">Discretionary decisions</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 — THE SIGNAL -->
+  <section class="slide">
+    <div class="eyebrow">The Core Engine</div>
+    <h2>The Reversal Signal (Azhar_Reversal)</h2>
+    <p class="sub">A two-layer ZigZag ported from a ThinkOrSwim study, validated penny-perfect against live TOS
+       charts. It flags the exact bar where a swing turns.</p>
+    <div class="grid g2" style="margin-top:24px">
+      <div class="col card">
+        <h4 style="margin-bottom:10px">How it detects a pivot</h4>
+        <p class="d"><strong style="color:#fff">Layer 1 — find pivots:</strong> price source is Pivot = (H+L+C)/3, EMA-smoothed (period 5). A new pivot prints when price reverses by <strong style="color:#fff">0.5 × ATR(5)</strong>. Pivots are placed retroactively on the true extreme bar.</p>
+        <p class="d" style="margin-top:12px"><strong style="color:#fff">Layer 2 — confirm direction:</strong> a bar-by-bar pass turns the signal positive once smoothed price closes back above the last low pivot.</p>
+      </div>
+      <div class="col card">
+        <h4 style="margin-bottom:10px">The two flags</h4>
+        <div class="rule" style="border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.1);display:flex;gap:12px;padding:12px 14px;border:1px solid;border-radius:12px;margin-bottom:10px">
+          <div style="font-size:20px">🟢</div><div><div style="font-weight:800;color:var(--green-l)">U1 — Bullish reversal</div><div class="d">Signal crosses ≤0 → &gt;0. Price has turned up. <em>This is what we trade.</em></div></div>
+        </div>
+        <div class="rule" style="border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.1);display:flex;gap:12px;padding:12px 14px;border:1px solid;border-radius:12px">
+          <div style="font-size:20px">🔴</div><div><div style="font-weight:800;color:var(--red)">D1 — Bearish reversal</div><div class="d">Signal crosses ≥0 → &lt;0. Price has rolled over → exit / avoid.</div></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Same engine runs in TypeScript (scanner) and Python (live broker) — both checked bar-for-bar against the original ThinkScript.</p>
+  </section>
+
+  <!-- 4 — MULTI TIMEFRAME -->
+  <section class="slide">
+    <div class="row">
+      <div class="flex1">
+        <div class="eyebrow b">Multi-Timeframe Confluence</div>
+        <h2>One signal, four lenses</h2>
+        <p class="sub">The same reversal is computed on <strong style="color:#fff">Weekly, Daily, 65-minute and 10-minute</strong> bars.
+           Stacked together they answer: is the turn backed by the bigger trend, or fighting it?</p>
+        <div style="margin-top:16px">
+          <span class="tag g">4 green = full bullish confluence</span>
+          <span class="tag b">Day-trade trigger = fresh 10m U1</span>
+        </div>
+        <p class="sub" style="margin-top:14px">Results sort by most-green-first, so the strongest alignments rise to the top of the board.</p>
+      </div>
+      <div class="flex1">
+        <div class="mtf">
+          <div class="hr"><div class="hh" style="text-align:left">Symbol</div><div class="hh">Wk</div><div class="hh">Daily</div><div class="hh">65m</div><div class="hh">10m</div><div class="hh">▲</div></div>
+          <div class="hr"><div class="sym">NVDA</div><div class="cell cg">▲</div><div class="cell cg">▲</div><div class="cell cg">▲</div><div class="cell cg">▲</div><div class="score gr">4</div></div>
+          <div class="hr"><div class="sym">AMD</div><div class="cell cg">▲</div><div class="cell cg">▲</div><div class="cell cg">▲</div><div class="cell crd">▼</div><div class="score gr">3</div></div>
+          <div class="hr"><div class="sym">TSLA</div><div class="cell cg">▲</div><div class="cell crd">▼</div><div class="cell cg">▲</div><div class="cell cg">▲</div><div class="score ye">3</div></div>
+          <div class="hr"><div class="sym">AAPL</div><div class="cell crd">▼</div><div class="cell cg">▲</div><div class="cell crd">▼</div><div class="cell cg">▲</div><div class="score">2</div></div>
+          <div class="hr"><div class="sym">META</div><div class="cell crd">▼</div><div class="cell crd">▼</div><div class="cell crd">▼</div><div class="cell crd">▼</div><div class="score rd">0</div></div>
+        </div>
+        <p class="note" style="text-align:center">Illustrative board — green = bullish reversal active on that timeframe.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 — THE MECHANICAL TRADE -->
+  <section class="slide">
+    <div class="row">
+      <div class="flex1">
+        <div class="eyebrow p">The Trade · 3 Rules</div>
+        <h2>Entry, stop &amp; target — defined by the chart</h2>
+        <div class="col" style="margin-top:20px;display:flex;flex-direction:column;gap:12px;max-width:520px">
+          <div class="feat"><div class="pill">🟢</div><div><h4>Entry = open of the bar <em>after</em> U1</h4><p>Once the bullish reversal confirms, buy the open of the next bar. Market order — no fill window to miss.</p></div></div>
+          <div class="feat"><div class="pill" style="background:rgba(248,113,113,.14);border-color:rgba(248,113,113,.3)">🛑</div><div><h4>Stop = low of the bar 2 before U1</h4><p>The swing low that defined the reversal. If price breaks it, the thesis is wrong.</p></div></div>
+          <div class="feat"><div class="pill" style="background:rgba(250,204,21,.14);border-color:rgba(250,204,21,.3)">🎯</div><div><h4>Target = entry × 1.05</h4><p>A fixed +5% take-profit. Simple, repeatable, back-testable.</p></div></div>
+        </div>
+      </div>
+      <div class="flex1">
+        <div class="chartbox">
+          <div class="candles">
+            <!-- swing down into low, U1 confirm, then entry -->
+            <div class="candle" style="height:55%"><div class="wick" style="top:10%;bottom:0"></div><div class="body dn" style="height:60%"></div></div>
+            <div class="candle" style="height:38%"><div class="wick" style="top:0;bottom:10%"></div><div class="body dn" style="height:65%"></div>
+              <div class="marker" style="bottom:-2px;border-color:var(--red);color:var(--red);width:230px">🛑 Stop = this low</div>
+            </div>
+            <div class="candle" style="height:30%"><div class="wick" style="top:0;bottom:20%"></div><div class="body dn" style="height:55%"></div></div>
+            <div class="candle" style="height:46%"><div class="wick" style="top:0;bottom:5%"></div><div class="body up" style="height:70%"></div>
+              <div class="lbl-u" style="top:-22px">U1 🟢</div>
+            </div>
+            <div class="candle" style="height:64%"><div class="wick" style="top:0;bottom:8%"></div><div class="body up" style="height:75%"></div>
+              <div class="lbl-u" style="top:-22px;background:var(--blue-l);color:#06121f">BUY</div>
+            </div>
+            <div class="candle" style="height:82%"><div class="wick" style="top:0;bottom:6%"></div><div class="body up" style="height:80%"></div></div>
+            <div class="candle" style="height:96%"><div class="wick" style="top:0;bottom:5%"></div><div class="body up" style="height:78%"></div>
+              <div class="lbl-u" style="top:-22px;background:var(--yellow);color:#3b2f00">🎯 +5%</div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="text-align:center">Schematic: swing low → U1 confirms → buy next open → ride to +5% or stop.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 — PIPELINE -->
+  <section class="slide">
+    <div class="eyebrow">Signal → Order</div>
+    <h2>From chart to trade, every few minutes</h2>
+    <p class="sub">During market hours a timer fires on a fixed cadence, pulls fresh bars, recomputes the reversal,
+       and acts the instant a fresh U1 prints — within the last 1–2 bars only.</p>
+    <div class="pipe">
+      <div class="pnode"><div class="ic">📋</div><h4>Watchlist</h4><p>Curated universe + Finviz screener of liquid movers</p></div>
+      <div class="arr">→</div>
+      <div class="pnode"><div class="ic">📊</div><h4>Pull bars</h4><p>Schwab / Polygon RTH bars, resampled to the trade timeframe</p></div>
+      <div class="arr">→</div>
+      <div class="pnode"><div class="ic">⚙️</div><h4>Compute reversal</h4><p>Run the U1/D1 engine on the last closed bar</p></div>
+      <div class="arr">→</div>
+      <div class="pnode"><div class="ic">🛡️</div><h4>Risk gate</h4><p>Budget, max tickers, skip-first-30-min checks</p></div>
+      <div class="arr">→</div>
+      <div class="pnode"><div class="ic">🚀</div><h4>Act</h4><p>MARKET buy on Schwab + WhatsApp / Pushover alert</p></div>
+    </div>
+    <p class="note">Exits are monitored every tick: Stop-loss → Take-profit → red-reversal, in priority order. All exits are market sells.</p>
+  </section>
+
+  <!-- 7 — THE SYSTEMS -->
+  <section class="slide">
+    <div class="eyebrow b">What I Built</div>
+    <h2>Three surfaces, one engine</h2>
+    <div class="grid g3">
+      <div class="card">
+        <div class="feat" style="margin-bottom:8px"><div class="pill" style="background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.3)">🖥️</div><h4>MTF Reversal Scanner</h4></div>
+        <p class="d">The dashboard. AVWAP swings, a Bull List, a Day-Trades board and a Performance tab — the multi-timeframe confluence grid lives here. Emails the top setups daily.</p>
+      </div>
+      <div class="card">
+        <div class="feat" style="margin-bottom:8px"><div class="pill">🤖</div><h4>StockAgentHub V3</h4></div>
+        <p class="d">The executor. Runs the Reversal engine server-side on Schwab candles every 3 min, places real MARKET orders, holds overnight, and journals every fill. Live with real money.</p>
+      </div>
+      <div class="card">
+        <div class="feat" style="margin-bottom:8px"><div class="pill" style="background:rgba(168,85,247,.14);border-color:rgba(168,85,247,.3)">📷</div><h4>Finviz + TOS scanner</h4></div>
+        <p class="d">The sourcing edge. Pulls a Finviz screener, loads each name on a real TOS chart, OCRs the actual reversal label, and posts only fresh up-reversals — no re-derivation drift.</p>
+      </div>
+    </div>
+    <p class="note">All three share the same reversal math, so a signal means the same thing whether it shows on the board, fires an alert, or places an order.</p>
+  </section>
+
+  <!-- 8 — RISK -->
+  <section class="slide">
+    <div class="eyebrow y">Risk Management</div>
+    <h2>Small, capped, and consistent</h2>
+    <div class="grid g5">
+      <div class="card"><div class="stat ye">$5K</div><div class="lbl">Total budget cap</div></div>
+      <div class="card"><div class="stat b">$1K</div><div class="lbl">Per ticker</div></div>
+      <div class="card"><div class="stat gr">5</div><div class="lbl">Max open names</div></div>
+      <div class="card"><div class="stat pu">30m</div><div class="lbl">Skip the open</div></div>
+      <div class="card"><div class="stat tl">+5%</div><div class="lbl">Take-profit</div></div>
+    </div>
+    <div class="grid g2" style="margin-top:18px">
+      <div class="card"><h4 style="color:var(--green-l)">✅ Enforced in software</h4>
+        <p class="d">Stop-loss is checked every tick by the monitor (no reliance on broker OCO). One position per ticker. Paper-mode toggle and an emergency stop halt scanning and position management instantly.</p></div>
+      <div class="card"><h4 style="color:var(--yellow)">⚠️ Known to harden before scaling</h4>
+        <p class="d">Move from fixed-notional to fixed-<em>risk</em> sizing (qty = risk ÷ stop distance); cap very wide stops at ~7%; add a minimum reward-to-risk filter; cap concurrent positions per signal burst.</p></div>
+    </div>
+  </section>
+
+  <!-- 9 — RESULTS -->
+  <section class="slide">
+    <div class="eyebrow">Evidence So Far</div>
+    <h2>What the paper book shows</h2>
+    <p class="sub">A large paper run of the reversal/Bull-List logic — the kind of sample size that tells you whether the <em>edge</em>, not the luck, is real.</p>
+    <div class="grid g4">
+      <div class="card"><div class="stat gr">+2.05%</div><div class="lbl">Realized on deployed capital</div></div>
+      <div class="card"><div class="stat b">46.9%</div><div class="lbl">Win rate</div></div>
+      <div class="card"><div class="stat pu">+$166</div><div class="lbl">Avg per trade</div></div>
+      <div class="card"><div class="stat ye">194</div><div class="lbl">Trades closed in the sample</div></div>
+    </div>
+    <div class="card" style="margin-top:18px;background:linear-gradient(120deg,rgba(34,197,94,.12),rgba(59,130,246,.10))">
+      <h4 style="color:#fff">The takeaway: positive expectancy with a sub-50% win rate.</h4>
+      <p class="d">Winners (~$352 avg) outsize losers (~$150 avg). You don't have to be right most of the time — you have to be mechanical, cut losers at the stop, and let the +5% targets pay for them.</p>
+    </div>
+    <p class="note">Paper-trading results, ~5-day hold sample. Past performance is not indicative of future results — shown to validate the method, not promise returns.</p>
+  </section>
+
+  <!-- 10 — WHY DETERMINISTIC -->
+  <section class="slide">
+    <div class="row">
+      <div class="flex1">
+        <div class="eyebrow p">Why It Works</div>
+        <div class="lead">No AI in the <span class="grad">hot path.</span></div>
+        <p class="sub">An earlier version had a vision model read TOS screenshots. It cost ~$40/week, drifted on
+           overlapping labels, and needed a PC awake 24/7. The deterministic port replaced all of it.</p>
+      </div>
+      <div class="flex1">
+        <div class="grid g2" style="margin-top:0">
+          <div class="card"><div class="stat gr">$0</div><div class="lbl">Per-trade compute cost</div></div>
+          <div class="card"><div class="stat b">100%</div><div class="lbl">Reproducible signals</div></div>
+          <div class="card"><div class="stat pu">24/7</div><div class="lbl">Server-side, no local PC</div></div>
+          <div class="card"><div class="stat ye">Penny</div><div class="lbl">Matched to TOS charts</div></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">The buy/stop/target are mechanical — never substitute model judgment for the engine's output. AI is used only off the hot path (research, summaries).</p>
+  </section>
+
+  <!-- 11 — CLOSE -->
+  <section class="slide">
+    <div class="eyebrow">In One Breath</div>
+    <h1>Find the turn. <span class="grad">Trade it by rule.</span><br/>Let math do the rest.</h1>
+    <div class="grid g3" style="margin-top:34px">
+      <div class="card"><div class="stat gr">Reversal</div><div class="lbl">One signal, ported from TOS</div></div>
+      <div class="card"><div class="stat b">×4 Timeframes</div><div class="lbl">Confluence before conviction</div></div>
+      <div class="card"><div class="stat pu">Mechanical</div><div class="lbl">Entry · stop · target, every time</div></div>
+    </div>
+    <p class="sub" style="margin-top:30px;color:#cbd5e1">Built across the MTF Reversal Scanner, StockAgentHub V3, and a Finviz/TOS sourcing layer — all driven by the same engine.</p>
+  </section>
+
+</div>
+
+<div class="dots" id="dots"></div>
+<div class="nav">
+  <button id="prev" aria-label="Previous">‹</button>
+  <span class="counter" id="counter">1 / 11</span>
+  <button id="next" aria-label="Next">›</button>
+</div>
+<div class="hint">Use ← → arrow keys, or click the dots</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const dotsWrap = document.getElementById('dots');
+  const counter = document.getElementById('counter');
+  const progress = document.getElementById('progress');
+  let i = 0;
+  slides.forEach((_, idx) => { const d=document.createElement('span'); d.addEventListener('click',()=>go(idx)); dotsWrap.appendChild(d); });
+  const dots = Array.from(dotsWrap.children);
+  function go(n){
+    i = Math.max(0, Math.min(slides.length-1, n));
+    slides.forEach((s,idx)=>s.classList.toggle('active',idx===i));
+    dots.forEach((d,idx)=>d.classList.toggle('on',idx===i));
+    counter.textContent = (i+1)+' / '+slides.length;
+    progress.style.width = ((i+1)/slides.length*100)+'%';
+  }
+  document.getElementById('next').addEventListener('click',()=>go(i+1));
+  document.getElementById('prev').addEventListener('click',()=>go(i-1));
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();go(i+1);}
+    if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(i-1);}
+    if(e.key==='Home')go(0); if(e.key==='End')go(slides.length-1);
+  });
+  let sx=0;
+  document.addEventListener('touchstart',e=>sx=e.touches[0].clientX,{passive:true});
+  document.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx;if(Math.abs(dx)>50)go(i+(dx<0?1:-1));},{passive:true});
+  go(0);
+</script>
+</body>
+</html>

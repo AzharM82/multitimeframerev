@@ -18,13 +18,10 @@ import "./functions/avwapResults.js";
 import "./functions/bullEmailTimer.js";
 import "./functions/bullList.js";
 import "./functions/bullMonitorTimer.js";
-// dayTradeTimer disabled — the TOS Finviz scanner is the single source for
-// Day Trade alerts (POSTs to /api/scanner-alert below). Keeping this
-// timer registered created duplicate alerts on WhatsApp + portal for the
-// same signal. File kept in tree in case we want to re-enable.
-// import "./functions/dayTradeTimer.js";
-import "./functions/dayTradeAlerts.js";
-import "./functions/dayTradePerformance.js";
+// Day Trades website section retired 2026-06-16 (superseded by DTSWAI, real
+// Alpaca paper). The day-trade read/perf/timer functions are removed; we KEEP
+// scannerAlert so the local Finviz scanner's POST still 200s and its WhatsApp
+// alerts (enqueued locally, independent of this POST) keep flowing.
 import "./functions/scannerAlert.js";
 import "./functions/paperTrades.js";
 

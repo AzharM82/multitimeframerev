@@ -245,29 +245,7 @@ export interface BullListResponse {
   rows: BullListRow[];
 }
 
-// ─── Day Trade Alerts (Section 3) ───────────────────────────────────────────
-
-export interface DayTradeAlertRow {
-  partitionKey: string;
-  rowKey: string;
-  ticker: string;
-  reversalPrice: number;
-  firedAt: string;
-  channel: string;
-  status: string;
-  // SL = min low over the last 3 10m bars ending at the U1 bar. Optional for
-  // backwards compat with historic rows (pre-SL feature). slPct is negative.
-  sl?: number;
-  slPct?: number;
-  // Live-enriched at GET time by paperTrades.ts (Polygon snapshot).
-  // Undefined if snapshot fetch failed or quote unavailable.
-  currentPrice?: number;
-}
-
-export interface DayTradeAlertsResponse {
-  total: number;
-  recent: DayTradeAlertRow[];
-}
+// Day Trade Alerts (Section 3) types removed 2026-06-16 — section retired.
 
 // ─── ATR Matrix (Section: swing extension scanner) ──────────────────────────
 

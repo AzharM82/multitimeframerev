@@ -2,16 +2,14 @@ import { useState } from "react";
 import { useMarketHours } from "./hooks/useMarketHours.js";
 import { AvwapPage } from "./views/AvwapPage.js";
 import { BullListPage } from "./views/BullListPage.js";
-import { DayTradePage } from "./views/DayTradePage.js";
 import { AtrMatrixPage } from "./views/AtrMatrixPage.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "avwap" | "bull" | "daytrade" | "atr" | "about";
+type Page = "avwap" | "bull" | "atr" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "avwap", label: "AVWAP" },
   { key: "bull", label: "Swing List" },
-  { key: "daytrade", label: "Day Trades" },
   { key: "atr", label: "ATR Matrix" },
   { key: "about", label: "About" },
 ];
@@ -72,7 +70,6 @@ function App() {
       <main className="px-3 py-4">
         {page === "avwap" && <AvwapPage />}
         {page === "bull" && <BullListPage />}
-        {page === "daytrade" && <DayTradePage />}
         {page === "atr" && <AtrMatrixPage />}
         {page === "about" && <AboutPage />}
       </main>
