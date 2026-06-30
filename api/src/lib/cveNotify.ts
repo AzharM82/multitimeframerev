@@ -50,54 +50,51 @@ function gradeBadge(grade: string): string {
   return `<span style="display:inline-block;background:${color};color:#ffffff;padding:2px 9px;border-radius:4px;font-weight:bold;font-size:12px;font-family:Georgia,serif;">${grade}</span>`;
 }
 
-function rows(list: CveResult[]): string {
-  if (!list.length) {
-    return `<tr><td colspan="4" style="padding:14px 10px;color:#94a3b8;font-style:italic;font-size:12px;text-align:center;">No B/A/A+ grade catalysts in this window.</td></tr>`;
-  }
-  return list
-    .map((r, i) => {
-      const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(r.ticker)}`;
-      const moveColor = r.changePct >= 0 ? "#16a34a" : "#dc2626";
-      const zebra = i % 2 ? "background:#fbfaf7;" : "";
-      const head = r.headline
-        ? `<a href="${r.newsUrl || tvUrl}" style="color:#64748b;text-decoration:none;font-style:italic;">“${r.headline}”</a> <span style="color:#b0b7c3;">${fmtAge(r.newsAgeHours)}</span><br/>`
-        : "";
-      return `
-      <tr style="${zebra}">
-        <td width="120" style="width:120px;padding:9px 8px 3px;border-top:1px solid #e5e7eb;vertical-align:top;">
-          <a href="${tvUrl}" style="color:#111;text-decoration:none;font-weight:bold;font-size:15px;">${r.ticker}</a><br/>
-          <span style="color:#94a3b8;font-size:11px;">$${r.price.toFixed(2)}</span>
-          <span style="color:${moveColor};font-weight:bold;font-size:12px;">&nbsp;${fmtMove(r.changePct)}</span>
-        </td>
-        <td width="120" style="width:120px;padding:9px 8px 3px;border-top:1px solid #e5e7eb;vertical-align:top;">${chip(r.catalystType)}</td>
-        <td style="padding:9px 8px 3px;border-top:1px solid #e5e7eb;vertical-align:top;font-size:12px;">
-          <span style="font-family:'Courier New',monospace;">${ratingSpan(r.magnitude.rating)} <span style="color:#b0b7c3;">×</span> ${ratingSpan(r.speed.rating)} <span style="color:#b0b7c3;">=</span></span>&nbsp;${gradeBadge(r.grade)}
-        </td>
-        <td width="60" style="width:60px;padding:9px 8px 3px;border-top:1px solid #e5e7eb;vertical-align:top;text-align:right;font-weight:bold;font-size:13px;white-space:nowrap;">${r.stopPct}%</td>
-      </tr>
-      <tr style="${zebra}">
-        <td colspan="4" style="padding:0 8px 10px;font-size:11px;color:#475569;line-height:1.55;">${head}${r.commentary}</td>
-      </tr>`;
-    })
-    .join("");
+// One stacked card per catalyst — mirrors the website's CatalystCard.
+function card(r: CveResult): string {
+  const tvUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(r.ticker)}`;
+  const moveColor = r.changePct >= 0 ? "#16a34a" : "#dc2626";
+  const head = r.headline
+    ? `<div style="margin-top:7px;font-size:11px;line-height:1.4;">
+         <a href="${r.newsUrl || tvUrl}" style="color:#64748b;text-decoration:none;font-style:italic;">“${r.headline}”</a>
+         <span style="color:#b0b7c3;">${fmtAge(r.newsAgeHours)}</span>
+       </div>`
+    : "";
+  return `
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;border-collapse:separate;margin:10px 0 0;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;">
+    <tr><td style="padding:12px 14px;font-family:Georgia,serif;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+        <tr>
+          <td style="vertical-align:top;">
+            <a href="${tvUrl}" style="color:#111;text-decoration:none;font-weight:bold;font-size:18px;">${r.ticker}</a>
+            <span style="color:${moveColor};font-weight:bold;font-size:14px;">&nbsp;${fmtMove(r.changePct)}</span>
+            <span style="color:#94a3b8;font-size:12px;">&nbsp;$${r.price.toFixed(2)}</span>
+          </td>
+          <td align="right" style="vertical-align:top;white-space:nowrap;">
+            ${gradeBadge(r.grade)}
+            <span style="color:#6b7280;font-size:12px;font-weight:bold;">&nbsp;${r.stopPct}% stop</span>
+          </td>
+        </tr>
+      </table>
+      <div style="margin-top:9px;font-size:12px;">
+        ${chip(r.catalystType)}
+        <span style="font-family:'Courier New',monospace;">&nbsp;&nbsp;${ratingSpan(r.magnitude.rating)} <span style="color:#b0b7c3;">×</span> ${ratingSpan(r.speed.rating)} <span style="color:#b0b7c3;">=</span> <span style="font-weight:bold;color:#111;">${r.grade}</span></span>
+      </div>
+      ${head}
+      <div style="margin-top:7px;border-top:1px solid #eef0f2;padding-top:7px;font-size:11px;color:#475569;line-height:1.55;">${r.commentary}</div>
+    </td></tr>
+  </table>`;
 }
 
-function sectionTable(title: string, list: CveResult[], accent: string): string {
+function sectionCards(title: string, list: CveResult[], accent: string): string {
+  const body = list.length
+    ? list.map(card).join("")
+    : `<div style="margin-top:8px;color:#94a3b8;font-style:italic;font-size:12px;">No B/A/A+ grade catalysts in this window.</div>`;
   return `
-  <h2 style="font-family:Georgia,serif;font-size:15px;color:${accent};border-bottom:2px solid ${accent};padding-bottom:4px;margin:20px 0 0;">
+  <h2 style="font-family:Georgia,serif;font-size:15px;color:${accent};border-bottom:2px solid ${accent};padding-bottom:4px;margin:20px 0 4px;">
     ${title}
   </h2>
-  <table width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;border-collapse:collapse;table-layout:fixed;font-family:Georgia,serif;">
-    <thead>
-      <tr style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;text-align:left;">
-        <th width="120" style="width:120px;padding:6px 8px;">Ticker / Move</th>
-        <th width="120" style="width:120px;padding:6px 8px;">Catalyst</th>
-        <th style="padding:6px 8px;">Magnitude × Speed = Grade</th>
-        <th width="60" style="width:60px;padding:6px 8px;text-align:right;">Stop</th>
-      </tr>
-    </thead>
-    <tbody>${rows(list)}</tbody>
-  </table>`;
+  ${body}`;
 }
 
 function matrixLegend(): string {
@@ -136,8 +133,8 @@ export function buildEmailHtml(snap: CveSnapshot): string {
     <p style="color:#6b7280;font-size:12px;margin:0 0 6px;text-transform:uppercase;letter-spacing:1px;font-family:Georgia,serif;">
       ${phaseLabel(snap.phase)} · ${snap.asOf} · CVE = Magnitude × Speed
     </p>
-    ${sectionTable("Top 3 Positive (Bullish)", snap.positives, "#16a34a")}
-    ${sectionTable("Top 3 Negative (Bearish)", snap.negatives, "#dc2626")}
+    ${sectionCards("Top 3 Positive (Bullish)", snap.positives, "#16a34a")}
+    ${sectionCards("Top 3 Negative (Bearish)", snap.negatives, "#dc2626")}
     ${matrixLegend()}
     <p style="color:#94a3b8;font-size:11px;margin-top:18px;border-top:1px solid #e5e7eb;padding-top:8px;font-family:Georgia,serif;line-height:1.5;">
       Scanned ${snap.scanned} in-play names (${snap.discovered} discovered ·
