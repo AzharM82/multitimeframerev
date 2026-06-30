@@ -332,6 +332,47 @@ export interface AtrPosition {
   stop: number;
 }
 
+// ─── Catalyst Value Eval (CVE) ──────────────────────────────────────────────
+
+export type CveRating = "Absolute" | "Yes" | "Maybe" | "No";
+export type CveCatalystType = "Fundamental" | "Technical" | "Combination" | "None";
+export type CveGrade = "A+" | "A" | "B" | "C" | "D";
+export type CveDirection = "positive" | "negative";
+
+export interface CveRatingScore {
+  rating: CveRating;
+  reason: string;
+}
+
+export interface CveResult {
+  ticker: string;
+  direction: CveDirection;
+  changePct: number;
+  price: number;
+  catalystType: CveCatalystType;
+  magnitude: CveRatingScore;
+  speed: CveRatingScore;
+  grade: CveGrade;
+  stopPct: number;
+  cve: number;
+  commentary: string;
+  headline: string;
+  newsUrl: string;
+  newsAgeHours: number | null;
+}
+
+export interface CveScanResponse {
+  generated: string;
+  asOf: string;
+  phase: "open" | "close" | "manual";
+  positives: CveResult[];
+  negatives: CveResult[];
+  tradeable: CveResult[];
+  scanned: number;
+  discovered: number;
+  sources: { finviz: number; polygonMovers: number; news: number };
+}
+
 // ─── Market Breadth / Health gauge ──────────────────────────────────────────
 
 export type Posture = "RISK_ON" | "MIXED" | "RISK_OFF";

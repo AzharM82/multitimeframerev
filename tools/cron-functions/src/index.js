@@ -60,6 +60,18 @@ app.timer("atrScanCron", {
   handler: async (_t, ctx) => fire("atr-eod-timer", ctx),
 });
 
+// Catalyst Value Eval — 15 min before the open (9:15 AM ET), weekdays
+app.timer("cveOpenCron", {
+  schedule: "0 15 9 * * 1-5",
+  handler: async (_t, ctx) => fire("cve-timer?phase=open", ctx),
+});
+
+// Catalyst Value Eval — 15 min before the close (3:45 PM ET), weekdays
+app.timer("cveCloseCron", {
+  schedule: "0 45 15 * * 1-5",
+  handler: async (_t, ctx) => fire("cve-timer?phase=close", ctx),
+});
+
 // Day-trade reversal scanning is no longer in this Function App. It moved
 // to a local Python scanner (tools/chart-ocr/finviz_scanner.py) so reversal
 // detection comes off the actual TOS chart instead of a server-side ZigZag.

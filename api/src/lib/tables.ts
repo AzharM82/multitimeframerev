@@ -108,4 +108,5 @@ export const TABLES = {
   PAPER_TRADES: "PaperTrades",
   ALERT_LOG: "AlertLog",
   ATR_MATRIX: "AtrMatrix",
+  CVE_EVAL: "CveEval",
 } as const;

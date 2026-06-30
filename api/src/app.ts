@@ -33,3 +33,7 @@ import "./functions/atrIntraday.js";
 
 // Market breadth / health gauge
 import "./functions/breadth.js";
+
+// Catalyst Value Eval (CVE = Magnitude × Speed)
+import "./functions/cveScan.js";
+import "./functions/cveTimer.js";

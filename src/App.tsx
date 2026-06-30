@@ -3,14 +3,16 @@ import { useMarketHours } from "./hooks/useMarketHours.js";
 import { AvwapPage } from "./views/AvwapPage.js";
 import { BullListPage } from "./views/BullListPage.js";
 import { AtrMatrixPage } from "./views/AtrMatrixPage.js";
+import { CveEvalPage } from "./views/CveEvalPage.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "avwap" | "bull" | "atr" | "about";
+type Page = "avwap" | "bull" | "atr" | "cve" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "avwap", label: "AVWAP" },
   { key: "bull", label: "Swing List" },
   { key: "atr", label: "ATR Matrix" },
+  { key: "cve", label: "Catalyst Value Eval" },
   { key: "about", label: "About" },
 ];
 
@@ -71,6 +73,7 @@ function App() {
         {page === "avwap" && <AvwapPage />}
         {page === "bull" && <BullListPage />}
         {page === "atr" && <AtrMatrixPage />}
+        {page === "cve" && <CveEvalPage />}
         {page === "about" && <AboutPage />}
       </main>
     </div>

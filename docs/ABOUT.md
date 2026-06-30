@@ -89,13 +89,34 @@ A shortlist for the next session's open, built from the prior close. A **BUY / S
 3. Next morning, **go live** — take the ones that flip 🟢 BUYABLE as they trigger.
 4. **Positions** — track what you took; watch the scale-out ladder for where to trim.
 
-### 5 · Performance
+### 5 · Catalyst Value Eval
+
+A prop-desk **Catalyst Value Equation (CVE)** scanner: it grades the day's biggest movers by *why* they are moving, not just how much. The equation is **CVE = Magnitude × Speed**.
+
+- **Magnitude** — how big is the shift in perceived company value? Rated **Absolute** (structural, forced-flow — e.g. an index addition where passive funds must buy), **Yes** (a confirmed real shift — FDA approval, earnings beat, M&A, multiple upgrades), **Maybe** (a partial catalyst or confirmation of an existing thesis), or **No** (no catalyst, or merely the *absence of an expected positive*).
+- **Speed** — how fast must the market act? **Absolute** (a hard mechanical deadline like an index-rebalance date), **Yes** (high urgency / snapback — institutions must reprice today), **Maybe** (slow, multi-year digestion), or **No** (no timeline, drifts over weeks).
+
+The two ratings multiply into a grade and a daily-stop allocation:
+
+| Magnitude × Speed | Grade | Daily stop |
+|---|---|---|
+| Absolute × Absolute | **A+** | 80% |
+| Yes × Yes | **A** | 30% |
+| Yes × Maybe / Maybe × Yes | **B** | 15% |
+| Maybe × Maybe | **C** | minor |
+| any "No" | **D** | 0% — filtered out |
+
+Catalysts are classified **Fundamental** (earnings, FDA, M&A, products), **Technical** (index add/remove, lockups, options listings), or **Combination** (both at once). For bearish names the engine demands a *true negative catalyst* (surprise miss, product failure, regulatory action) — a drop that is only the absence of an expected positive scores **No** on Magnitude and is filtered.
+
+The universe is the day's in-play names: **FinViz Elite pre-market gappers** + **Polygon gainers/losers** + tickers in the last 24h of **Polygon market news**. Per-ticker news (with Polygon's sentiment insights) drives the scoring. It runs twice daily — **15 minutes before the open** and **15 minutes before the close** — and emails + Pushover-pushes the top 3 positive and top 3 negative B/A/A+ catalysts, each with its Magnitude × Speed = Grade line, suggested stop %, and a generated commentary. The email is the same tabular view you see on this tab.
+
+### 6 · Performance
 
 Every Bull List entry is treated as a paper trade with **$5,000 notional** (qty = floor(5000/entry)). Closed trades are aggregated into win rate, total P&L, average P&L, best/worst %, and breakdowns by source. The day-trade alert log is shown alongside.
 
 > Day-trade alerts are not yet auto-tracked as paper trades — they're recorded as a log. Adding live entry/SL/TP for day trades is on the v2 list.
 
-### 6 · About
+### 7 · About
 
 What you're reading. Sourced from `docs/ABOUT.md` in the repo and rendered via `react-markdown` at build time. Push to `main` → SWA rebuilds → this page reflects the change automatically.
 
@@ -137,6 +158,8 @@ What you're reading. Sourced from `docs/ABOUT.md` in the repo and rendered via `
 | Bull email poll      | every hour                   | `POST /api/bull-email-timer`               |
 | Bull monitor         | every 30 min, 9:00–16:30     | `POST /api/bull-monitor-timer`             |
 | **ATR Matrix EOD**   | **16:30 weekdays**           | `POST /api/atr-eod-timer`                  |
+| **CVE — pre-open**   | **09:15 weekdays**           | `POST /api/cve-timer?phase=open`           |
+| **CVE — pre-close**  | **15:45 weekdays**           | `POST /api/cve-timer?phase=close`          |
 
 All timers require the `x-timer-secret` header matching the `TIMER_SECRET` env var. The **Market Posture** breadth gauge is computed on demand (`GET /api/breadth`, ~10-min cache) — no cron. Day-trade reversal alerts are now produced by a local Finviz→TOS→OCR scanner that POSTs to `/api/scanner-alert`. All "today" date stamps use the **Pacific** calendar date.
 

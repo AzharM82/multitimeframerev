@@ -5,6 +5,7 @@ import type {
   AtrLookupResponse,
   AtrIntradayResponse,
   BreadthResponse,
+  CveScanResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -56,6 +57,12 @@ export function getAtrLookup(ticker: string): Promise<AtrLookupResponse> {
 
 export function getAtrIntraday(tickers: string[]): Promise<AtrIntradayResponse> {
   return request<AtrIntradayResponse>(`/atr-intraday?tickers=${encodeURIComponent(tickers.join(","))}`);
+}
+
+// ─── Catalyst Value Eval ────────────────────────────────────────────────────
+
+export function getCveScan(): Promise<CveScanResponse> {
+  return request<CveScanResponse>("/cve-scan");
 }
 
 // Day Trades section removed (2026-06-16) — superseded by DTSWAI (real Alpaca
