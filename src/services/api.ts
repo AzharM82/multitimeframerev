@@ -6,6 +6,7 @@ import type {
   AtrIntradayResponse,
   BreadthResponse,
   CveScanResponse,
+  BigdogAlertsResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -63,6 +64,12 @@ export function getAtrIntraday(tickers: string[]): Promise<AtrIntradayResponse> 
 
 export function getCveScan(): Promise<CveScanResponse> {
   return request<CveScanResponse>("/cve-scan");
+}
+
+// ─── BIGD-Intraday ──────────────────────────────────────────────────────────
+
+export function getBigdogAlerts(date?: string): Promise<BigdogAlertsResponse> {
+  return request<BigdogAlertsResponse>(`/bigdog-alerts${date ? `?date=${date}` : ""}`);
 }
 
 // Day Trades section removed (2026-06-16) — superseded by DTSWAI (real Alpaca

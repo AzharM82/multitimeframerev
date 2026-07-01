@@ -109,4 +109,5 @@ export const TABLES = {
   ALERT_LOG: "AlertLog",
   ATR_MATRIX: "AtrMatrix",
   CVE_EVAL: "CveEval",
+  BIGDOG_ALERTS: "BigDogAlerts",
 } as const;

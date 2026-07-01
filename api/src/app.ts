@@ -25,6 +25,10 @@ import "./functions/bullMonitorTimer.js";
 import "./functions/scannerAlert.js";
 import "./functions/paperTrades.js";
 
+// BigDog Trades — intraday OCR alert ingestion (POST) + read (GET) for the tab
+import "./functions/bigdogAlert.js";
+import "./functions/bigdogAlerts.js";
+
 // ATR Matrix (swing extension scanner)
 import "./functions/atrEodTimer.js";
 import "./functions/atrScan.js";

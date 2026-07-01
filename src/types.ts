@@ -398,3 +398,47 @@ export interface BreadthResponse {
   generated: string;
   indices: BreadthStats[];
 }
+
+// ─── BIGD-Intraday ───────────────────────────────────────────────────────────
+
+// Per-metric signed contribution: +1 bullish / -1 bearish / 0 neutral.
+export interface BigdogParts {
+  rev: number;
+  atr: number;
+  vwap: number;
+  vol: number;
+  tick: number;
+  stoch: number;
+}
+
+export interface BigdogAlertHit {
+  firedAt: string;
+  ticker: string;
+  direction: "LONG" | "SHORT";
+  listDir: string | null;
+  score: number;
+  onchartScore: number | null;
+  computedScore: number | null;
+  scoreMismatch: boolean;
+  alertMin: number | null;
+  parts: BigdogParts;
+  rvDir: string | null;
+  rvBars: number | null;
+  rvPrice: number | null;
+  rvTime: string | null;
+  trend: string | null;
+  buyPct: number | null;
+  tickBal: number | null;
+  stochK: number | null;
+  stochD: number | null;
+  vwapSide: string | null;
+  atrSide: string | null;
+  ocrMisses: string[];
+}
+
+export interface BigdogAlertsResponse {
+  date: string | null;
+  totalHits: number;
+  hits: BigdogAlertHit[];
+  available?: { date: string; totalHits: number }[];
+}
