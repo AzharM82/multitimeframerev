@@ -3,7 +3,7 @@
 Intraday 5-minute alerting system. Scans **two** Finviz-screened universes (a
 bullish and a bearish list) on a live ThinkorSwim chart, reads a **signed
 composite score (−6…+6)** off a single consolidated OCR label strip, and alerts
-you (Pushover + WhatsApp) when a setup clears the gate. Every alert is logged
+you via WhatsApp when a setup clears the gate. Every alert is logged
 with its full feature payload to the MTF Reversal portal for later research.
 
 Chart-truth: the score AND every value come off the chart your own studies draw
@@ -39,7 +39,7 @@ from your own study sources in `Scripts/`:
 2. **Python deps:**
    `pip install rapidocr_onnxruntime opencv-python pillow numpy pyautogui pywin32 azure-storage-queue python-dotenv`
 3. **Config:** `copy scanner\.env.example scanner\.env` and fill in the keys
-   (Finviz, Pushover, Azure Storage, TIMER_SECRET).
+   (Finviz, Azure Storage, TIMER_SECRET; Pushover optional via ENABLE_PUSHOVER).
 4. **Pick the chart window (once, from a terminal):**
    `python scanner\bigdog_scanner.py --force --pick-window`
    — choose the BigDog chart; its hwnd is saved to `.state\scanner_state.json`.
@@ -67,10 +67,12 @@ a research agent can re-score history under new hypotheses.
 
 ## Alerts & logging
 
-- **Pushover:** title `BIGDOG LONG|SHORT n/6: TICKER`, body = per-component ±.
-- **WhatsApp:** enqueued to the existing `whatsapp-alerts` queue (MTF sidecar sends).
+- **WhatsApp (primary):** enqueued to the `whatsapp-alerts` Azure queue; the
+  `tools/whatsapp-sidecar` process drains it and sends. **Requires the sidecar
+  running** on an always-on machine (one-time WhatsApp Web QR login).
+- **Pushover (opt-in):** set `ENABLE_PUSHOVER=true`. Title `BIGDOG LONG|SHORT ±n: TICKER`.
 - **Portal:** `POST /api/bigdog-alert` (auth `x-timer-secret`) → Azure Table
-  `BigDogAlerts`, full raw features + component booleans + thresholds + JSON blob.
+  `BigDogAlerts`, full signed-score payload + raw features + JSON blob → BIGD-Intraday tab.
 
 ## Layout
 

@@ -4,7 +4,8 @@ BigDog Trades — Finviz → TOS → OCR → score → alert scanner.
 Pulls two Finviz Elite screener exports (a bullish and a bearish universe),
 loads each ticker into a dedicated TOS chart window (running the BigDog_OCR
 study), OCRs the consolidated label strip, reads the on-chart signed score, and
-alerts (Pushover + WhatsApp) + logs the full feature payload to the MTF portal.
+alerts via WhatsApp (Pushover opt-in) + logs the full feature payload to the MTF
+portal.
 
 Chart-truth: the score AND every value come off the BigDog_OCR strip your
 studies draw — no server-side re-derivation. Python recomputes the score from
@@ -36,7 +37,8 @@ Required env (read from .env in this directory or process env):
   AZURE_STORAGE_CONNECTION_STRING, WHATSAPP_QUEUE_NAME, WHATSAPP_RECEIVER
   TIMER_SECRET, SCANNER_API_BASE, TOS_SCANNER_WINDOW
 Tunable (optional, defaults below):
-  ALERT_MIN (3), BUY_PCT_MIN (70), SCANNER_LOAD_WAIT_S, SCANNER_KEY_INTERVAL_S
+  ALERT_MIN (3), BUY_PCT_MIN (70), ENABLE_PUSHOVER (false),
+  SCANNER_LOAD_WAIT_S, SCANNER_KEY_INTERVAL_S
 
 Usage:
   python bigdog_scanner.py             # one full scan cycle (Task Scheduler entry)
@@ -100,6 +102,8 @@ FINVIZ_SCREENER_URL_BULL = os.environ.get("FINVIZ_SCREENER_URL_BULL") or os.envi
 FINVIZ_SCREENER_URL_BEAR = os.environ.get("FINVIZ_SCREENER_URL_BEAR", "")
 PUSHOVER_USER_KEY = os.environ.get("PUSHOVER_USER_KEY", "")
 PUSHOVER_APP_TOKEN = os.environ.get("PUSHOVER_APP_TOKEN", "")
+# WhatsApp is the primary channel; Pushover is opt-in (set ENABLE_PUSHOVER=true).
+ENABLE_PUSHOVER = os.environ.get("ENABLE_PUSHOVER", "false").strip().lower() in ("1", "true", "yes", "on")
 
 STRIP_PCT = 0.08
 
@@ -656,13 +660,13 @@ def main() -> int:
                 print("  (dry-run: would alert)")
                 continue
 
-            po_ok = send_pushover(ticker, scored, f)
             wa_ok = enqueue_whatsapp(ticker, scored, f)
             portal_ok = post_to_portal(ticker, scored, f, cfg)
-            if po_ok or wa_ok or portal_ok:
+            po_ok = send_pushover(ticker, scored, f) if ENABLE_PUSHOVER else False
+            if wa_ok or portal_ok or po_ok:
                 alerted_today.add(dedup_key)
                 fired_count += 1
-                print(f"  sent: pushover={po_ok} whatsapp={wa_ok} portal={portal_ok}")
+                print(f"  sent: whatsapp={wa_ok} portal={portal_ok} pushover={po_ok}")
 
     state["alerted_today"] = sorted(alerted_today)
     save_state(state)
