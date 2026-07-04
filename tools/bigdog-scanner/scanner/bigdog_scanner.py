@@ -38,7 +38,12 @@ Required env (read from .env in this directory or process env):
   TIMER_SECRET, SCANNER_API_BASE, TOS_SCANNER_WINDOW
 Tunable (optional, defaults below):
   ALERT_MIN (3), BUY_PCT_MIN (70), ENABLE_PUSHOVER (false),
-  SCANNER_LOAD_WAIT_S, SCANNER_KEY_INTERVAL_S
+  REGIME_GATE (true), REGIME_BASE, REGIME_SECRET (DTSWAI's secret), REGIME_STRONG (70),
+  SECTOR_TOP_N (3), EXCLUDE_SECTORS (Financial), SCANNER_LOAD_WAIT_S, SCANNER_KEY_INTERVAL_S
+
+Regime gate: fetch DTSWAI /api/market-direction (0-100) → (score-50)*2 = -100..+100.
+  >= +70 → longs only · <= -70 → shorts only · in between → both, restrict bull to
+  the top-3 Finviz sectors and bear to the bottom-3 (Financial excluded). Fail-open.
 
 Usage:
   python bigdog_scanner.py             # one full scan cycle (Task Scheduler entry)
@@ -100,6 +105,20 @@ FINVIZ_API_KEY = os.environ.get("FINVIZ_API_KEY", "")
 # Two directional universes; legacy FINVIZ_SCREENER_URL is treated as the bull list.
 FINVIZ_SCREENER_URL_BULL = os.environ.get("FINVIZ_SCREENER_URL_BULL") or os.environ.get("FINVIZ_SCREENER_URL", "")
 FINVIZ_SCREENER_URL_BEAR = os.environ.get("FINVIZ_SCREENER_URL_BEAR", "")
+
+# Market-regime gate. Regime number = DTSWAI /api/market-direction score (0-100)
+# normalized to -100..+100 via (score-50)*2.
+#   >= +REGIME_STRONG  → longs only     <= -REGIME_STRONG → shorts only
+#   in between         → both, but restrict bull to the top-N sectors and bear to
+#                        the bottom-N sectors (Finviz group perf; Financial excluded).
+# Fail-open: if the regime endpoint is unreachable, allow both with no group filter.
+REGIME_GATE   = os.environ.get("REGIME_GATE", "true").strip().lower() in ("1", "true", "yes", "on")
+REGIME_BASE   = os.environ.get("REGIME_BASE", "https://dtswai-func.azurewebsites.net")
+# The regime endpoint is DTSWAI's — its x-timer-secret differs from the MTF one.
+REGIME_SECRET = os.environ.get("REGIME_SECRET") or TIMER_SECRET
+REGIME_STRONG = float(os.environ.get("REGIME_STRONG", "70"))
+SECTOR_TOP_N  = int(os.environ.get("SECTOR_TOP_N", "3"))
+EXCLUDE_SECTORS = {s.strip() for s in os.environ.get("EXCLUDE_SECTORS", "Financial").split(",") if s.strip()}
 PUSHOVER_USER_KEY = os.environ.get("PUSHOVER_USER_KEY", "")
 PUSHOVER_APP_TOKEN = os.environ.get("PUSHOVER_APP_TOKEN", "")
 # WhatsApp is the primary channel; Pushover is opt-in (set ENABLE_PUSHOVER=true).
@@ -281,7 +300,9 @@ def finviz_to_export_url(screener_url: str) -> str:
     return urllib.parse.urlunparse(parsed._replace(path="/export.ashx"))
 
 
-def fetch_finviz_tickers(screener_url: str) -> list[str]:
+def fetch_finviz_tickers(screener_url: str) -> list[tuple[str, str]]:
+    """Return [(ticker, sector), ...]. Sector comes from the export's Sector
+    column (present in the bull/bear URLs' c= list); "" if absent."""
     if not FINVIZ_API_KEY:
         raise RuntimeError("FINVIZ_API_KEY not set")
     export_url = finviz_to_export_url(screener_url)
@@ -295,12 +316,59 @@ def fetch_finviz_tickers(screener_url: str) -> list[str]:
     if text.lstrip().startswith("<") or "login" in text[:500].lower():
         raise RuntimeError("Finviz returned HTML/login redirect — check FINVIZ_API_KEY")
     reader = csv.DictReader(io.StringIO(text))
-    tickers: list[str] = []
+    out: list[tuple[str, str]] = []
     for row in reader:
         sym = (row.get("Ticker") or row.get("ticker") or "").strip().upper()
         if sym and re.match(r"^[A-Z][A-Z0-9.\-]{0,6}$", sym):
-            tickers.append(sym)
-    return tickers
+            out.append((sym, (row.get("Sector") or "").strip()))
+    return out
+
+
+def fetch_regime() -> float | None:
+    """DTSWAI market-direction 0-100 score → signed -100..+100. None on failure
+    (fail-open: caller then allows both directions with no group filter)."""
+    if not REGIME_SECRET:
+        print("  WARN: no REGIME_SECRET → regime gate disabled this run", file=sys.stderr)
+        return None
+    req = urllib.request.Request(f"{REGIME_BASE}/api/market-direction",
+                                 headers={"x-timer-secret": REGIME_SECRET})
+    try:
+        d = json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
+        return (float(d["score"]) - 50.0) * 2.0
+    except Exception as e:
+        print(f"  WARN: regime fetch failed ({e}); allowing both directions", file=sys.stderr)
+        return None
+
+
+def fetch_sector_rankings() -> tuple[list[str], list[str]]:
+    """Finviz sector performance → (top_bull_sectors, top_bear_sectors), each of
+    size SECTOR_TOP_N, with EXCLUDE_SECTORS removed. ([],[]) on failure."""
+    if not FINVIZ_API_KEY:
+        return [], []
+    url = f"https://elite.finviz.com/grp_export.ashx?g=sector&v=140&auth={FINVIZ_API_KEY}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        text = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "replace").lstrip("﻿")
+        reader = csv.DictReader(io.StringIO(text))
+        rows: list[tuple[str, float]] = []
+        for r in reader:
+            name = (r.get("Name") or r.get("Sector") or "").strip()
+            raw = (r.get("Change") or r.get("Perf Week") or "").replace("%", "").strip()
+            if not name or name in EXCLUDE_SECTORS:
+                continue
+            try:
+                rows.append((name, float(raw)))
+            except ValueError:
+                pass
+        if not rows:
+            return [], []
+        rows.sort(key=lambda t: t[1], reverse=True)
+        top = [n for n, _ in rows[:SECTOR_TOP_N]]
+        bot = [n for n, _ in rows[-SECTOR_TOP_N:]]
+        return top, bot
+    except Exception as e:
+        print(f"  WARN: sector-rank fetch failed ({e})", file=sys.stderr)
+        return [], []
 
 
 # ─── Window automation ───────────────────────────────────────────────────────
@@ -605,27 +673,50 @@ def main() -> int:
         print(f"Saved scanner window for future runs: hwnd {hwnd}")
     print(f"Scanner window: '{title}' (hwnd {hwnd})")
 
-    universes: list[tuple[str, str]] = []
-    if FINVIZ_SCREENER_URL_BULL:
-        universes.append(("bull", FINVIZ_SCREENER_URL_BULL))
-    if FINVIZ_SCREENER_URL_BEAR:
-        universes.append(("bear", FINVIZ_SCREENER_URL_BEAR))
+    # ── Market-regime gate ──────────────────────────────────────────────────
+    regime = fetch_regime() if REGIME_GATE else None
+    run_bull = run_bear = True
+    bull_sectors = bear_sectors = None   # None = no group filter
+    if regime is not None:
+        if regime >= REGIME_STRONG:
+            run_bear = False
+            print(f"Regime {regime:+.0f} → STRONG BULL: longs only")
+        elif regime <= -REGIME_STRONG:
+            run_bull = False
+            print(f"Regime {regime:+.0f} → STRONG BEAR: shorts only")
+        else:
+            bull_sectors, bear_sectors = fetch_sector_rankings()
+            print(f"Regime {regime:+.0f} → NEUTRAL: both, prefer groups  "
+                  f"bull∈{bull_sectors or 'ALL'}  bear∈{bear_sectors or 'ALL'}")
+    else:
+        print("Regime gate off/unavailable → scanning both directions, no group filter")
+
+    universes: list[tuple[str, str, list | None]] = []
+    if run_bull and FINVIZ_SCREENER_URL_BULL:
+        universes.append(("bull", FINVIZ_SCREENER_URL_BULL, bull_sectors))
+    if run_bear and FINVIZ_SCREENER_URL_BEAR:
+        universes.append(("bear", FINVIZ_SCREENER_URL_BEAR, bear_sectors))
 
     fired_count = 0
     scanned = 0
-    for list_dir, url in universes:
+    for list_dir, url, allowed in universes:
         print(f"\n--- {list_dir.upper()} universe ---")
         try:
-            tickers = fetch_finviz_tickers(url)
+            rows = fetch_finviz_tickers(url)
         except Exception as e:
             print(f"ERROR: Finviz fetch failed ({list_dir}): {e}")
             continue
+        if allowed:  # neutral-zone group filter; keep unknown-sector names (fail-open)
+            before = len(rows)
+            rows = [(t, s) for t, s in rows if not s or s in allowed]
+            print(f"group filter → {before}→{len(rows)} in {allowed}")
         if args.max:
-            tickers = tickers[:args.max]
-        print(f"Got {len(tickers)} tickers: {', '.join(tickers[:10])}{'…' if len(tickers) > 10 else ''}")
+            rows = rows[:args.max]
+        syms = [t for t, _ in rows]
+        print(f"Got {len(rows)} tickers: {', '.join(syms[:10])}{'…' if len(rows) > 10 else ''}")
 
-        for i, ticker in enumerate(tickers):
-            print(f"[{list_dir} {i+1}/{len(tickers)}] {ticker} …", end=" ", flush=True)
+        for i, (ticker, sector) in enumerate(rows):
+            print(f"[{list_dir} {i+1}/{len(rows)}] {ticker} …", end=" ", flush=True)
             scanned += 1
 
             load_ticker_in_tos(hwnd, ticker)

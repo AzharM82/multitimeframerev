@@ -58,12 +58,26 @@ Captures land in `scanner\.state\captures\scan_<TICKER>.png` — open one if a
 chip won't parse. Per-day, per-direction dedup lives in
 `scanner\.state\scanner_state.json` (keys `TICKER:U` / `TICKER:D`).
 
+## Market-regime gate
+
+Each cycle the scanner reads a regime number from DTSWAI `GET /api/market-direction`
+(0–100) and normalizes it to **−100…+100** via `(score−50)×2`:
+
+- **≥ +70** → longs only (skip the bear universe)
+- **≤ −70** → shorts only (skip the bull universe)
+- **in between** → both, but restrict the bull universe to the **top‑3** Finviz
+  sectors and the bear universe to the **bottom‑3** (Financial excluded per house rule)
+
+Fail-open: if the regime endpoint is unreachable, both run with no group filter.
+The regime endpoint is DTSWAI's, so set `REGIME_SECRET` to **its** `TIMER_SECRET`
+(from `rg-stockagenthub`), not the MTF one. Toggle with `REGIME_GATE=false`.
+
 ## Tuning
 
-All thresholds are env vars (see `.env.example`): `FRESH_BARS`, `BUY_PCT_MIN`,
-`TICK_MIN`, `REQUIRE_TREND`, `STOCH_USE_BANDS`, `ALERT_MIN`. Change and re-run —
-no code edit. The portal logs the thresholds in effect alongside each alert, so
-a research agent can re-score history under new hypotheses.
+All thresholds are env vars (see `.env.example`): `ALERT_MIN`, `BUY_PCT_MIN`,
+`REGIME_STRONG`, `SECTOR_TOP_N`, `EXCLUDE_SECTORS`, `ENABLE_PUSHOVER`. Change and
+re-run — no code edit. The portal logs the thresholds in effect alongside each
+alert, so a research agent can re-score history under new hypotheses.
 
 ## Alerts & logging
 
