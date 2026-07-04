@@ -79,6 +79,12 @@ function App() {
         {page === "bigd" && <BigdIntradayPage />}
         {page === "about" && <AboutPage />}
       </main>
+
+      {/* Footer */}
+      <footer className="flex items-center justify-between px-4 py-2.5 bg-bg-card border-t border-border text-[10px] uppercase tracking-wider text-text-secondary">
+        <span className="font-semibold">MTF Reversal Suite</span>
+        <span>Data: Polygon.io · Not financial advice</span>
+      </footer>
     </div>
   );
 }
