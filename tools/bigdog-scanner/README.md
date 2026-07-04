@@ -23,7 +23,7 @@ from your own study sources in `Scripts/`:
 | `BD VW A\|B` | close vs VWAP | `VWAP.txt` (DAY VWAP) | above / below |
 | `BD BV nn` | buy-volume % last bar | `BuySellVol.txt` | Buy ≥70 / Sell ≥70 |
 | `BD CT P\|N nn` | TICK day breadth | `TICK.txt` | more green bars / more red bars today |
-| `BD ST k d` | Stoch SlowK/SlowD | `Stochastic.txt` (7/3/EXP) | K>D / K<D |
+| `BD ST k A\|B d` | Stoch SlowK/SlowD (A=K>D) | `Stochastic.txt` (7/3/EXP) | K>D / K<D |
 | `BD SC P\|N\|Z n` | **composite score** | — | sum of the six, −6…+6 |
 
 **Alert** when the on-chart score clears the gate: **bull universe → score ≥ +3**,

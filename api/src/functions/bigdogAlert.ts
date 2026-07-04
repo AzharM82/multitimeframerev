@@ -34,6 +34,7 @@ interface BigDogBody {
 }
 
 function num(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null; // Number(null)===0 would corrupt misses
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
@@ -94,6 +95,7 @@ async function bigdogAlertHandler(req: HttpRequest): Promise<HttpResponseInit> {
     tickBal: num(raw.tick_bal),
     stochK: num(raw.stoch_k),
     stochD: num(raw.stoch_d),
+    stochSide: (raw.stoch_side as string) ?? null,
     vwapSide: (raw.vwap_side as string) ?? null,
     vwap: num(raw.vwap),
     atrSide: (raw.atr_side as string) ?? null,

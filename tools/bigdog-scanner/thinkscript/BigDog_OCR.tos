@@ -376,8 +376,11 @@ AddLabel(showBigDog,
     "BD CT " + (if bdTickBal >= 0 then "P" else "N") + " " + AbsValue(bdTickBal),
     if bdTickBal > 0 then Color.GREEN else if bdTickBal < 0 then Color.RED else Color.GRAY);
 
+# K then A|B (SlowK vs SlowD) then D — the letter separates the two numbers so
+# RapidOCR can't merge them (was the #1 OCR miss), and carries the decision even
+# when both values round to the same int.
 AddLabel(showBigDog and !IsNaN(bdSlowK),
-    "BD ST " + Round(bdSlowK, 0) + " " + Round(bdSlowD, 0),
+    "BD ST " + Round(bdSlowK, 0) + " " + (if bdSlowK > bdSlowD then "A" else "B") + " " + Round(bdSlowD, 0),
     if bdSlowK > bdSlowD then Color.GREEN else Color.RED);
 
 # Composite signed score chip — OCR reads this directly. P/N/Z + abs value.

@@ -163,7 +163,7 @@ _BD_VW = re.compile(r"BD\s*VW\s*([AB])\s*(\d+)", re.IGNORECASE)
 _BD_AT = re.compile(r"BD\s*AT\s*([AB])\s*(\d+)", re.IGNORECASE)
 _BD_BV = re.compile(r"BD\s*BV\s*(\d{1,3})", re.IGNORECASE)
 _BD_CT = re.compile(r"BD\s*CT\s*([PN])\s*(\d+)", re.IGNORECASE)   # day green-red balance
-_BD_ST = re.compile(r"BD\s*ST\s*(\d{1,3})\s+(\d{1,3})", re.IGNORECASE)
+_BD_ST = re.compile(r"BD\s*ST\s*(\d{1,3})\s*([AB])\s*(\d{1,3})", re.IGNORECASE)  # k, K><D letter, d
 _BD_SC = re.compile(r"BD\s*SC\s*([PNZ])\s*(\d)", re.IGNORECASE)   # on-chart signed score
 
 _TREND_MAP = {"UP": "U", "DN": "D", "FLAT": "F"}
@@ -181,7 +181,7 @@ def parse_bigdog_strip(lines: list[str]) -> dict:
         "atr_side": None, "atr": None,
         "buy_pct": None,
         "tick": None,          # day green-red histogram-bar balance (signed)
-        "stoch_k": None, "stoch_d": None,
+        "stoch_k": None, "stoch_d": None, "stoch_side": None,  # side = A(K>D)/B(K<D)
         "score": None,         # on-chart signed composite score (BD SC), -6..+6
     }
     if lines and (m := _TICKER_RE.match(lines[0].strip())):
@@ -207,7 +207,8 @@ def parse_bigdog_strip(lines: list[str]) -> dict:
         f["tick"] = sign * int(m.group(2))
     if (m := _BD_ST.search(blob)):
         f["stoch_k"] = int(m.group(1))
-        f["stoch_d"] = int(m.group(2))
+        f["stoch_side"] = m.group(2).upper()
+        f["stoch_d"] = int(m.group(3))
     if (m := _BD_SC.search(blob)):
         sign = {"P": 1, "N": -1, "Z": 0}[m.group(1).upper()]
         f["score"] = sign * int(m.group(2))
@@ -233,10 +234,14 @@ def compute_parts(f: dict, cfg: dict) -> dict:
     tick_bal = f["tick"] or 0
     tick = 1 if tick_bal > 0 else -1 if tick_bal < 0 else 0
 
-    if f["stoch_k"] is None or f["stoch_d"] is None:
-        stoch = 0
-    else:
+    # Prefer the on-chart decision letter (precise) over comparing rounded ints.
+    ss = f.get("stoch_side")
+    if ss in ("A", "B"):
+        stoch = 1 if ss == "A" else -1
+    elif f["stoch_k"] is not None and f["stoch_d"] is not None:
         stoch = 1 if f["stoch_k"] > f["stoch_d"] else -1 if f["stoch_k"] < f["stoch_d"] else 0
+    else:
+        stoch = 0
 
     return {
         "rev":   1 if f["rv_dir"] == "U" else -1 if f["rv_dir"] == "D" else 0,
@@ -533,7 +538,7 @@ def post_to_portal(ticker: str, scored: dict, f: dict, cfg: dict) -> bool:
             "buy_pct": f.get("buy_pct"),
             "sell_pct": (100 - f["buy_pct"]) if f.get("buy_pct") is not None else None,
             "tick_bal": f.get("tick"),
-            "stoch_k": f.get("stoch_k"), "stoch_d": f.get("stoch_d"),
+            "stoch_k": f.get("stoch_k"), "stoch_d": f.get("stoch_d"), "stoch_side": f.get("stoch_side"),
             "vwap_side": f.get("vwap_side"), "vwap": f.get("vwap"),
             "atr_side": f.get("atr_side"), "atr": f.get("atr"),
         },

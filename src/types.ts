@@ -431,6 +431,7 @@ export interface BigdogAlertHit {
   tickBal: number | null;
   stochK: number | null;
   stochD: number | null;
+  stochSide: string | null;
   vwapSide: string | null;
   atrSide: string | null;
   ocrMisses: string[];

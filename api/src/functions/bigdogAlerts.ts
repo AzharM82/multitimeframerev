@@ -41,6 +41,7 @@ interface BigDogAlertRow {
   tickBal?: number;
   stochK?: number;
   stochD?: number;
+  stochSide?: string;
   vwapSide?: string;
   vwap?: number;
   atrSide?: string;
@@ -72,6 +73,7 @@ function toHit(r: BigDogAlertRow) {
     tickBal: r.tickBal ?? null,
     stochK: r.stochK ?? null,
     stochD: r.stochD ?? null,
+    stochSide: r.stochSide ?? null,
     vwapSide: r.vwapSide ?? null,
     atrSide: r.atrSide ?? null,
     ocrMisses: r.ocrMisses ? r.ocrMisses.split(",").filter(Boolean) : [],
