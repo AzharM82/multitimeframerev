@@ -41,3 +41,6 @@ import "./functions/breadth.js";
 // Catalyst Value Eval (CVE = Magnitude × Speed)
 import "./functions/cveScan.js";
 import "./functions/cveTimer.js";
+
+// Unusual Options Activity (read proxy for the UnusualOptions scanner's blob output)
+import "./functions/uoaSignals.js";
