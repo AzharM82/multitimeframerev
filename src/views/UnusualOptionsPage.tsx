@@ -112,11 +112,67 @@ export function UnusualOptionsPage() {
 
   if (loading) return <div className="text-center py-16 text-text-secondary text-xs uppercase tracking-widest">Loading unusual options…</div>;
 
+  const filterBar = (
+    <div className="flex items-center gap-2 flex-wrap">
+      {(["ALL", "C", "P"] as const).map((k) => (
+        <button
+          key={k}
+          onClick={() => setSide(k)}
+          className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
+            side === k ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          {k === "ALL" ? "All" : k === "C" ? "Calls" : "Puts"}
+        </button>
+      ))}
+      <span className="w-px h-4 bg-border mx-1" />
+      {RATIO_CHIPS.map((r) => (
+        <button
+          key={r}
+          onClick={() => setMinRatio(r)}
+          className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
+            minRatio === r ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          {r === 0 ? "Any ratio" : `≥ ${r}×`}
+        </button>
+      ))}
+      <span className="w-px h-4 bg-border mx-1" />
+      {NOTIONAL_CHIPS.map((n) => (
+        <button
+          key={n}
+          onClick={() => setMinNotional(n)}
+          className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
+            minNotional === n ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          {n === 0 ? "Any premium" : "≥ $1M"}
+        </button>
+      ))}
+      <span className="flex-1" />
+      {dates.length > 0 && (
+        <select
+          value={selDate}
+          onChange={(e) => setSelDate(e.target.value)}
+          className="text-[11px] bg-bg-card border border-border rounded px-2 py-1"
+        >
+          <option value="">Latest</option>
+          {dates.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+
   if (error || !data) {
     return (
-      <div className="max-w-lg mx-auto text-center py-16">
-        <div className="font-[var(--font-playfair)] text-lg font-bold mb-2">Unusual Options Activity</div>
-        <p className="text-sm text-text-secondary">{error ?? "No data."}</p>
+      <div className="max-w-6xl mx-auto space-y-4">
+        {filterBar}
+        <div className="max-w-lg mx-auto text-center py-16">
+          <div className="font-[var(--font-playfair)] text-lg font-bold mb-2">Unusual Options Activity</div>
+          <p className="text-sm text-text-secondary">{error ?? "No data."}</p>
+        </div>
       </div>
     );
   }
@@ -136,56 +192,7 @@ export function UnusualOptionsPage() {
       </div>
 
       {/* Filters + history */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {(["ALL", "C", "P"] as const).map((k) => (
-          <button
-            key={k}
-            onClick={() => setSide(k)}
-            className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
-              side === k ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {k === "ALL" ? "All" : k === "C" ? "Calls" : "Puts"}
-          </button>
-        ))}
-        <span className="w-px h-4 bg-border mx-1" />
-        {RATIO_CHIPS.map((r) => (
-          <button
-            key={r}
-            onClick={() => setMinRatio(r)}
-            className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
-              minRatio === r ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {r === 0 ? "Any ratio" : `≥ ${r}×`}
-          </button>
-        ))}
-        <span className="w-px h-4 bg-border mx-1" />
-        {NOTIONAL_CHIPS.map((n) => (
-          <button
-            key={n}
-            onClick={() => setMinNotional(n)}
-            className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
-              minNotional === n ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {n === 0 ? "Any premium" : "≥ $1M"}
-          </button>
-        ))}
-        <span className="flex-1" />
-        {dates.length > 0 && (
-          <select
-            value={selDate}
-            onChange={(e) => setSelDate(e.target.value)}
-            className="text-[11px] bg-bg-card border border-border rounded px-2 py-1"
-          >
-            <option value="">Latest</option>
-            {dates.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        )}
-      </div>
+      {filterBar}
 
       {/* Signals table */}
       <div className="bg-bg-card border border-border rounded overflow-x-auto">

@@ -28,12 +28,21 @@ function getContainer(): ContainerClient {
   return container;
 }
 
+function isNotFound(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { statusCode?: number }).statusCode === 404
+  );
+}
+
 async function readJsonBlob(name: string): Promise<unknown | null> {
   try {
     const buf = await getContainer().getBlobClient(name).downloadToBuffer();
     return JSON.parse(buf.toString("utf-8"));
-  } catch {
-    return null;
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
   }
 }
 
@@ -44,8 +53,9 @@ async function listDates(): Promise<string[]> {
       const m = blob.name.match(/^(\d{4}-\d{2}-\d{2})\.json$/);
       if (m) dates.push(m[1]);
     }
-  } catch {
-    return []; // container not created yet — the scanner makes it on first write
+  } catch (err) {
+    if (isNotFound(err)) return []; // container not created yet — the scanner makes it on first write
+    throw err;
   }
   return dates.sort().reverse();
 }

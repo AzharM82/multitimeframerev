@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMarketHours } from "./hooks/useMarketHours.js";
 import { AvwapPage } from "./views/AvwapPage.js";
 import { BullListPage } from "./views/BullListPage.js";
@@ -30,8 +30,13 @@ function App() {
   const [page, setPageState] = useState<Page>(initialPage);
   const setPage = (p: Page) => {
     setPageState(p);
-    window.location.hash = p; // deep-linkable tabs (e.g. /#uoa)
+    window.history.replaceState(null, "", `#${p}`); // deep-linkable tabs (e.g. /#uoa)
   };
+  useEffect(() => {
+    const onHashChange = () => setPageState(initialPage());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
   const marketOpen = useMarketHours();
 
   const today = new Date().toLocaleDateString("en-US", {
