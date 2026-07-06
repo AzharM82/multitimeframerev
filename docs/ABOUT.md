@@ -1,8 +1,8 @@
 # MTF Reversal — How it works
 
-This site is a **swing-trade-first** suite built around several tools: **AVWAP** swing setups, a TOS-fed **Bull List**, **Day-Trade** reversal alerts, and the **ATR Matrix** extension scanner — with a whole-market **breadth/posture** gauge on top. The whole pipeline is owned by the user — no third-party scanners, no SaaS subscriptions beyond Polygon.io for market data, Finviz Elite for screens, and Outlook/Gmail for email.
+This site is a **swing-trade-first** suite built around several tools: **AVWAP** swing setups, a TOS-fed **Bull List**, **Day-Trade** reversal alerts, the **ATR Matrix** extension scanner, and an **Unusual Options** activity feed — with a whole-market **breadth/posture** gauge on top. The whole pipeline is owned by the user — no third-party scanners, no SaaS subscriptions beyond Polygon.io for market data, Finviz Elite for screens, and Outlook/Gmail for email.
 
-## The 5 sections
+## The sections
 
 ### 1 · AVWAP Swing Scanner
 
@@ -89,7 +89,15 @@ A shortlist for the next session's open, built from the prior close. A **BUY / S
 3. Next morning, **go live** — take the ones that flip 🟢 BUYABLE as they trigger.
 4. **Positions** — track what you took; watch the scale-out ladder for where to trim.
 
-### 5 · Catalyst Value Eval
+### 5 · Unusual Options
+
+An end-of-day **Unusual Options Activity** feed. The scanner lives in its own repo ([`AzharM82/UnusualOptions`](https://github.com/AzharM82/UnusualOptions)) and runs as a **GitHub Actions cron after each market close**: it sweeps the option chains of a large underlying universe in a **~25–35 DTE window** and fires a contract-level signal when a contract's volume runs **≥ 100× its own 20-day average**, gated by notional premium and — when the data plan provides open interest — the volume/OI ratio. Each day's results land as JSON in the `uoa-signals` blob container; the site reads them through a thin proxy (`GET /api/uoa-signals`, `?date=YYYY-MM-DD` for history, `?list=1` for the date index) so the storage key never reaches the browser.
+
+The tab shows a **summary strip** (scan date + data mode, universe size, contracts scanned, signals fired), then the **contract-level signals table** — filterable by calls/puts, minimum volume ratio (≥ 200× / 500×), and ≥ $1M notional, with a date picker for prior scans. Each row carries a **20-session volume sparkline** and an **anomaly score**; click a row to expand full contract details. Below it, **underlying-level aggregates** list names where one side's in-window volume ran **≥ 10× its 20-day average**, with put/call skew. Tickers link to TradingView.
+
+> **OI columns degrade gracefully.** When a scan ran in **aggs mode** (`oi_available = false` — the Polygon plan lacks the options snapshot entitlement), the vol/OI column and the next-morning **CONFIRMED / FADED / PARTIAL** OI badges show **n/a** and the vol/OI gate is skipped for that scan.
+
+### 6 · Catalyst Value Eval
 
 A prop-desk **Catalyst Value Equation (CVE)** scanner: it grades the day's biggest movers by *why* they are moving, not just how much. The equation is **CVE = Magnitude × Speed**.
 
@@ -110,15 +118,17 @@ Catalysts are classified **Fundamental** (earnings, FDA, M&A, products), **Techn
 
 The universe is the day's in-play names: **FinViz Elite pre-market gappers** + **Polygon gainers/losers** + tickers in the last 24h of **Polygon market news**. Per-ticker news (with Polygon's sentiment insights) drives the scoring. It runs twice daily — **15 minutes before the open** and **15 minutes before the close** — and emails + Pushover-pushes the top 3 positive and top 3 negative B/A/A+ catalysts, each with its Magnitude × Speed = Grade line, suggested stop %, and a generated commentary. The email is the same tabular view you see on this tab.
 
-### 6 · Performance
+### 7 · Performance
 
 Every Bull List entry is treated as a paper trade with **$5,000 notional** (qty = floor(5000/entry)). Closed trades are aggregated into win rate, total P&L, average P&L, best/worst %, and breakdowns by source. The day-trade alert log is shown alongside.
 
 > Day-trade alerts are not yet auto-tracked as paper trades — they're recorded as a log. Adding live entry/SL/TP for day trades is on the v2 list.
 
-### 7 · About
+### 8 · About
 
 What you're reading. Sourced from `docs/ABOUT.md` in the repo and rendered via `react-markdown` at build time. Push to `main` → SWA rebuilds → this page reflects the change automatically.
+
+Every tab is bookmarkable via its URL hash — e.g. `/#uoa` opens Unusual Options directly.
 
 ---
 
@@ -167,7 +177,7 @@ All timers require the `x-timer-secret` header matching the `TIMER_SECRET` env v
 
 - **Frontend**: React 19 + Vite 6 + Tailwind 4
 - **Backend**: Azure Functions v4 (Node 20, CommonJS)
-- **Storage**: Azure Table Storage + Azure Storage Queue
+- **Storage**: Azure Table Storage + Azure Storage Queue + Blob Storage (`uoa-signals` scan output)
 - **Data**: Polygon.io (OHLCV, last trade)
 - **Email**: Outlook IMAP (in), Gmail SMTP (out)
 - **Alerts**: WhatsApp via whatsapp-web.js sidecar, Pushover fallback
