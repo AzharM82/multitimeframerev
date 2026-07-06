@@ -39,9 +39,13 @@ async function readJsonBlob(name: string): Promise<unknown | null> {
 
 async function listDates(): Promise<string[]> {
   const dates: string[] = [];
-  for await (const blob of getContainer().listBlobsFlat()) {
-    const m = blob.name.match(/^(\d{4}-\d{2}-\d{2})\.json$/);
-    if (m) dates.push(m[1]);
+  try {
+    for await (const blob of getContainer().listBlobsFlat()) {
+      const m = blob.name.match(/^(\d{4}-\d{2}-\d{2})\.json$/);
+      if (m) dates.push(m[1]);
+    }
+  } catch {
+    return []; // container not created yet — the scanner makes it on first write
   }
   return dates.sort().reverse();
 }
