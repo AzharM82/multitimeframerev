@@ -87,15 +87,20 @@ export function UnusualOptionsPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
     getUoaSignals(selDate || undefined)
-      .then((r) => setData(r))
-      .catch((e: Error) =>
-        setError(e.message === "no_scan_data"
-          ? "No scan data yet — the scanner runs after each market close."
-          : e.message))
-      .finally(() => setLoading(false));
+      .then((r) => { if (!cancelled) setData(r); })
+      .catch((e: Error) => {
+        if (!cancelled) {
+          setError(e.message === "no_scan_data"
+            ? "No scan data yet — the scanner runs after each market close."
+            : e.message);
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [selDate]);
 
   const oiAvailable = data?.oi_available !== false;
