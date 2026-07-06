@@ -20,8 +20,18 @@ const TABS: { key: Page; label: string }[] = [
   { key: "about", label: "About" },
 ];
 
+const PAGE_KEYS = TABS.map((t) => t.key);
+function initialPage(): Page {
+  const h = window.location.hash.replace("#", "") as Page;
+  return PAGE_KEYS.includes(h) ? h : "avwap";
+}
+
 function App() {
-  const [page, setPage] = useState<Page>("avwap");
+  const [page, setPageState] = useState<Page>(initialPage);
+  const setPage = (p: Page) => {
+    setPageState(p);
+    window.location.hash = p; // deep-linkable tabs (e.g. /#uoa)
+  };
   const marketOpen = useMarketHours();
 
   const today = new Date().toLocaleDateString("en-US", {
