@@ -32,3 +32,4 @@ tos-reversal-scanner/
 morning_capitulation_scanner_prompt.md
 **/__pycache__/
 *.pyc
+.lavish/
