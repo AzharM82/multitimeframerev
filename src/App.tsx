@@ -6,9 +6,10 @@ import { AtrMatrixPage } from "./views/AtrMatrixPage.js";
 import { CveEvalPage } from "./views/CveEvalPage.js";
 import { BigdIntradayPage } from "./views/BigdIntradayPage.js";
 import { UnusualOptionsPage } from "./views/UnusualOptionsPage.js";
+import { ToolsPage } from "./views/ToolsPage.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "avwap" | "bull" | "atr" | "uoa" | "cve" | "bigd" | "about";
+type Page = "avwap" | "bull" | "atr" | "uoa" | "cve" | "bigd" | "tools" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "avwap", label: "AVWAP" },
@@ -17,6 +18,7 @@ const TABS: { key: Page; label: string }[] = [
   { key: "uoa", label: "Unusual Options" },
   { key: "cve", label: "Catalyst Value Eval" },
   { key: "bigd", label: "BIGD-Intraday" },
+  { key: "tools", label: "Tools" },
   { key: "about", label: "About" },
 ];
 
@@ -95,6 +97,7 @@ function App() {
         {page === "uoa" && <UnusualOptionsPage />}
         {page === "cve" && <CveEvalPage />}
         {page === "bigd" && <BigdIntradayPage />}
+        {page === "tools" && <ToolsPage />}
         {page === "about" && <AboutPage />}
       </main>
 
