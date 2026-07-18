@@ -1,14 +1,110 @@
 {
+  "$schema": "https://json.schemastore.org/staticwebapp.config.json",
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": ["/api/*", "/assets/*"]
   },
   "routes": [
     {
-      "route": "/api/*",
+      "route": "/api/get-roles",
       "allowedRoles": ["anonymous"]
+    },
+
+    {
+      "route": "/api/avwap-eod-timer",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/bull-email-timer",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/bull-monitor-timer",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/atr-eod-timer",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/cve-timer",
+      "allowedRoles": ["anonymous"]
+    },
+
+    {
+      "route": "/api/scanner-alert",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/bigdog-alert",
+      "allowedRoles": ["anonymous"]
+    },
+
+    {
+      "route": "/api/breadth",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/health",
+      "allowedRoles": ["anonymous"]
+    },
+
+    {
+      "route": "/.auth/login/github",
+      "statusCode": 404
+    },
+    {
+      "route": "/.auth/login/aad",
+      "statusCode": 404
+    },
+    {
+      "route": "/.auth/*",
+      "allowedRoles": ["anonymous"]
+    },
+
+    {
+      "route": "/login",
+      "rewrite": "/.auth/login/google?post_login_redirect_uri=/"
+    },
+    {
+      "route": "/logout",
+      "redirect": "/.auth/logout?post_logout_redirect_uri=/login-required.html"
+    },
+    {
+      "route": "/login-required.html",
+      "allowedRoles": ["anonymous"]
+    },
+
+    {
+      "route": "/api/*",
+      "allowedRoles": ["portal"]
+    },
+    {
+      "route": "/*",
+      "allowedRoles": ["portal"]
     }
   ],
+  "responseOverrides": {
+    "401": {
+      "redirect": "/login",
+      "statusCode": 302
+    },
+    "403": {
+      "rewrite": "/login-required.html",
+      "statusCode": 403
+    }
+  },
+  "auth": {
+    "rolesSource": "/api/get-roles",
+    "identityProviders": {
+      "google": {
+        "registration": {
+          "clientIdSettingName": "GOOGLE_CLIENT_ID",
+          "clientSecretSettingName": "GOOGLE_CLIENT_SECRET"
+        }
+      }
+    }
+  },
   "platform": {
     "apiRuntime": "node:20"
   }

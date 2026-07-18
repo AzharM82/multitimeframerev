@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMarketHours } from "./hooks/useMarketHours.js";
+import { useAuth } from "./hooks/useAuth.js";
 import { AvwapPage } from "./views/AvwapPage.js";
 import { BullListPage } from "./views/BullListPage.js";
 import { AtrMatrixPage } from "./views/AtrMatrixPage.js";
@@ -40,6 +41,7 @@ function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
   const marketOpen = useMarketHours();
+  const { user } = useAuth();
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -86,7 +88,20 @@ function App() {
           <span className={`w-2 h-2 rounded-full ${marketOpen ? "bg-signal-bull animate-pulse" : "bg-signal-bear"}`} />
           {marketOpen ? "Market Open" : "Market Closed"}
         </span>
-        <span className="text-[10px] text-dim font-medium">{today}</span>
+        <span className="flex items-center gap-3">
+          <span className="text-[10px] text-dim font-medium">{today}</span>
+          {user && (
+            <span className="flex items-center gap-2 text-[10px] text-text-secondary">
+              <span className="hidden sm:inline font-medium">{user.userDetails}</span>
+              <a
+                href="/logout"
+                className="uppercase tracking-wider font-semibold hover:text-text-primary transition-colors"
+              >
+                Sign out
+              </a>
+            </span>
+          )}
+        </span>
       </div>
 
       {/* Main content — full width */}
