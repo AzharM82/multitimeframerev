@@ -4,7 +4,6 @@ import type {
   MmKeyMetricsData,
   MmBreadthData,
   MmScreenersData,
-  MmIndustry,
   MmMoversData,
   MmScreenerRow,
 } from "../types.js";
@@ -23,7 +22,6 @@ import { getMmPanel } from "../services/api.js";
 const PANELS: { key: MmPanelName; label: string }[] = [
   { key: "key-metrics", label: "Key Metrics" },
   { key: "breadth", label: "Breadth" },
-  { key: "industries", label: "Leading Industries" },
   { key: "screeners", label: "Screeners" },
   { key: "movers", label: "Movers" },
 ];
@@ -259,61 +257,6 @@ export function MetricsPage() {
             </table>
           </Card>
         </div>
-      );
-    }
-
-    if (panel === "industries") {
-      // Defensive: the cached payload is produced by a separate timer, so a
-      // shape change there must degrade to a readable message rather than
-      // throwing mid-render (which blanks the tab).
-      const list = Array.isArray(data) ? (data as MmIndustry[]) : [];
-      if (list.length === 0) {
-        return (
-          <div className="max-w-lg mx-auto text-center py-16">
-            <div className="font-[var(--font-playfair)] text-lg font-bold mb-2">No industries</div>
-            <p className="text-sm text-text-secondary">
-              The panel returned {Array.isArray(data) ? "an empty list" : `a ${typeof data}, not a list`}.
-              It refreshes on the 17:30 ET timer.
-            </p>
-          </div>
-        );
-      }
-      return (
-        <Card title="Leading Industries" sub={`top ${list.length} by combined week + month RS`}>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-[9px] uppercase tracking-wider text-text-secondary border-b border-border">
-                <th className="text-left px-3 py-1.5">Industry</th>
-                <th className="text-right px-2 py-1.5">Avg RS</th>
-                <th className="text-left px-3 py-1.5">Leaders</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((r, ri) => (
-                <tr key={`${r.industry}-${ri}`} className="border-b border-border last:border-b-0 hover:bg-bg-secondary">
-                  <td className="px-3 py-1.5 font-semibold">{r.industry}</td>
-                  <td className="text-right px-2 py-1.5 tabular-nums">{typeof r.avg_rs === "number" ? r.avg_rs.toFixed(1) : "—"}</td>
-                  <td className="px-3 py-1.5">
-                    <span className="flex flex-wrap gap-1.5">
-                      {(Array.isArray(r.tickers) ? r.tickers : []).filter((t) => t && t.ticker).map((t, ti) => (
-                        <a
-                          key={`${t.ticker}-${ti}`}
-                          href={TV(t.ticker)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-baseline gap-1 hover:underline"
-                        >
-                          <span className="font-bold">{t.ticker}</span>
-                          <span className={`text-[10px] ${changeTone(t.change)}`}>{t.change}</span>
-                        </a>
-                      ))}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
       );
     }
 

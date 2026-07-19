@@ -23,14 +23,12 @@ const CHUNK_CHARS = 30000;
 export type PanelName =
   | "key-metrics"
   | "breadth"
-  | "industries"
   | "screeners"
   | "movers";
 
 export const PANELS: PanelName[] = [
   "key-metrics",
   "breadth",
-  "industries",
   "screeners",
   "movers",
 ];

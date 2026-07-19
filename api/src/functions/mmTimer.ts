@@ -2,7 +2,6 @@ import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } 
 import { putPanel, PANELS, type PanelName } from "../lib/mm/panelCache.js";
 import { computeAllKeyMetrics } from "../lib/mm/keyMetrics.js";
 import { computeBreadthData } from "../lib/mm/stockbee.js";
-import { computeLeadingIndustries } from "../lib/mm/industries.js";
 import { runScreener } from "../lib/mm/screeners.js";
 import { computeMovers } from "../lib/mm/movers.js";
 
@@ -28,8 +27,6 @@ async function computePanel(panel: PanelName): Promise<unknown> {
       return computeAllKeyMetrics();
     case "breadth":
       return computeBreadthData(60);
-    case "industries":
-      return computeLeadingIndustries();
     case "screeners":
       return {
         qullamaggie: await runScreener("qullamaggie"),

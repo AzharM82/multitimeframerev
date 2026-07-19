@@ -536,7 +536,7 @@ export interface GateScoreResponse {
 
 // ─── Metrics (MarketMetrics core panels) ────────────────────────────────────
 
-export type MmPanelName = "key-metrics" | "breadth" | "industries" | "screeners" | "movers";
+export type MmPanelName = "key-metrics" | "breadth" | "screeners" | "movers";
 
 export interface MmPanelResponse<T = unknown> {
   panel: MmPanelName;
@@ -586,12 +586,6 @@ export interface MmScreenersData {
   qullamaggie: MmScreenerRow[];
   minervini: MmScreenerRow[];
   oneil: MmScreenerRow[];
-}
-
-export interface MmIndustry {
-  industry: string;
-  avg_rs: number;
-  tickers: Array<{ ticker: string; change: string; week: number; month: number; atr_pct?: number | null }>;
 }
 
 export interface MmMoversData {

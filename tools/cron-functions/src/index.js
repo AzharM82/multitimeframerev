@@ -77,12 +77,7 @@ app.timer("mmBreadthCron", {
   handler: async (_t, ctx) => fire("mm-timer?panel=breadth", ctx),
 });
 
-// The two heavy FinViz panels — spaced well apart, after the close only.
-app.timer("mmIndustriesCron", {
-  schedule: "0 30 17 * * 1-5",
-  handler: async (_t, ctx) => fire("mm-timer?panel=industries", ctx),
-});
-
+// The heavy FinViz panel — after the close only.
 app.timer("mmKeyMetricsCron", {
   schedule: "0 45 17 * * 1-5",
   handler: async (_t, ctx) => fire("mm-timer?panel=key-metrics", ctx),
