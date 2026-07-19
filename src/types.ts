@@ -428,3 +428,59 @@ export interface UoaScanResponse {
 export interface UoaDatesResponse {
   dates: string[];
 }
+
+// ─── Rotation (sector/industry rotation — ported from sector-rotation) ──────
+
+export interface RotStockInfo {
+  ticker: string;
+  company: string;
+  sector: string;
+  industry: string;
+}
+
+export interface RotQuote {
+  price: number;
+  open: number;
+  high: number;
+  low: number;
+  volume: number;
+  vwap: number;
+  changePercent: number;          // vs previous close
+  changeFromOpenPercent: number;  // vs today's open
+}
+
+export interface RotQuotesResponse {
+  quotes: Record<string, RotQuote>;
+  count: number;
+  timestamp: string;              // ISO
+  cached: boolean;
+  /** Universe + classification; omitted when requested with ?meta=0. */
+  stocks?: RotStockInfo[];
+}
+
+export interface RotPerformanceResponse {
+  performance: Record<string, number>;
+  period: "weekly" | "monthly";
+  startDate: string;              // ISO date — period's first trading day
+  endDate: string;                // ISO date — most recent trading day
+  count: number;
+  timestamp: string;
+  cached: boolean;
+}
+
+export interface RotWeek {
+  label: string;
+  weekIndex: number;              // 0 = current week
+  startDate: string | null;
+  endDate: string | null;
+  /** null when the week could not be resolved — NOT the same as flat. */
+  performance: Record<string, number> | null;
+}
+
+export interface RotWeeklyHistoryResponse {
+  weeks: RotWeek[];
+  resolved: number;
+  requested: number;
+  timestamp: string;
+  cached: boolean;
+}

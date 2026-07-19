@@ -38,6 +38,11 @@ import "./functions/cveTimer.js";
 // Unusual Options Activity (read proxy for the UnusualOptions scanner's blob output)
 import "./functions/uoaSignals.js";
 
+// Rotation — sector/industry rotation (ported from the sector-rotation app)
+import "./functions/rotQuotes.js";
+import "./functions/rotPerformance.js";
+import "./functions/rotWeeklyHistory.js";
+
 // Portal authentication — SWA rolesSource allowlist (Google sign-in).
 // Invoked by the SWA platform, not the browser; must stay anonymous.
 import "./functions/getRoles.js";

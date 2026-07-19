@@ -1,4 +1,7 @@
 import type {
+  RotQuotesResponse,
+  RotPerformanceResponse,
+  RotWeeklyHistoryResponse,
   AtrScanResponse,
   AtrLookupResponse,
   AtrIntradayResponse,
@@ -65,4 +68,18 @@ export function getUoaSignals(date?: string): Promise<UoaScanResponse> {
 
 export function getUoaDates(): Promise<UoaDatesResponse> {
   return request<UoaDatesResponse>(`/uoa-signals?list=1`);
+}
+
+// ─── Rotation ───────────────────────────────────────────────────────────────
+
+export function getRotQuotes(includeMeta = true): Promise<RotQuotesResponse> {
+  return request<RotQuotesResponse>(`/rot-quotes${includeMeta ? "" : "?meta=0"}`);
+}
+
+export function getRotPerformance(period: "weekly" | "monthly" = "weekly"): Promise<RotPerformanceResponse> {
+  return request<RotPerformanceResponse>(`/rot-performance?period=${period}`);
+}
+
+export function getRotWeeklyHistory(weeks = 4): Promise<RotWeeklyHistoryResponse> {
+  return request<RotWeeklyHistoryResponse>(`/rot-weekly-history?weeks=${weeks}`);
 }
