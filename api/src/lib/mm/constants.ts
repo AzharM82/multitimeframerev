@@ -153,9 +153,13 @@ export const FINVIZ_EXPORT_URLS: Record<string, string> = {
  * `ind_RUS2000`, `ind_$1B+`. There is no `ind_SPY500` entry here — the map has
  * `ind_RSP` for the S&P universe instead. In the original Python this means the
  * SPY500 column gets no indicator rows and only its URL-scraped counts are
- * populated. That behaviour is preserved here rather than silently "fixed"; add
- * an `ind_SPY500` alias at integration time if the corrected behaviour is
- * wanted.
+ * populated — measured as 8 of 19 rows filled versus 18 for every other group.
+ *
+ * FIXED at integration: `ind_SPY500` is aliased to the same `ind_sp500` export
+ * the unused `ind_RSP` key points at. The original almost certainly intended
+ * this — RSP is the equal-weight S&P ETF, not the index group name — and the
+ * mismatch simply meant the lookup never hit. `ind_RSP` is left in place so the
+ * map still mirrors the source.
  */
 export const GROUP_INDICATOR_URL_KEYS: Record<string, string[]> = {
   "ind_$1B+": ["ind_1b_km"],
@@ -165,6 +169,7 @@ export const GROUP_INDICATOR_URL_KEYS: Record<string, string[]> = {
   ind_USA: ["ind_usa"],
   ind_NQ100: ["ind_ndx"],
   ind_RSP: ["ind_sp500"],
+  ind_SPY500: ["ind_sp500"],
   ind_DJIA: ["ind_dji"],
   ind_RUS2000: ["ind_rut"],
 };
