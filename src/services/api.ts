@@ -1,6 +1,4 @@
 import type {
-  AvwapResultsResponse,
-  BullListResponse,
   AtrScanResponse,
   AtrLookupResponse,
   AtrIntradayResponse,
@@ -23,25 +21,6 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
-}
-
-// ─── Section 1: AVWAP ───────────────────────────────────────────────────────
-
-export function getAvwapResults(date?: string): Promise<AvwapResultsResponse> {
-  return request<AvwapResultsResponse>(`/avwap-results${date ? `?date=${date}` : ""}`);
-}
-
-// ─── Section 2: Bull List ──────────────────────────────────────────────────
-
-export function getBullList(status: "pending" | "open" | "closed" = "open"): Promise<BullListResponse> {
-  return request<BullListResponse>(`/bull-list?status=${status}`);
-}
-
-export function deleteBullEntry(partition: string, rowKey: string): Promise<{ status: string }> {
-  return request<{ status: string }>(
-    `/bull-list?partition=${partition}&rowKey=${encodeURIComponent(rowKey)}`,
-    { method: "DELETE" },
-  );
 }
 
 // ─── ATR Matrix ─────────────────────────────────────────────────────────────

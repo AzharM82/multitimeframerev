@@ -36,25 +36,7 @@ async function fire(route, ctx) {
   }
 }
 
-// AVWAP EOD scan — weekdays at 4:15 PM ET (after market close)
-app.timer("avwapEodCron", {
-  schedule: "0 15 16 * * 1-5",
-  handler: async (_t, ctx) => fire("avwap-eod-timer", ctx),
-});
-
-// Bull list email poll — every hour, 24/7
-app.timer("bullEmailCron", {
-  schedule: "0 0 * * * *",
-  handler: async (_t, ctx) => fire("bull-email-timer", ctx),
-});
-
-// Bull list monitor — every 30 min, 9:00 AM to 4:30 PM ET, weekdays
-app.timer("bullMonitorCron", {
-  schedule: "0 0,30 9-16 * * 1-5",
-  handler: async (_t, ctx) => fire("bull-monitor-timer", ctx),
-});
-
-// ATR Matrix EOD swing scan — weekdays at 4:30 PM ET (after AVWAP, daily bar settled)
+// ATR Matrix EOD swing scan — weekdays at 4:30 PM ET (daily bar settled)
 app.timer("atrScanCron", {
   schedule: "0 30 16 * * 1-5",
   handler: async (_t, ctx) => fire("atr-eod-timer", ctx),

@@ -2,53 +2,54 @@
   "$schema": "https://json.schemastore.org/staticwebapp.config.json",
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/api/*", "/assets/*"]
+    "exclude": [
+      "/api/*",
+      "/assets/*"
+    ]
   },
   "routes": [
     {
       "route": "/api/get-roles",
-      "allowedRoles": ["anonymous"]
-    },
-
-    {
-      "route": "/api/avwap-eod-timer",
-      "allowedRoles": ["anonymous"]
-    },
-    {
-      "route": "/api/bull-email-timer",
-      "allowedRoles": ["anonymous"]
-    },
-    {
-      "route": "/api/bull-monitor-timer",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
     {
       "route": "/api/atr-eod-timer",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
     {
       "route": "/api/cve-timer",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
-
     {
       "route": "/api/scanner-alert",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
     {
       "route": "/api/bigdog-alert",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
-
     {
       "route": "/api/breadth",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
     {
       "route": "/api/health",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
-
     {
       "route": "/.auth/login/github",
       "statusCode": 404
@@ -59,9 +60,10 @@
     },
     {
       "route": "/.auth/*",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
-
     {
       "route": "/login",
       "rewrite": "/.auth/login/google?post_login_redirect_uri=/"
@@ -72,16 +74,21 @@
     },
     {
       "route": "/login-required.html",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
-
     {
       "route": "/api/*",
-      "allowedRoles": ["portal"]
+      "allowedRoles": [
+        "portal"
+      ]
     },
     {
       "route": "/*",
-      "allowedRoles": ["portal"]
+      "allowedRoles": [
+        "portal"
+      ]
     }
   ],
   "responseOverrides": {

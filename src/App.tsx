@@ -1,32 +1,26 @@
 import { useEffect, useState } from "react";
 import { useMarketHours } from "./hooks/useMarketHours.js";
 import { useAuth } from "./hooks/useAuth.js";
-import { AvwapPage } from "./views/AvwapPage.js";
-import { BullListPage } from "./views/BullListPage.js";
 import { AtrMatrixPage } from "./views/AtrMatrixPage.js";
 import { CveEvalPage } from "./views/CveEvalPage.js";
 import { BigdIntradayPage } from "./views/BigdIntradayPage.js";
 import { UnusualOptionsPage } from "./views/UnusualOptionsPage.js";
-import { ToolsPage } from "./views/ToolsPage.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "avwap" | "bull" | "atr" | "uoa" | "cve" | "bigd" | "tools" | "about";
+type Page = "atr" | "uoa" | "cve" | "bigd" | "about";
 
 const TABS: { key: Page; label: string }[] = [
-  { key: "avwap", label: "AVWAP" },
-  { key: "bull", label: "Swing List" },
   { key: "atr", label: "ATR Matrix" },
   { key: "uoa", label: "Unusual Options" },
   { key: "cve", label: "Catalyst Value Eval" },
   { key: "bigd", label: "BIGD-Intraday" },
-  { key: "tools", label: "Tools" },
   { key: "about", label: "About" },
 ];
 
 const PAGE_KEYS = TABS.map((t) => t.key);
 function initialPage(): Page {
   const h = window.location.hash.replace("#", "") as Page;
-  return PAGE_KEYS.includes(h) ? h : "avwap";
+  return PAGE_KEYS.includes(h) ? h : "atr";
 }
 
 function App() {
@@ -106,13 +100,10 @@ function App() {
 
       {/* Main content — full width */}
       <main className="px-3 py-4">
-        {page === "avwap" && <AvwapPage />}
-        {page === "bull" && <BullListPage />}
         {page === "atr" && <AtrMatrixPage />}
         {page === "uoa" && <UnusualOptionsPage />}
         {page === "cve" && <CveEvalPage />}
         {page === "bigd" && <BigdIntradayPage />}
-        {page === "tools" && <ToolsPage />}
         {page === "about" && <AboutPage />}
       </main>
 

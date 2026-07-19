@@ -12,18 +12,11 @@ import "./functions/weeklyCapitulationScan.js";
 import "./functions/weeklyCapitulationTimer.js";
 import "./functions/screenerScan.js";
 
-// v2 — revamp (5 sections)
-import "./functions/avwapEodTimer.js";
-import "./functions/avwapResults.js";
-import "./functions/bullEmailTimer.js";
-import "./functions/bullList.js";
-import "./functions/bullMonitorTimer.js";
 // Day Trades website section retired 2026-06-16 (superseded by DTSWAI, real
 // Alpaca paper). The day-trade read/perf/timer functions are removed; we KEEP
 // scannerAlert so the local Finviz scanner's POST still 200s and its WhatsApp
 // alerts (enqueued locally, independent of this POST) keep flowing.
 import "./functions/scannerAlert.js";
-import "./functions/paperTrades.js";
 
 // BigDog Trades — intraday OCR alert ingestion (POST) + read (GET) for the tab
 import "./functions/bigdogAlert.js";

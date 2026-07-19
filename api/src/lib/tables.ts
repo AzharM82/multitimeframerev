@@ -103,9 +103,6 @@ export async function remove(
 }
 
 export const TABLES = {
-  AVWAP_RESULTS: "AvwapResults",
-  BULL_LIST: "BullList",
-  PAPER_TRADES: "PaperTrades",
   ALERT_LOG: "AlertLog",
   ATR_MATRIX: "AtrMatrix",
   CVE_EVAL: "CveEval",
