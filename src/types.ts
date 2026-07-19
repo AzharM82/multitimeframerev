@@ -484,3 +484,52 @@ export interface RotWeeklyHistoryResponse {
   timestamp: string;
   cached: boolean;
 }
+
+// ─── Gate (should-I-be-trading — ported from ShouldIBeTrading) ──────────────
+
+export type GateDecision = "YES" | "CAUTION" | "NO";
+export type GateMode = "day" | "swing";
+
+export interface GateCategory {
+  score: number;
+  weight: number;
+  details: string;
+}
+
+export interface GatePosture {
+  size: string;
+  sizePct: number;
+  instrument: string;
+  direction: string;
+  bias: string;
+  confidence: string;
+  headline: string;
+  rationale?: string;
+}
+
+export interface GateTickerPrice {
+  ticker: string;
+  price: number;
+  change: number;
+  changePercent: number;
+}
+
+export interface GateScoreResponse {
+  decision: GateDecision;
+  qualityScore: number;
+  executionScore: number;
+  mode: GateMode;
+  summary: string;
+  lastUpdated: string;
+  marketOpen: boolean;
+  volatility: GateCategory & { vix: { level: number; change: number; trend: string; percentile: number; change5d: number } };
+  momentum: GateCategory & { pctPositive: number; topBottomSpread: number };
+  trend: GateCategory & { spy: { price: number; ma20: number; ma50: number; ma200: number; rsi14: number; regime: string } };
+  breadth: GateCategory & { above20d: number; above50d: number; above200d: number; advDeclineRatio: number };
+  macro: GateCategory;
+  execution: GateCategory;
+  posture: GatePosture;
+  tickerPrices: GateTickerPrice[];
+  /** Present when a macro feed fell back or failed its sanity guard. */
+  dataQuality?: { degraded: boolean; warnings: string[] };
+}

@@ -38,6 +38,9 @@ import "./functions/cveTimer.js";
 // Unusual Options Activity (read proxy for the UnusualOptions scanner's blob output)
 import "./functions/uoaSignals.js";
 
+// Gate — "should I be trading today?" (ported from ShouldIBeTrading)
+import "./functions/gateScore.js";
+
 // Rotation — sector/industry rotation (ported from the sector-rotation app)
 import "./functions/rotQuotes.js";
 import "./functions/rotPerformance.js";

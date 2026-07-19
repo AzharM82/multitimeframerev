@@ -1,4 +1,5 @@
 import type {
+  GateScoreResponse,
   RotQuotesResponse,
   RotPerformanceResponse,
   RotWeeklyHistoryResponse,
@@ -82,4 +83,10 @@ export function getRotPerformance(period: "weekly" | "monthly" = "weekly"): Prom
 
 export function getRotWeeklyHistory(weeks = 4): Promise<RotWeeklyHistoryResponse> {
   return request<RotWeeklyHistoryResponse>(`/rot-weekly-history?weeks=${weeks}`);
+}
+
+// ─── Gate ───────────────────────────────────────────────────────────────────
+
+export function getGateScore(mode: "day" | "swing" = "day"): Promise<GateScoreResponse> {
+  return request<GateScoreResponse>(`/gate-score?mode=${mode}`);
 }

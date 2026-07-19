@@ -6,11 +6,13 @@ import { CveEvalPage } from "./views/CveEvalPage.js";
 import { BigdIntradayPage } from "./views/BigdIntradayPage.js";
 import { UnusualOptionsPage } from "./views/UnusualOptionsPage.js";
 import { RotationPage } from "./views/RotationPage.js";
+import { GatePage } from "./views/GatePage.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "atr" | "uoa" | "cve" | "bigd" | "rotation" | "about";
+type Page = "gate" | "atr" | "uoa" | "cve" | "bigd" | "rotation" | "about";
 
 const TABS: { key: Page; label: string }[] = [
+  { key: "gate", label: "Gate" },
   { key: "atr", label: "ATR Matrix" },
   { key: "uoa", label: "Unusual Options" },
   { key: "cve", label: "Catalyst Value Eval" },
@@ -102,6 +104,7 @@ function App() {
 
       {/* Main content — full width */}
       <main className="px-3 py-4">
+        {page === "gate" && <GatePage />}
         {page === "atr" && <AtrMatrixPage />}
         {page === "uoa" && <UnusualOptionsPage />}
         {page === "cve" && <CveEvalPage />}
