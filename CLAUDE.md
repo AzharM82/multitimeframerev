@@ -28,23 +28,28 @@ Never report "done" before completing every step below and producing the evidenc
 
 - PR target: `main`
 - Branch naming: `feat/<slug>`, `fix/<slug>`
-- Ship through the validation gate: `git push shipit <branch>` (never push straight to `main`)
+- Push the branch to `origin` and open a PR (never push straight to `main`). The no-mistakes/shipit gate was retired 2026-07-08.
 
-## Deploy (MANUAL — agents never deploy)
+## Deploy (agents deploy — changed 2026-07-18)
 
 ```
 npm run build && cd api && npm run build && cd .. && swa deploy ./dist --api-location api --deployment-token TOKEN --env production --api-language node --api-version 20
 # token: az staticwebapp secrets list --name mtfrev-app --resource-group rg-mtfrev --query "properties.apiKey" -o tsv
 ```
 
-Merging a PR does NOT deploy — deploys are always human-initiated. Cron timers live in a separate
-Function App `mtfrev-cron` (deploy: `cd tools/cron-functions && func azure functionapp publish mtfrev-cron --javascript`) — also manual only.
+Merging a PR does NOT deploy — deploying is a separate, explicit step. Cron timers live in a separate
+Function App `mtfrev-cron` (deploy: `cd tools/cron-functions && func azure functionapp publish mtfrev-cron --javascript`).
+
+After every deploy, verify the LIVE site — a clean `swa deploy` exit says nothing about whether the
+app works. Minimum: load the affected tab, and curl the machine-caller endpoints that must stay
+anonymous (`/api/breadth`, `/api/health`) to confirm they return 200 and not a 302 to the login page.
 
 ## Gotchas
 
 - API uses `module: Node16` → use `.js` extensions in imports and `__dirname`, not `import.meta.url`
 - Frontend uses `verbatimModuleSyntax` conventions → `import type` for type-only imports
-- `staticwebapp.config.json` must end up in `dist/` (the build script copies it — don't bypass `npm run build`)
+- `staticwebapp.config.json` must end up in `dist/` (the build script copies it — don't bypass `npm run build`). The copy uses `node -e ... copyFileSync`, **not** `cp`: npm runs scripts via cmd.exe on Windows, where `cp` does not exist, so the old `cp` form silently produced a `dist/` with no config — i.e. a deploy with no auth rules. Keep it cross-platform.
+- `az` on Windows is a `.cmd` wrapper, so cmd re-parses arguments: JMESPath **functions** in `--query` (`keys(...)`, `length(...)`) fail with `-o was unexpected at this time`. Plain paths (`--query properties.FOO`) are fine; otherwise filter in PowerShell.
 - Legacy v1 functions (scan, phaseScan, capitulation*, screener*) are still in the repo — dormant, don't wire new work into them
 - Local scanners (`screening-machine/`, `tools/bigdog-scanner/`, `tools/whatsapp-sidecar/`) run on desktops via Task Scheduler, not in Azure — changes there are validated on the desktop, not via swa start
 - The Unusual Options tab's scanner lives in a separate repo (github.com/AzharM82/UnusualOptions, a GitHub Actions cron writing JSON to the `uoa-signals` blob container) — this repo only holds the read proxy `GET /api/uoa-signals`; OI-dependent UI shows `n/a` when a scan payload has `oi_available=false` (Polygon plan without the options snapshot)
