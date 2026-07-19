@@ -6,6 +6,7 @@ import type {
 } from "../types.js";
 import { getRotQuotes, getRotPerformance, getRotWeeklyHistory } from "../services/api.js";
 import { buildTree, buildIndustryTrends, type Metric } from "./rotation/rotationData.js";
+import { useMarketHours } from "../hooks/useMarketHours.js";
 
 /**
  * Rotation — sector / industry rotation across the 878-symbol universe.
@@ -57,24 +58,54 @@ export function RotationPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [tick, setTick] = useState(0);
+  const marketOpen = useMarketHours();
+
   const [metric, setMetric] = useState<Metric>("day");
   const [period, setPeriod] = useState<"weekly" | "monthly">("weekly");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showTrends, setShowTrends] = useState(false);
 
   // Quotes drive the tree; load them first and render as soon as they land.
+  // Re-runs whenever `tick` advances (auto-refresh or manual).
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (tick === 0) setLoading(true);
+    else setRefreshing(true);
     setError(null);
     getRotQuotes(true)
-      .then((d) => !cancelled && setQuotes(d))
+      .then((d) => {
+        if (cancelled) return;
+        setQuotes(d);
+        setFetchedAt(new Date());
+      })
       .catch((e: Error) => !cancelled && setError(e.message))
-      .finally(() => !cancelled && setLoading(false));
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+        setRefreshing(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tick]);
+
+  /**
+   * Auto-refresh while the market is open.
+   *
+   * 60s is deliberate, not conservative: the Polygon plan in use has no
+   * real-time entitlement (the snapshot omits lastTrade/lastQuote), so the
+   * underlying data is ~15 minutes delayed. Polling faster would re-fetch
+   * identical numbers and burn rate limit for nothing. The server cache
+   * (30s for quotes) absorbs any overlap.
+   */
+  useEffect(() => {
+    if (!marketOpen) return;
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, [marketOpen]);
 
   // Period performance is slower; fetch separately so it never blocks the tree.
   useEffect(() => {
@@ -85,7 +116,7 @@ export function RotationPage() {
     return () => {
       cancelled = true;
     };
-  }, [period]);
+  }, [period, tick]);
 
   // Weekly history is the heaviest call — only fetch it when actually shown.
   useEffect(() => {
@@ -186,6 +217,13 @@ export function RotationPage() {
         )}
         <span className="flex-1" />
         <button
+          onClick={() => setTick((t) => t + 1)}
+          disabled={refreshing}
+          className="px-2.5 py-1 rounded-full text-[10px] font-semibold border border-border text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+        <button
           onClick={() => setShowTrends((v) => !v)}
           className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
             showTrends
@@ -195,6 +233,35 @@ export function RotationPage() {
         >
           4-Week Trend
         </button>
+      </div>
+
+      {/* Data freshness — the delay is stated explicitly rather than implied.
+          The Polygon plan has no real-time entitlement, so quotes are ~15 min
+          behind regardless of how often we poll. */}
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-text-secondary">
+        <span className={`w-1.5 h-1.5 rounded-full ${marketOpen ? "bg-signal-bull animate-pulse" : "bg-dim"}`} />
+        <span>
+          {marketOpen ? "Auto-refreshing every 60s" : "Market closed — last session"}
+        </span>
+        {fetchedAt && (
+          <>
+            <span className="text-dim">·</span>
+            <span>
+              Fetched{" "}
+              {fetchedAt.toLocaleTimeString("en-US", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                timeZone: "America/New_York",
+              })}{" "}
+              ET
+            </span>
+          </>
+        )}
+        <span className="text-dim">·</span>
+        <span title="Polygon plan has no real-time entitlement; snapshot omits lastTrade/lastQuote">
+          Source ~15 min delayed
+        </span>
       </div>
 
       {periodWaiting && (
