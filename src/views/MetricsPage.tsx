@@ -263,7 +263,21 @@ export function MetricsPage() {
     }
 
     if (panel === "industries") {
-      const list = data as MmIndustry[];
+      // Defensive: the cached payload is produced by a separate timer, so a
+      // shape change there must degrade to a readable message rather than
+      // throwing mid-render (which blanks the tab).
+      const list = Array.isArray(data) ? (data as MmIndustry[]) : [];
+      if (list.length === 0) {
+        return (
+          <div className="max-w-lg mx-auto text-center py-16">
+            <div className="font-[var(--font-playfair)] text-lg font-bold mb-2">No industries</div>
+            <p className="text-sm text-text-secondary">
+              The panel returned {Array.isArray(data) ? "an empty list" : `a ${typeof data}, not a list`}.
+              It refreshes on the 17:30 ET timer.
+            </p>
+          </div>
+        );
+      }
       return (
         <Card title="Leading Industries" sub={`top ${list.length} by combined week + month RS`}>
           <table className="w-full text-xs">
@@ -275,15 +289,15 @@ export function MetricsPage() {
               </tr>
             </thead>
             <tbody>
-              {list.map((r) => (
-                <tr key={r.industry} className="border-b border-border last:border-b-0 hover:bg-bg-secondary">
+              {list.map((r, ri) => (
+                <tr key={`${r.industry}-${ri}`} className="border-b border-border last:border-b-0 hover:bg-bg-secondary">
                   <td className="px-3 py-1.5 font-semibold">{r.industry}</td>
-                  <td className="text-right px-2 py-1.5 tabular-nums">{r.avg_rs?.toFixed(1)}</td>
+                  <td className="text-right px-2 py-1.5 tabular-nums">{typeof r.avg_rs === "number" ? r.avg_rs.toFixed(1) : "—"}</td>
                   <td className="px-3 py-1.5">
                     <span className="flex flex-wrap gap-1.5">
-                      {r.tickers?.map((t) => (
+                      {(Array.isArray(r.tickers) ? r.tickers : []).filter((t) => t && t.ticker).map((t, ti) => (
                         <a
-                          key={t.ticker}
+                          key={`${t.ticker}-${ti}`}
                           href={TV(t.ticker)}
                           target="_blank"
                           rel="noreferrer"

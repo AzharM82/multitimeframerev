@@ -8,6 +8,7 @@ import { UnusualOptionsPage } from "./views/UnusualOptionsPage.js";
 import { RotationPage } from "./views/RotationPage.js";
 import { GatePage } from "./views/GatePage.js";
 import { MetricsPage } from "./views/MetricsPage.js";
+import { ErrorBoundary } from "./views/ErrorBoundary.js";
 import { AboutPage } from "./views/AboutPage.js";
 
 type Page = "gate" | "metrics" | "atr" | "uoa" | "cve" | "bigd" | "rotation" | "about";
@@ -106,14 +107,16 @@ function App() {
 
       {/* Main content — full width */}
       <main className="px-3 py-4">
-        {page === "gate" && <GatePage />}
-        {page === "metrics" && <MetricsPage />}
-        {page === "atr" && <AtrMatrixPage />}
-        {page === "uoa" && <UnusualOptionsPage />}
-        {page === "cve" && <CveEvalPage />}
-        {page === "bigd" && <BigdIntradayPage />}
-        {page === "rotation" && <RotationPage />}
-        {page === "about" && <AboutPage />}
+        <ErrorBoundary resetKey={page}>
+          {page === "gate" && <GatePage />}
+          {page === "metrics" && <MetricsPage />}
+          {page === "atr" && <AtrMatrixPage />}
+          {page === "uoa" && <UnusualOptionsPage />}
+          {page === "cve" && <CveEvalPage />}
+          {page === "bigd" && <BigdIntradayPage />}
+          {page === "rotation" && <RotationPage />}
+          {page === "about" && <AboutPage />}
+        </ErrorBoundary>
       </main>
 
       {/* Footer */}
