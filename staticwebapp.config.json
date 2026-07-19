@@ -79,6 +79,12 @@
       ]
     },
     {
+      "route": "/api/mm-timer",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/*",
       "allowedRoles": [
         "portal"

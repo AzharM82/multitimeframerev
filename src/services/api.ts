@@ -1,4 +1,6 @@
 import type {
+  MmPanelName,
+  MmPanelResponse,
   GateScoreResponse,
   RotQuotesResponse,
   RotPerformanceResponse,
@@ -89,4 +91,10 @@ export function getRotWeeklyHistory(weeks = 4): Promise<RotWeeklyHistoryResponse
 
 export function getGateScore(mode: "day" | "swing" = "day"): Promise<GateScoreResponse> {
   return request<GateScoreResponse>(`/gate-score?mode=${mode}`);
+}
+
+// ─── Metrics ────────────────────────────────────────────────────────────────
+
+export function getMmPanel<T>(panel: MmPanelName): Promise<MmPanelResponse<T>> {
+  return request<MmPanelResponse<T>>(`/mm-panel?panel=${panel}`);
 }

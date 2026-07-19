@@ -54,6 +54,40 @@ app.timer("cveCloseCron", {
   handler: async (_t, ctx) => fire("cve-timer?phase=close", ctx),
 });
 
+// ── Metrics panels (MarketMetrics port) ────────────────────────────────────
+// One panel per timer, staggered. The panels pace their own FinViz calls with
+// deliberate gaps to avoid 429s, so Key Metrics alone can run for minutes —
+// firing them together would blow the 5-minute Consumption timeout. Reads never
+// compute on demand, so if these stop firing the tab silently goes stale.
+
+// Screeners + movers change intraday; refresh mid-session and after the close.
+app.timer("mmScreenersCron", {
+  schedule: "0 5 12,16 * * 1-5",
+  handler: async (_t, ctx) => fire("mm-timer?panel=screeners", ctx),
+});
+
+app.timer("mmMoversCron", {
+  schedule: "0 10 12,16 * * 1-5",
+  handler: async (_t, ctx) => fire("mm-timer?panel=movers", ctx),
+});
+
+// Breadth comes from a Google Sheet updated after the close.
+app.timer("mmBreadthCron", {
+  schedule: "0 20 17 * * 1-5",
+  handler: async (_t, ctx) => fire("mm-timer?panel=breadth", ctx),
+});
+
+// The two heavy FinViz panels — spaced well apart, after the close only.
+app.timer("mmIndustriesCron", {
+  schedule: "0 30 17 * * 1-5",
+  handler: async (_t, ctx) => fire("mm-timer?panel=industries", ctx),
+});
+
+app.timer("mmKeyMetricsCron", {
+  schedule: "0 45 17 * * 1-5",
+  handler: async (_t, ctx) => fire("mm-timer?panel=key-metrics", ctx),
+});
+
 // Day-trade reversal scanning is no longer in this Function App. It moved
 // to a local Python scanner (tools/chart-ocr/finviz_scanner.py) so reversal
 // detection comes off the actual TOS chart instead of a server-side ZigZag.

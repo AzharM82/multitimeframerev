@@ -103,6 +103,7 @@ export async function remove(
 }
 
 export const TABLES = {
+  MM_PANELS: "MmPanels",
   ALERT_LOG: "AlertLog",
   ATR_MATRIX: "AtrMatrix",
   CVE_EVAL: "CveEval",

@@ -7,12 +7,14 @@ import { BigdIntradayPage } from "./views/BigdIntradayPage.js";
 import { UnusualOptionsPage } from "./views/UnusualOptionsPage.js";
 import { RotationPage } from "./views/RotationPage.js";
 import { GatePage } from "./views/GatePage.js";
+import { MetricsPage } from "./views/MetricsPage.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "gate" | "atr" | "uoa" | "cve" | "bigd" | "rotation" | "about";
+type Page = "gate" | "metrics" | "atr" | "uoa" | "cve" | "bigd" | "rotation" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "gate", label: "Gate" },
+  { key: "metrics", label: "Metrics" },
   { key: "atr", label: "ATR Matrix" },
   { key: "uoa", label: "Unusual Options" },
   { key: "cve", label: "Catalyst Value Eval" },
@@ -105,6 +107,7 @@ function App() {
       {/* Main content — full width */}
       <main className="px-3 py-4">
         {page === "gate" && <GatePage />}
+        {page === "metrics" && <MetricsPage />}
         {page === "atr" && <AtrMatrixPage />}
         {page === "uoa" && <UnusualOptionsPage />}
         {page === "cve" && <CveEvalPage />}

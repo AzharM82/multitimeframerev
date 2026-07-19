@@ -38,6 +38,10 @@ import "./functions/cveTimer.js";
 // Unusual Options Activity (read proxy for the UnusualOptions scanner's blob output)
 import "./functions/uoaSignals.js";
 
+// Metrics — MarketMetrics core panels (cron-warmed cache + read proxy)
+import "./functions/mmPanel.js";
+import "./functions/mmTimer.js";
+
 // Gate — "should I be trading today?" (ported from ShouldIBeTrading)
 import "./functions/gateScore.js";
 

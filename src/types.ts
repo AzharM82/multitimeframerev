@@ -533,3 +533,70 @@ export interface GateScoreResponse {
   /** Present when a macro feed fell back or failed its sanity guard. */
   dataQuality?: { degraded: boolean; warnings: string[] };
 }
+
+// ─── Metrics (MarketMetrics core panels) ────────────────────────────────────
+
+export type MmPanelName = "key-metrics" | "breadth" | "industries" | "screeners" | "movers";
+
+export interface MmPanelResponse<T = unknown> {
+  panel: MmPanelName;
+  generated: string;  // ISO
+  data: T;
+}
+
+export interface MmKeyMetricRow {
+  label: string;
+  above: number;
+  below: number;
+  pct: number;
+}
+
+export interface MmKeyMetricsData {
+  groups: Record<string, { group: string; rows: MmKeyMetricRow[] }>;
+  labels: string[];
+}
+
+export interface MmBreadthRow {
+  date: string;
+  up4: number;
+  down4: number;
+  ratio5: number;
+  ratio10: number;
+  t2108: number;
+  sp500: number;
+}
+
+export interface MmBreadthData {
+  latest: MmBreadthRow | null;
+  history: MmBreadthRow[];
+}
+
+export interface MmScreenerRow {
+  ticker: string;
+  price?: string | number;
+  change?: string;
+  volume?: string | number;
+  rel_vol?: string | number;
+  atr_pct?: number | null;
+  tag?: string;
+  [k: string]: unknown;
+}
+
+export interface MmScreenersData {
+  qullamaggie: MmScreenerRow[];
+  minervini: MmScreenerRow[];
+  oneil: MmScreenerRow[];
+}
+
+export interface MmIndustry {
+  industry: string;
+  avg_rs: number;
+  tickers: Array<{ ticker: string; change: string; week: number; month: number; atr_pct?: number | null }>;
+}
+
+export interface MmMoversData {
+  club97: MmScreenerRow[];
+  m9m: MmScreenerRow[];
+  w20pct: MmScreenerRow[];
+  d4pct: MmScreenerRow[];
+}
