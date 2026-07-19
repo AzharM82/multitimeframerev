@@ -7,6 +7,8 @@ import type {
   BreadthResponse,
   CveScanResponse,
   BigdogAlertsResponse,
+  UoaScanResponse,
+  UoaDatesResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -75,3 +77,13 @@ export function getBigdogAlerts(date?: string): Promise<BigdogAlertsResponse> {
 // Day Trades section removed (2026-06-16) — superseded by DTSWAI (real Alpaca
 // paper). The local scanner still posts to /api/scanner-alert + sends WhatsApp;
 // only the website surface was retired.
+
+// ─── Unusual Options Activity ───────────────────────────────────────────────
+
+export function getUoaSignals(date?: string): Promise<UoaScanResponse> {
+  return request<UoaScanResponse>(`/uoa-signals${date ? `?date=${date}` : ""}`);
+}
+
+export function getUoaDates(): Promise<UoaDatesResponse> {
+  return request<UoaDatesResponse>(`/uoa-signals?list=1`);
+}

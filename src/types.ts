@@ -443,3 +443,58 @@ export interface BigdogAlertsResponse {
   hits: BigdogAlertHit[];
   available?: { date: string; totalHits: number }[];
 }
+
+// ─── Unusual Options Activity (UOA scanner → uoa-signals blobs) ─────────────
+
+export interface UoaOiConfirmation {
+  tag: "CONFIRMED" | "FADED" | "PARTIAL";
+  oi_change: number;
+  new_oi: number;
+  prior_oi: number;
+}
+
+export interface UoaSignal {
+  occ_symbol: string;
+  underlying: string;
+  type: "C" | "P";
+  strike: number;
+  expiry: string; // ISO date
+  dte: number;
+  today_volume: number;
+  avg_volume_20d: number;
+  avg_volume_20d_raw: number;
+  vol_ratio: number;
+  prior_oi: number | null;      // null in aggs data mode (no OI on plan)
+  vol_oi_ratio: number | null;
+  last_price: number;
+  notional_premium: number;
+  anomaly_score: number;
+  volume_history: number[];
+  oi_confirmation: UoaOiConfirmation | null;
+}
+
+export interface UoaAggregate {
+  underlying: string;
+  side: "C" | "P";
+  agg_volume: number;
+  agg_avg_20d: number;
+  agg_vol_ratio: number;
+  put_call_skew: number | null;
+}
+
+export interface UoaScanResponse {
+  scan_date: string;
+  generated_at: string;
+  data_delay_note: string;
+  data_mode?: "aggs" | "snapshot";
+  oi_available?: boolean;
+  universe_size: number;
+  contracts_scanned: number;
+  contracts_fired: number;
+  signals: UoaSignal[];
+  aggregates: UoaAggregate[];
+}
+
+export interface UoaDatesResponse {
+  dates: string[];
+}

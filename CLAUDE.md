@@ -1,6 +1,6 @@
 # MultiTimeframeReversal (MTF portal)
 
-Swing/day-trading scanner portal: AVWAP / Swing List / ATR Matrix / BIGD-Intraday / CVE / About tabs.
+Swing/day-trading scanner portal: AVWAP / Swing List / ATR Matrix / Unusual Options / CVE / BIGD-Intraday / About tabs.
 React 19 + Vite 6 + Tailwind 4 frontend; Azure Functions v4 API (Node 20, CommonJS); Polygon.io data.
 Live: https://salmon-river-0a7a0c30f.1.azurestaticapps.net (Azure SWA `mtfrev-app`, RG `rg-mtfrev`).
 
@@ -21,7 +21,7 @@ Never report "done" before completing every step below and producing the evidenc
 1. Build both: `npm run build` and `cd api && npm run build`
 2. Run locally: `npx swa start dist --api-location api` → http://localhost:4280
    (API needs `api/local.settings.json` with POLYGON_API_KEY, AZURE_STORAGE_CONNECTION_STRING, REDIS_CONNECTION_STRING etc. — never commit it)
-3. Exercise the real feature: open the affected tab in the browser and drive the changed behavior; for API changes also curl the endpoint (e.g. `curl http://localhost:4280/api/paper-trades`)
+3. Exercise the real feature: open the affected tab in the browser and drive the changed behavior — tabs are hash deep-linkable (e.g. http://localhost:4280/#uoa), handy for headless screenshots; for API changes also curl the endpoint (e.g. `curl http://localhost:4280/api/paper-trades`)
 4. Evidence: screenshot of the tab + curl/log output proving the change works
 
 ## Branch & PR conventions
@@ -47,3 +47,4 @@ Function App `mtfrev-cron` (deploy: `cd tools/cron-functions && func azure funct
 - `staticwebapp.config.json` must end up in `dist/` (the build script copies it — don't bypass `npm run build`)
 - Legacy v1 functions (scan, phaseScan, capitulation*, screener*) are still in the repo — dormant, don't wire new work into them
 - Local scanners (`screening-machine/`, `tools/bigdog-scanner/`, `tools/whatsapp-sidecar/`) run on desktops via Task Scheduler, not in Azure — changes there are validated on the desktop, not via swa start
+- The Unusual Options tab's scanner lives in a separate repo (github.com/AzharM82/UnusualOptions, a GitHub Actions cron writing JSON to the `uoa-signals` blob container) — this repo only holds the read proxy `GET /api/uoa-signals`; OI-dependent UI shows `n/a` when a scan payload has `oi_available=false` (Polygon plan without the options snapshot)
