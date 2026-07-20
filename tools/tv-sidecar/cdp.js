@@ -14,7 +14,7 @@
  */
 
 const http = require('http');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 9222;
@@ -93,7 +93,19 @@ function killAll() {
  */
 async function launch(port = DEFAULT_PORT) {
   const exe = await resolveExe();
-  execFile(exe, [`--remote-debugging-port=${port}`], () => {});
+
+  // MUST be detached with stdio ignored. Launching via execFile attaches
+  // TradingView's stdout/stderr to this Node process; when the sidecar exits,
+  // those pipes close and TradingView dies with
+  //   "App has crashed due to unexpected error" / EPIPE: broken pipe, write
+  // on its next console.debug. Observed for real - it killed a live session.
+  const child = spawn(exe, [`--remote-debugging-port=${port}`], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: false
+  });
+  child.unref();
+
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2000));
@@ -102,9 +114,15 @@ async function launch(port = DEFAULT_PORT) {
   throw new Error('TradingView launched but CDP never came up within 90s');
 }
 
-/** All TradingView chart page targets, in tab order. */
-async function listChartTargets(port = DEFAULT_PORT) {
-  const targets = await getJSON('/json/list', port);
+/**
+ * All TradingView chart page targets, in tab order.
+ *
+ * Generous timeout: during a cold start the CDP port answers /json/version
+ * almost immediately while /json/list still blocks for many seconds, because
+ * the app is busy restoring saved tabs.
+ */
+async function listChartTargets(port = DEFAULT_PORT, timeoutMs = 15000) {
+  const targets = await getJSON('/json/list', port, timeoutMs);
   return targets.filter(
     (t) => t.type === 'page' && /tradingview\.com\/chart\//.test(t.url || '')
   );

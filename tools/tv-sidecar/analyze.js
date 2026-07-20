@@ -116,37 +116,54 @@ async function targetHasTemplate(target) {
  * actively trading, so candidates are probed for the indicator template and
  * anything ambiguous is a hard error rather than a guess.
  */
-async function bindTab(cfg) {
-  const targets = await cdp.listChartTargets(cfg.port);
-  if (!targets.length) throw new Error('No TradingView chart tabs found');
+async function bindTab(cfg, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = new Error('No TradingView chart tabs found');
 
-  let candidates = targets;
-  if (cfg.chartId) {
-    candidates = targets.filter((t) => cdp.chartIdOf(t) === cfg.chartId);
-    if (!candidates.length) {
-      const ids = [...new Set(targets.map((t) => cdp.chartIdOf(t)))].join(', ');
-      throw new Error(`Bound chart "${cfg.chartId}" is not open. Available: ${ids}`);
+  for (;;) {
+    try {
+      const targets = await cdp.listChartTargets(cfg.port);
+
+      let candidates = targets;
+      if (cfg.chartId && targets.length) {
+        candidates = targets.filter((t) => cdp.chartIdOf(t) === cfg.chartId);
+        if (!candidates.length) {
+          const ids = [...new Set(targets.map((t) => cdp.chartIdOf(t)))].join(', ');
+          lastError = new Error(`Bound chart "${cfg.chartId}" is not open. Available: ${ids}`);
+        }
+      }
+
+      if (candidates.length) {
+        const matches = [];
+        for (const t of candidates) {
+          if (await targetHasTemplate(t)) matches.push(t);
+        }
+        if (matches.length === 1) return matches[0];
+
+        // More than one is a configuration problem, not a timing one - waiting
+        // will never resolve it, so fail immediately rather than burning the
+        // whole timeout.
+        if (matches.length > 1) {
+          throw new Error(
+            `${matches.length} tabs carry the indicator template ` +
+            `(${matches.map((t) => cdp.chartIdOf(t)).join(', ')}). ` +
+            `Set "chartId" in config.json to pick one.`
+          );
+        }
+        lastError = new Error(
+          `No chart tab carries the full indicator template ` +
+          `(${CRITICAL_STUDIES.map((r) => r.source).join(', ')}).`
+        );
+      }
+    } catch (e) {
+      if (/tabs carry the indicator template/.test(e.message)) throw e;
+      // /json/list blocks or errors while the app restores tabs - keep waiting.
+      lastError = e;
     }
-  }
 
-  const matches = [];
-  for (const t of candidates) {
-    if (await targetHasTemplate(t)) matches.push(t);
+    if (Date.now() >= deadline) throw lastError;
+    await sleep(2000);
   }
-
-  if (matches.length === 1) return matches[0];
-  if (matches.length === 0) {
-    throw new Error(
-      `No chart tab carries the full indicator template ` +
-      `(${CRITICAL_STUDIES.map((r) => r.source).join(', ')}). ` +
-      `Load the template onto the tab you want analysed.`
-    );
-  }
-  throw new Error(
-    `${matches.length} tabs carry the indicator template ` +
-    `(${matches.map((t) => cdp.chartIdOf(t)).join(', ')}). ` +
-    `Set "chartId" in config.json to pick one.`
-  );
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -236,7 +253,12 @@ async function waitForChart(sess, wantSymbol, wantRes, timeoutMs = 45000) {
 
 async function analyze(ticker, cfg = loadConfig()) {
   const launchState = await ensureRunning(cfg);
-  const target = await bindTab(cfg);
+  // A cold start restores every saved tab, which takes far longer than the CDP
+  // port takes to open. Port-open is not app-ready.
+  const bindTimeout = launchState === 'already-running'
+    ? 15_000
+    : (cfg.coldStartTimeoutMs || 180_000);
+  const target = await bindTab(cfg, bindTimeout);
   const sess = await new cdp.Session(target.webSocketDebuggerUrl).connect();
   try {
     // Set symbol first, then resolution; both are async on the chart model.
