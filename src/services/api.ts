@@ -13,6 +13,8 @@ import type {
   BigdogAlertsResponse,
   UoaScanResponse,
   UoaDatesResponse,
+  TvAnalysisResponse,
+  TvRequestResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -45,6 +47,22 @@ export function getAtrLookup(ticker: string): Promise<AtrLookupResponse> {
 
 export function getAtrIntraday(tickers: string[]): Promise<AtrIntradayResponse> {
   return request<AtrIntradayResponse>(`/atr-intraday?tickers=${encodeURIComponent(tickers.join(","))}`);
+}
+
+// ─── TradingView chart analysis ─────────────────────────────────────────────
+
+/** Ask the desktop sidecar to analyse a ticker. Returns once queued, not done. */
+export function requestTvAnalysis(ticker: string): Promise<TvRequestResponse> {
+  return request<TvRequestResponse>("/tv-request", {
+    method: "POST",
+    body: JSON.stringify({ ticker: ticker.toUpperCase().trim() }),
+  });
+}
+
+export function getTvAnalysis(ticker: string): Promise<TvAnalysisResponse> {
+  return request<TvAnalysisResponse>(
+    `/tv-analysis?ticker=${encodeURIComponent(ticker.toUpperCase().trim())}`,
+  );
 }
 
 // ─── Catalyst Value Eval ────────────────────────────────────────────────────

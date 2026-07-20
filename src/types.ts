@@ -594,3 +594,45 @@ export interface MmMoversData {
   w20pct: MmScreenerRow[];
   d4pct: MmScreenerRow[];
 }
+
+// ─── TradingView chart analysis (desktop sidecar) ───────────────────────────
+
+/** One piece of weighted evidence. Weight encodes authority, not agreement. */
+export interface TvSignalRow {
+  weight: number;
+  signal: string;
+  detail: string;
+}
+
+export interface TvAnalysisResponse {
+  symbol: string;
+  resolution?: string;
+  price: number | null;
+  verdict: string;
+  dailyBias: "bull" | "bear" | null;
+  bullScore: number;
+  bearScore: number;
+  net: number;
+  gateFailures: string[];
+  bullish: TvSignalRow[];
+  bearish: TvSignalRow[];
+  /** Present when the sidecar failed rather than produced a reading. */
+  error?: string;
+  computedAt: string;
+  requestId?: string;
+  /** Seconds since the sidecar computed this — drives the staleness badge. */
+  ageSeconds: number;
+  meta?: {
+    chartId?: string;
+    studiesPopulated?: number;
+    totalStudies?: number;
+    launchState?: string;
+  };
+}
+
+export interface TvRequestResponse {
+  status: string;
+  ticker: string;
+  requestId: string;
+  requestedAt: string;
+}

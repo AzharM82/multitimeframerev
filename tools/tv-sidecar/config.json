@@ -1,0 +1,7 @@
+{
+  "port": 9222,
+  "chartId": "SJYkgXd7",
+  "intradayResolution": "10",
+  "dailyResolution": "D",
+  "autoLaunch": true
+}
