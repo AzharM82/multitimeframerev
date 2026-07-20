@@ -14,6 +14,7 @@
  */
 
 const http = require('http');
+const os = require('os');
 const { execFile, spawn } = require('child_process');
 
 const HOST = '127.0.0.1';
@@ -102,7 +103,10 @@ async function launch(port = DEFAULT_PORT) {
   const child = spawn(exe, [`--remote-debugging-port=${port}`], {
     detached: true,
     stdio: 'ignore',
-    windowsHide: false
+    windowsHide: false,
+    // Chromium writes debug.log into its working directory. Without this it
+    // inherits the sidecar's cwd and litters the repo with crash-reporter noise.
+    cwd: os.tmpdir()
   });
   child.unref();
 
