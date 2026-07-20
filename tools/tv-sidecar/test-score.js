@@ -71,8 +71,8 @@ check('RAHUL trailing stop fires bearish', () => {
   assert.ok(has(r.bearish, /RAHUL trailing stop/), 'expected RAHUL bearish row');
 });
 
-check('daily EMA stack inverted fires bearish (weight 3)', () => {
-  const row = r.bearish.find((x) => /Daily EMA stack/.test(x.signal));
+check('daily MA stack inverted fires bearish (weight 3)', () => {
+  const row = r.bearish.find((x) => /Daily MA stack/.test(x.signal));
   assert.ok(row, 'expected daily stack row');
   assert.strictEqual(row.weight, 3);
 });

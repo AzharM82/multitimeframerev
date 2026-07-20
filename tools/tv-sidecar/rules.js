@@ -220,11 +220,15 @@ const RULES = [
   function dailyTrend(f) {
     const { price, dailyFast, dailyMid, dailySlow } = f;
     if ([price, dailyFast, dailyMid, dailySlow].some((v) => v == null)) return null;
-    const detail = `${price} vs ${dailyFast} / ${dailyMid} / ${dailySlow}`;
+    // Labelled "MA" rather than "EMA": the stack is 10 EMA / 21 EMA / 50 SMA,
+    // all on the 1D timeframe. They are read off the intraday chart from the
+    // "Moving Averages based on higher Timeframes" study, so no separate daily
+    // chart load is needed.
+    const detail = `${price} vs 10EMA ${dailyFast} / 21EMA ${dailyMid} / 50SMA ${dailySlow} (1D)`;
     if (price > dailyFast && dailyFast > dailyMid && dailyMid > dailySlow)
-      return { side: 'bull', weight: 3, signal: 'Daily EMA stack aligned up', detail, bias: 'bull' };
+      return { side: 'bull', weight: 3, signal: 'Daily MA stack aligned up', detail, bias: 'bull' };
     if (price < dailyFast && dailyFast < dailyMid && dailyMid < dailySlow)
-      return { side: 'bear', weight: 3, signal: 'Daily EMA stack fully inverted', detail, bias: 'bear' };
+      return { side: 'bear', weight: 3, signal: 'Daily MA stack fully inverted', detail, bias: 'bear' };
     return null; // mixed daily = no bias, scores nothing
   },
 
