@@ -8,10 +8,11 @@ import { UnusualOptionsPage } from "./views/UnusualOptionsPage.js";
 import { RotationPage } from "./views/RotationPage.js";
 import { GatePage } from "./views/GatePage.js";
 import { MetricsPage } from "./views/MetricsPage.js";
+import { TradingViewPage } from "./views/TradingViewPage.js";
 import { ErrorBoundary } from "./views/ErrorBoundary.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "gate" | "metrics" | "atr" | "uoa" | "cve" | "bigd" | "rotation" | "about";
+type Page = "gate" | "metrics" | "atr" | "uoa" | "cve" | "bigd" | "rotation" | "chart" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "gate", label: "Gate" },
@@ -21,6 +22,7 @@ const TABS: { key: Page; label: string }[] = [
   { key: "cve", label: "Catalyst Value Eval" },
   { key: "bigd", label: "BIGD-Intraday" },
   { key: "rotation", label: "Rotation" },
+  { key: "chart", label: "Chart Analysis" },
   { key: "about", label: "About" },
 ];
 
@@ -115,6 +117,7 @@ function App() {
           {page === "cve" && <CveEvalPage />}
           {page === "bigd" && <BigdIntradayPage />}
           {page === "rotation" && <RotationPage />}
+          {page === "chart" && <TradingViewPage />}
           {page === "about" && <AboutPage />}
         </ErrorBoundary>
       </main>

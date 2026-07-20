@@ -1,0 +1,11 @@
+{
+  "name": "tv-sidecar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reads TradingView Desktop over CDP, scores bullish/bearish evidence, posts to the MTF portal. Runs on the trading desktop, not in Azure.",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-score.js"
+  }
+}

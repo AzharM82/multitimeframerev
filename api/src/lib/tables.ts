@@ -108,4 +108,5 @@ export const TABLES = {
   ATR_MATRIX: "AtrMatrix",
   CVE_EVAL: "CveEval",
   BIGDOG_ALERTS: "BigDogAlerts",
+  TV_ANALYSIS: "TvAnalysis",
 } as const;

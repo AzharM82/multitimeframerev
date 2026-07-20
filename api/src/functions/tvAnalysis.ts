@@ -1,0 +1,119 @@
+import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
+import { upsert, getOne, TABLES } from "../lib/tables.js";
+
+/**
+ * TradingView chart analysis: sidecar writes, portal reads.
+ *
+ *   POST /api/tv-analysis   (x-timer-secret)  <- sidecar publishes a result
+ *   GET  /api/tv-analysis?ticker=NSE:NIFTY    <- portal reads the latest
+ *
+ * The scoring happens entirely on the desktop (tools/tv-sidecar). Nothing here
+ * computes signals - this endpoint is storage plus a staleness stamp.
+ *
+ * POST stays anonymous at the SWA routing layer (machine caller) and is
+ * authenticated by the shared TIMER_SECRET header instead, same as
+ * /api/bigdog-alert and /api/scanner-alert.
+ */
+
+interface AnalysisBody {
+  symbol?: string;
+  requestId?: string;
+  verdict?: string;
+  dailyBias?: string | null;
+  bullScore?: number;
+  bearScore?: number;
+  net?: number;
+  price?: number;
+  resolution?: string;
+  bullish?: unknown[];
+  bearish?: unknown[];
+  gateFailures?: string[];
+  meta?: Record<string, unknown>;
+  error?: string;
+}
+
+interface AnalysisRow {
+  symbol: string;
+  requestId: string;
+  verdict: string;
+  computedAt: string;
+  payloadJson: string;
+}
+
+const PARTITION = "result";
+
+/** Azure Table caps a single property at 64KB; keep well clear of it. */
+const MAX_PAYLOAD_BYTES = 48_000;
+
+async function tvAnalysisHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  if (req.method === "GET") {
+    const ticker = (req.query.get("ticker") || "").toUpperCase().trim();
+    if (!ticker) return { status: 400, jsonBody: { error: "ticker required" } };
+
+    const row = await getOne<AnalysisRow>(TABLES.TV_ANALYSIS, PARTITION, ticker);
+    if (!row) return { status: 404, jsonBody: { error: "no analysis yet", ticker } };
+
+    let payload: unknown = null;
+    try {
+      payload = JSON.parse(row.payloadJson);
+    } catch {
+      return { status: 500, jsonBody: { error: "stored payload is corrupt", ticker } };
+    }
+
+    const ageSeconds = Math.round((Date.now() - new Date(row.computedAt).getTime()) / 1000);
+    return {
+      jsonBody: {
+        ...(payload as object),
+        computedAt: row.computedAt,
+        requestId: row.requestId,
+        // Surfaced so the UI can mark a reading stale rather than render a
+        // frozen result as if it were live.
+        ageSeconds,
+      },
+    };
+  }
+
+  // POST — sidecar publishes
+  const secret = req.headers.get("x-timer-secret");
+  if (!process.env.TIMER_SECRET || secret !== process.env.TIMER_SECRET) {
+    return { status: 401, jsonBody: { error: "Unauthorized" } };
+  }
+
+  let body: AnalysisBody;
+  try {
+    body = (await req.json()) as AnalysisBody;
+  } catch {
+    return { status: 400, jsonBody: { error: "Invalid JSON body" } };
+  }
+
+  const symbol = (body.symbol || "").toUpperCase().trim();
+  if (!symbol) return { status: 400, jsonBody: { error: "symbol required" } };
+
+  const payloadJson = JSON.stringify(body);
+  if (Buffer.byteLength(payloadJson, "utf8") > MAX_PAYLOAD_BYTES) {
+    return { status: 413, jsonBody: { error: "payload too large for table storage" } };
+  }
+
+  const row: AnalysisRow = {
+    symbol,
+    requestId: body.requestId || "",
+    verdict: body.verdict || (body.error ? "ERROR" : "UNKNOWN"),
+    computedAt: new Date().toISOString(),
+    payloadJson,
+  };
+
+  try {
+    await upsert(TABLES.TV_ANALYSIS, PARTITION, symbol, row);
+    return { jsonBody: { status: "ok", symbol, computedAt: row.computedAt } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return { status: 500, jsonBody: { error: message } };
+  }
+}
+
+app.http("tvAnalysis", {
+  methods: ["GET", "POST"],
+  authLevel: "anonymous",
+  route: "tv-analysis",
+  handler: tvAnalysisHandler,
+});

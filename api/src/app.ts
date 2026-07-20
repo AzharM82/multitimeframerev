@@ -50,6 +50,11 @@ import "./functions/rotQuotes.js";
 import "./functions/rotPerformance.js";
 import "./functions/rotWeeklyHistory.js";
 
+// TradingView chart analysis — desktop sidecar mailbox + result store.
+// Scoring runs in tools/tv-sidecar on the trading desktop, not here.
+import "./functions/tvRequest.js";
+import "./functions/tvAnalysis.js";
+
 // Portal authentication — SWA rolesSource allowlist (Google sign-in).
 // Invoked by the SWA platform, not the browser; must stay anonymous.
 import "./functions/getRoles.js";
