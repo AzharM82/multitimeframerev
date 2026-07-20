@@ -34,6 +34,29 @@ const POLL_MS = Number(process.env.POLL_MS || 3000);
  */
 const REFRESH_MS = Number(process.env.REFRESH_MS || 600_000);
 
+/**
+ * Settle time after a bar boundary before reading. The bar closes on the wall
+ * clock but the chart needs a moment to roll it over and recompute studies.
+ */
+const BAR_SETTLE_MS = Number(process.env.BAR_SETTLE_MS || 15_000);
+
+/** Align refreshes to wall-clock bar boundaries rather than "N ms since last". */
+const ALIGN_TO_BAR = process.env.ALIGN_TO_BAR !== 'false';
+
+/**
+ * Next wall-clock bar boundary + settle time.
+ *
+ * A fixed interval from the last read drifts: read at 09:37 and every
+ * subsequent reading lands mid-bar. Aligning to the boundary means each refresh
+ * happens just after a bar completes, so consecutive readings are comparable
+ * and each one covers a whole bar.
+ */
+function nextBarDue(now = Date.now()) {
+  if (!ALIGN_TO_BAR) return now + REFRESH_MS;
+  const boundary = Math.ceil((now + 1) / REFRESH_MS) * REFRESH_MS;
+  return boundary + BAR_SETTLE_MS;
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -88,11 +111,13 @@ async function main() {
   // The ticker currently being watched. Survives until a DIFFERENT one is
   // requested, so the portal gets a rolling grade rather than a single reading.
   let watching = null; // { ticker, requestId }
-  let lastRunAt = 0;
+  let nextDueAt = 0;
 
   async function runOnce(ticker, requestId, reason) {
     log(`${reason} -> ${ticker}`);
-    lastRunAt = Date.now();
+    // Schedule from the boundary, not from when this run finishes, so a slow
+    // read cannot push every later refresh off the bar grid.
+    nextDueAt = nextBarDue();
     try {
       const result = await analyze(ticker, cfg);
       await publish(toPayload(result, requestId));
@@ -132,10 +157,11 @@ async function main() {
         // re-analysing the same request forever.
         watching = { ticker: req.ticker, requestId: req.requestId };
         await runOnce(watching.ticker, watching.requestId, `request ${req.requestId}`);
-      } else if (watching && Date.now() - lastRunAt >= REFRESH_MS) {
+        log(`next refresh at ${new Date(nextDueAt).toISOString()}`);
+      } else if (watching && Date.now() >= nextDueAt) {
         // Republished under the ORIGINAL requestId: this is the same watch,
         // refreshed. The portal distinguishes updates by computedAt.
-        await runOnce(watching.ticker, watching.requestId, 'refresh');
+        await runOnce(watching.ticker, watching.requestId, 'refresh (bar close)');
       }
     } catch (e) {
       log(`poll error: ${e.message}`);

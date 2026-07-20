@@ -44,7 +44,12 @@ function loadConfig() {
     dailyResolution: 'D',
     autoLaunch: true,
     // Off by default: relaunching kills a TradingView the user may be trading on.
-    relaunchIfNoCdp: false
+    relaunchIfNoCdp: false,
+    coldStartTimeoutMs: 180_000,
+    // Tabs restore progressively even when the app is already up - a chart can
+    // be minutes away from existing. Pinning chartId made this fatal; the
+    // template probe identifies the right tab without it.
+    warmBindTimeoutMs: 60_000
   };
   try {
     return { ...defaults, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) };
@@ -152,16 +157,15 @@ async function bindTab(cfg, timeoutMs = 15000, wantedSymbol = null) {
           // Several tabs can legitimately carry the template AND share a chart
           // id - TradingView restores the same saved layout into more than one
           // target, so "set chartId to pick one" is advice the user cannot act
-          // on. Choose deterministically instead of failing:
-          //   1. a tab already showing the requested symbol (that is the one
-          //      being refreshed, so leave it where it is), then
-          //   2. lowest target id - arbitrary but STABLE, so the same tab is
-          //      driven every cycle rather than flip-flopping between them.
-          const want = wantedSymbol ? wantedSymbol.split(':').pop().toUpperCase() : null;
-          const onSymbol = want
-            ? matches.find((m) => m.symbol.split(':').pop().toUpperCase() === want)
-            : null;
-          const chosen = onSymbol || [...matches].sort((a, b) =>
+          // on. Pick the lowest target id: arbitrary, but the same tab every
+          // time, so exactly ONE chart is ever driven.
+          //
+          // An earlier version preferred a tab already showing the requested
+          // symbol. That sounded considerate and was actively harmful: a tab
+          // parked on NIFTY won every NIFTY request while everything else bound
+          // to a different tab, so the sidecar hijacked TWO of the user's
+          // charts and alternated between them. Stability beats cleverness.
+          const chosen = [...matches].sort((a, b) =>
             a.target.id.localeCompare(b.target.id))[0];
           console.log(
             `[bindTab] ${matches.length} tabs match; using target ${chosen.target.id.slice(0, 8)}` +
@@ -276,7 +280,7 @@ async function analyze(ticker, cfg = loadConfig()) {
   // A cold start restores every saved tab, which takes far longer than the CDP
   // port takes to open. Port-open is not app-ready.
   const bindTimeout = launchState === 'already-running'
-    ? 15_000
+    ? (cfg.warmBindTimeoutMs || 60_000)
     : (cfg.coldStartTimeoutMs || 180_000);
   const target = await bindTab(cfg, bindTimeout, ticker);
   const sess = await new cdp.Session(target.webSocketDebuggerUrl).connect();

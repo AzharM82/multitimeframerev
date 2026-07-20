@@ -1,7 +1,10 @@
 {
   "port": 9222,
-  "chartId": "SJYkgXd7",
+  "chartId": null,
   "intradayResolution": "10",
   "dailyResolution": "D",
-  "autoLaunch": true
+  "autoLaunch": true,
+  "relaunchIfNoCdp": false,
+  "coldStartTimeoutMs": 180000,
+  "warmBindTimeoutMs": 60000
 }
