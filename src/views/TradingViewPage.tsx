@@ -15,6 +15,37 @@ import type { TvAnalysisResponse, TvSignalRow, TvHistoryPoint } from "../types.j
  * otherwise indistinguishable from a fresh one.
  */
 
+/**
+ * Recent tickers, kept in localStorage rather than server-side.
+ *
+ * This is a typing shortcut, so it has to be instant - a network round trip on
+ * every keystroke would defeat the point. The cost is that the list is
+ * per-browser rather than synced across devices.
+ */
+const RECENTS_KEY = "mtf.chart.recentTickers";
+const RECENTS_STORED = 20;
+const RECENTS_SHOWN = 5;
+
+function loadRecents(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return []; // corrupt or unavailable storage must never break the page
+  }
+}
+
+function saveRecent(ticker: string): string[] {
+  const next = [ticker, ...loadRecents().filter((t) => t !== ticker)].slice(0, RECENTS_STORED);
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+  } catch {
+    /* private mode / quota — the feature degrades, the page does not */
+  }
+  return next;
+}
+
 const POLL_INTERVAL_MS = 700;
 const POLL_TIMEOUT_MS = 120_000;
 
@@ -156,7 +187,23 @@ export function TradingViewPage() {
   const [result, setResult] = useState<TvAnalysisResponse | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [history, setHistory] = useState<TvHistoryPoint[]>([]);
+  const [recents, setRecents] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlighted, setHighlighted] = useState(-1);
   const cancelRef = useRef(false);
+
+  useEffect(() => { setRecents(loadRecents()); }, []);
+
+  // Prefix matches first (what you'd expect when typing "NI"), then anything
+  // else containing the text, so "NIFTY" still surfaces if you type "FTY".
+  const typed = ticker.toUpperCase().trim();
+  const suggestions = (() => {
+    const pool = recents.filter((t) => t !== typed);
+    if (!typed) return pool.slice(0, RECENTS_SHOWN);
+    const starts = pool.filter((t) => t.startsWith(typed));
+    const contains = pool.filter((t) => !t.startsWith(typed) && t.includes(typed));
+    return [...starts, ...contains].slice(0, RECENTS_SHOWN);
+  })();
 
   useEffect(() => () => { cancelRef.current = true; }, []);
 
@@ -196,6 +243,9 @@ export function TradingViewPage() {
     if (!symbol) return;
 
     cancelRef.current = false;
+    setRecents(saveRecent(symbol));
+    setShowSuggestions(false);
+    setHighlighted(-1);
     setSubmitted(symbol);
     setStatus("waiting");
     setMessage("Queued — waiting for the desktop sidecar…");
@@ -264,19 +314,73 @@ export function TradingViewPage() {
     <div className="space-y-4">
       {/* Ticker entry */}
       <form
-        onSubmit={(e) => { e.preventDefault(); void runAnalysis(ticker); }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          const pick = highlighted >= 0 ? suggestions[highlighted] : null;
+          void runAnalysis(pick ?? ticker);
+          if (pick) setTicker(pick);
+        }}
         className="flex flex-wrap items-center gap-2"
       >
-        <input
-          value={ticker}
-          onChange={(e) => setTicker(e.target.value)}
-          placeholder="Ticker — e.g. NSE:NIFTY or NBIS"
-          className="px-3 py-2 rounded bg-bg-card border border-border text-sm text-text-primary
-                     placeholder:text-text-secondary focus:outline-none focus:border-text-primary
-                     font-mono w-64"
-          autoCapitalize="characters"
-          spellCheck={false}
-        />
+        <div className="relative w-64">
+          <input
+            value={ticker}
+            onChange={(e) => { setTicker(e.target.value); setShowSuggestions(true); setHighlighted(-1); }}
+            onFocus={() => setShowSuggestions(true)}
+            // Delay so a mousedown on a suggestion is not lost to the blur.
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
+            onKeyDown={(e) => {
+              if (!showSuggestions || !suggestions.length) return;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHighlighted((i) => (i + 1) % suggestions.length);
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHighlighted((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+              } else if (e.key === "Escape") {
+                setShowSuggestions(false);
+                setHighlighted(-1);
+              }
+            }}
+            placeholder="Ticker — e.g. NSE:NIFTY or NBIS"
+            className="w-full px-3 py-2 rounded bg-bg-card border border-border text-sm text-text-primary
+                       placeholder:text-text-secondary focus:outline-none focus:border-text-primary
+                       font-mono"
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            role="combobox"
+            aria-expanded={showSuggestions && suggestions.length > 0}
+            aria-autocomplete="list"
+          />
+          {showSuggestions && suggestions.length > 0 && (
+            <ul
+              role="listbox"
+              className="absolute z-20 left-0 right-0 mt-1 bg-bg-card border border-border rounded
+                         shadow-lg overflow-hidden"
+            >
+              {suggestions.map((s, i) => (
+                <li key={s}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === highlighted}
+                    // mousedown fires before blur, so the click is never swallowed
+                    onMouseDown={(e) => { e.preventDefault(); setTicker(s); void runAnalysis(s); }}
+                    onMouseEnter={() => setHighlighted(i)}
+                    className={`w-full text-left px-3 py-1.5 font-mono text-xs transition-colors ${
+                      i === highlighted
+                        ? "bg-text-primary text-bg-primary"
+                        : "text-text-primary hover:bg-bg-secondary"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <button
           type="submit"
           disabled={status === "waiting" || !ticker.trim()}
