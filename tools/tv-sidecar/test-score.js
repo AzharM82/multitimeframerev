@@ -78,7 +78,35 @@ check('daily MA stack inverted fires bearish (weight 3)', () => {
 });
 
 check('ribbon inverted fires bearish', () => assert.ok(has(r.bearish, /Ribbon inverted/)));
-check('phase oscillator negative fires bearish', () => assert.ok(has(r.bearish, /Phase Oscillator negative/)));
+// Saty's published zones: -23.6..+23.6 is the neutral / launch zone, so only
+// readings beyond it are directional. -41.56 is below it.
+check('phase oscillator below launch zone fires bearish', () => assert.ok(has(r.bearish, /marking down/)));
+check('phase oscillator neutral band scores nothing', () => {
+  const neutral = score({ ...snap, studies: { ...snap.studies,
+    'Saty Phase Oscillator': { values: { 'Phase Oscillator': '10.0' }, tables: [] } } });
+  assert.ok(!neutral.bullish.some((x) => /Phase Oscillator/.test(x.signal)), '+10 must not score bullish');
+  assert.ok(!neutral.bearish.some((x) => /Phase Oscillator/.test(x.signal)), '+10 must not score bearish');
+});
+
+// Near the day low is a GOOD entry, not a bearish signal. NBIS sits 0.99% off
+// its low against a 1.10% ADR - inside one ADR, so nothing should score.
+check('near the day low scores nothing either way', () => {
+  assert.ok(!has(r.bearish, /day low/), 'must not be bearish for being near the low');
+  assert.ok(!has(r.bullish, /upper day range/), 'the old range-position reading is gone');
+});
+
+// Past 1x ADR off the low the reward/risk is degraded for a fresh long.
+check('extension beyond 1x ADR fires bearish', () => {
+  const swing = snap.studies['Swing Data - ADR% / RVol / PVol / Float % / Avg $ Vol'];
+  const stretched = score({ ...snap, studies: { ...snap.studies,
+    'Swing Data - ADR% / RVol / PVol / Float % / Avg $ Vol': {
+      values: {},
+      tables: [swing.tables[0].map((row) => (row[0] === 'LoD Price' ? ['LoD Price', '172.00'] : row))],
+    } } });
+  const row = stretched.bearish.find((x) => /Extended off the day low/.test(x.signal));
+  assert.ok(row, 'expected extension row');
+  assert.strictEqual(row.weight, 1);
+});
 check('below 5-day SMA fires bearish', () => assert.ok(has(r.bearish, /5-day SMA/)));
 check('volume stack 90.1% fires bullish', () => assert.ok(has(r.bullish, /Buy-side volume/)));
 check('rel vol 336% fires', () => assert.ok(has(r.bullish, /Relative volume/) || has(r.bearish, /Relative volume/)));
@@ -87,8 +115,8 @@ check('gates pass ($9.31M vol, 1.10% ADR)', () => assert.deepStrictEqual(r.gateF
 
 // The headline numbers from the hand-scored analysis.
 check('bearish total = 14', () => assert.strictEqual(r.bearScore, 14));
-check('bullish total = 12', () => assert.strictEqual(r.bullScore, 12));
-check('net = -2', () => assert.strictEqual(r.net, -2));
+check('bullish total = 11', () => assert.strictEqual(r.bullScore, 11));
+check('net = -3', () => assert.strictEqual(r.net, -3));
 check('verdict is BEARISH', () => assert.strictEqual(r.verdict, 'BEARISH'));
 
 // ------------------------------------------------- NSE:NIFTY (index) fixture

@@ -190,6 +190,7 @@ function extractFacts(snap) {
     volBuzz: num(swing['Vol. Buzz']),
     adrPct: num(swing['ADR%']),
     lodDist: num(swing['LoD dist.']),
+    lodPrice: num(swing['LoD Price']),
     offHigh: num(swing['Off 52W High']),
     udRatio: num(swing['U/D Ratio']),
     avgDollarVol: num(swing['Avg $ Vol']),
@@ -285,16 +286,32 @@ const RULES = [
     return null;
   },
 
+  /**
+   * Saty Phase Oscillator, using the author's own published zones:
+   *   +/-100   Extreme (momentum cools off after this)
+   *   +/-61.8  Distribution (up) / Accumulation (down)
+   *   +/-23.6  Neutral / Launch zone
+   *        0   momentum shift
+   *
+   * The band between -23.6 and +23.6 is explicitly NEUTRAL in that framework.
+   * An earlier version scored any non-zero reading as a full weight-2
+   * directional signal, so a reading of +3 - the middle of the launch zone -
+   * carried the same conviction as +50. It now scores nothing there.
+   */
   function phaseOscillator(f) {
     const p = f.phase;
     if (p == null) return null;
+    if (p >= 100)
+      return { side: 'bear', weight: 2, signal: 'Extreme up - expect cooling', detail: `Phase Oscillator ${p} (>100 extreme)` };
     if (p >= 61.8)
-      return { side: 'bear', weight: 2, signal: 'Extended up - fade risk', detail: `Phase Oscillator ${p} (>61.8 distribution)` };
+      return { side: 'bear', weight: 2, signal: 'Distribution zone - fade risk', detail: `Phase Oscillator ${p} (>61.8)` };
+    if (p <= -100)
+      return { side: 'bull', weight: 2, signal: 'Extreme down - expect cooling', detail: `Phase Oscillator ${p} (<-100 extreme)` };
     if (p <= -61.8)
-      return { side: 'bull', weight: 2, signal: 'Extended down - bounce zone', detail: `Phase Oscillator ${p} (<-61.8 accumulation)` };
-    if (p > 0) return { side: 'bull', weight: 2, signal: 'Phase Oscillator positive', detail: `${p}` };
-    if (p < 0) return { side: 'bear', weight: 2, signal: 'Phase Oscillator negative', detail: `${p}` };
-    return null;
+      return { side: 'bull', weight: 2, signal: 'Accumulation zone - bounce setup', detail: `Phase Oscillator ${p} (<-61.8)` };
+    if (p > 23.6) return { side: 'bull', weight: 2, signal: 'Phase Oscillator marking up', detail: `${p} (above +23.6 launch zone)` };
+    if (p < -23.6) return { side: 'bear', weight: 2, signal: 'Phase Oscillator marking down', detail: `${p} (below -23.6 launch zone)` };
+    return null; // -23.6..+23.6 is the neutral / launch zone
   },
 
   function rahulTrail(f) {
@@ -349,11 +366,38 @@ const RULES = [
     return null;
   },
 
-  function lodDistance(f) {
-    if (f.lodDist == null) return null;
-    if (f.lodDist >= 60) return { side: 'bull', weight: 1, signal: 'Holding upper day range', detail: `LoD dist. ${f.lodDist}%` };
-    if (f.lodDist <= 25) return { side: 'bear', weight: 1, signal: 'Pinned near day low', detail: `LoD dist. ${f.lodDist}%` };
-    return null;
+  /**
+   * Extension from the day's low, as a risk/reward test - NOT a direction.
+   *
+   * Replaces an earlier rule that scored "LoD dist. >= 60" bullish as "holding
+   * upper day range" and "<= 25" bearish as "pinned near day low". Both were
+   * wrong, for two separate reasons:
+   *
+   * 1. LoD dist. is not a position within the day's range at all. Verified
+   *    against live captures: (price - LoD) / ATR. NBIS 1.77/2.34 = 75.6%
+   *    (reported 75%); NIFTY 8.75/38.39 = 22.8% (reported 22%). It measures
+   *    distance travelled off the low in ATR units.
+   * 2. Even read correctly, the direction was backwards for an entry. Near the
+   *    low is where the reward/risk is good; far off the low is extended.
+   *    Qullamaggie's rule is explicit - a setup is tradeable while
+   *    (price - low) < ADR, and once it exceeds that "the reward to risk math
+   *    is now off".
+   *
+   * So extension is scored as a mild caution on a fresh long, and being near
+   * the low scores nothing at all rather than counting against the trade.
+   */
+  function extensionFromLow(f) {
+    const { price, lodPrice, adrPct } = f;
+    if (price == null || lodPrice == null || adrPct == null || adrPct <= 0) return null;
+    const movedPct = ((price - lodPrice) / price) * 100;
+    if (movedPct < adrPct) return null; // still inside one ADR - fine, no signal
+    const mult = (movedPct / adrPct).toFixed(1);
+    return {
+      side: 'bear',
+      weight: 1,
+      signal: 'Extended off the day low',
+      detail: `+${movedPct.toFixed(2)}% off ${lodPrice} = ${mult}x ADR (${adrPct}%) — R:R degraded for a new long`,
+    };
   },
 
   function offHigh(f) {
@@ -417,7 +461,7 @@ const NON_STRUCTURAL_RULES = new Set([
   'relativeVolume',
   'volumeStack',
   'upDownRatio',
-  'lodDistance',
+  'extensionFromLow',
   'offHigh',
   'sectorTrend',
 ]);
