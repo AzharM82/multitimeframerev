@@ -45,6 +45,8 @@ function loadConfig() {
     autoLaunch: true,
     // Off by default: relaunching kills a TradingView the user may be trading on.
     relaunchIfNoCdp: false,
+    // Drive the tab the user is looking at, so the work is observable.
+    preferVisibleTab: true,
     coldStartTimeoutMs: 180_000,
     // Tabs restore progressively even when the app is already up - a chart can
     // be minutes away from existing. Pinning chartId made this fatal; the
@@ -103,16 +105,18 @@ async function probeTarget(target) {
     const raw = await sess.evaluate(
       `JSON.stringify({` +
       ` studies: window.TradingViewApi.activeChart().getAllStudies().map(s => s.name),` +
-      ` symbol: window.TradingViewApi.activeChart().symbol() })`
+      ` symbol: window.TradingViewApi.activeChart().symbol(),` +
+      ` visible: document.visibilityState === 'visible' })`
     );
     const info = JSON.parse(raw || '{}');
     const studies = info.studies || [];
     return {
       hasTemplate: CRITICAL_STUDIES.every((re) => studies.some((n) => re.test(n))),
-      symbol: String(info.symbol || '')
+      symbol: String(info.symbol || ''),
+      visible: !!info.visible
     };
   } catch {
-    return { hasTemplate: false, symbol: '' };
+    return { hasTemplate: false, symbol: '', visible: false };
   } finally {
     if (sess) sess.close();
   }
@@ -149,7 +153,27 @@ async function bindTab(cfg, timeoutMs = 15000, wantedSymbol = null) {
         const matches = [];
         for (const t of candidates) {
           const info = await probeTarget(t);
-          if (info.hasTemplate) matches.push({ target: t, symbol: info.symbol });
+          if (info.hasTemplate) matches.push({ target: t, symbol: info.symbol, visible: info.visible });
+        }
+
+        // Prefer the tab the user can actually SEE.
+        //
+        // TradingView keeps a live renderer for every saved tab, so most chart
+        // targets are document.visibilityState === 'hidden' even though the app
+        // shows a single tab. Binding by target id alone drove an invisible
+        // chart perfectly for hours while the user - correctly - reported that
+        // nothing was happening in TradingView. Driving the visible tab makes
+        // the work observable, which is what makes it trustworthy.
+        const visible = matches.filter((m) => m.visible);
+        if (cfg.preferVisibleTab !== false && visible.length) {
+          const chosen = visible.sort((a, b) => a.target.id.localeCompare(b.target.id))[0];
+          if (matches.length > 1) {
+            console.log(
+              `[bindTab] ${matches.length} tabs match; using VISIBLE target ` +
+              `${chosen.target.id.slice(0, 8)} (chart ${cdp.chartIdOf(chosen.target)}, showing ${chosen.symbol || 'unknown'})`
+            );
+          }
+          return chosen.target;
         }
 
         if (matches.length === 1) return matches[0].target;
