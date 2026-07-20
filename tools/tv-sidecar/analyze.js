@@ -42,7 +42,9 @@ function loadConfig() {
     chartId: null,          // null = use the first chart tab
     intradayResolution: '10',
     dailyResolution: 'D',
-    autoLaunch: true
+    autoLaunch: true,
+    // Off by default: relaunching kills a TradingView the user may be trading on.
+    relaunchIfNoCdp: false
   };
   try {
     return { ...defaults, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) };
@@ -51,9 +53,39 @@ function loadConfig() {
   }
 }
 
+/**
+ * Make sure TradingView is up AND reachable over CDP.
+ *
+ * Three distinct states, and conflating them is what breaks things:
+ *   1. CDP reachable            -> use it
+ *   2. not running at all       -> launch with the flag (fully automatic)
+ *   3. running WITHOUT the flag -> cannot be attached to, ever. Launching
+ *      again does not help: a second AppX activation just focuses the existing
+ *      window, so CDP never appears and we would block for the full timeout.
+ *      Relaunching means killing the user's live TradingView, so it is opt-in
+ *      (config.relaunchIfNoCdp) rather than a silent default.
+ */
 async function ensureRunning(cfg) {
   if (await cdp.isUp(cfg.port)) return 'already-running';
-  if (!cfg.autoLaunch) throw new Error(`TradingView not reachable on port ${cfg.port} and autoLaunch is off`);
+
+  if (!cfg.autoLaunch) {
+    throw new Error(`TradingView not reachable on port ${cfg.port} and autoLaunch is off`);
+  }
+
+  if (await cdp.isProcessRunning()) {
+    if (!cfg.relaunchIfNoCdp) {
+      throw new Error(
+        'TradingView is running but was started WITHOUT the CDP flag, which cannot be ' +
+        'applied to a live process. Close it and reopen with tools\\tv-launch.ps1 ' +
+        '(or set "relaunchIfNoCdp": true in config.json to let the sidecar restart it ' +
+        'automatically — note that closes your open TradingView).'
+      );
+    }
+    await cdp.killAll();
+    await cdp.launch(cfg.port);
+    return 'relaunched';
+  }
+
   await cdp.launch(cfg.port);
   return 'launched';
 }

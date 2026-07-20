@@ -59,6 +59,32 @@ function resolveExe() {
   });
 }
 
+/** Is TradingView running at all (regardless of CDP)? */
+function isProcessRunning() {
+  return new Promise((resolve) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command',
+        '@(Get-Process -Name TradingView -ErrorAction SilentlyContinue).Count'],
+      { timeout: 15000 },
+      (err, stdout) => resolve(!err && Number(String(stdout).trim()) > 0)
+    );
+  });
+}
+
+/** Close every TradingView process. Needed before relaunching with the flag. */
+function killAll() {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command',
+        'Get-Process -Name TradingView -ErrorAction SilentlyContinue | Stop-Process -Force'],
+      { timeout: 30000 },
+      (err) => (err ? reject(err) : setTimeout(resolve, 3000))
+    );
+  });
+}
+
 /**
  * Launch TradingView with CDP enabled. The flag only takes effect at launch -
  * an already-running instance started from the Start Menu can never be
@@ -151,5 +177,6 @@ class Session {
 
 module.exports = {
   DEFAULT_PORT, getJSON, isUp, launch, resolveExe,
+  isProcessRunning, killAll,
   listChartTargets, chartIdOf, Session
 };
