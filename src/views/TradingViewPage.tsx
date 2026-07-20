@@ -18,8 +18,15 @@ import type { TvAnalysisResponse, TvSignalRow } from "../types.js";
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 120_000;
 
-/** Sidecar polls every few seconds; beyond this a reading is not "live". */
-const STALE_AFTER_SECONDS = 180;
+/** How often to check for a refreshed reading once one is on screen. */
+const LIVE_POLL_MS = 20_000;
+
+/**
+ * The sidecar re-reads the watched ticker every 10 minutes, so anything older
+ * than a cycle and a half has missed a refresh and should not be presented as
+ * current.
+ */
+const STALE_AFTER_SECONDS = 900;
 
 function verdictTone(verdict: string): string {
   if (verdict.startsWith("BULLISH")) return "bg-signal-bull text-bg-primary";
@@ -63,9 +70,35 @@ export function TradingViewPage() {
   const [status, setStatus] = useState<"idle" | "waiting" | "done" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [result, setResult] = useState<TvAnalysisResponse | null>(null);
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const cancelRef = useRef(false);
 
   useEffect(() => () => { cancelRef.current = true; }, []);
+
+  /**
+   * Live refresh. The sidecar keeps re-reading the watched ticker and
+   * republishes under the SAME requestId, so updates are detected by a changed
+   * computedAt rather than a new id. Runs until a different ticker is
+   * submitted, which is what makes this a monitor rather than a one-shot.
+   */
+  useEffect(() => {
+    if (!submitted || !activeRequestId || status !== "done") return;
+    let stopped = false;
+
+    const tick = async () => {
+      try {
+        const res = await getTvAnalysis(submitted);
+        if (stopped || res.requestId !== activeRequestId) return;
+        setResult((prev) => (prev && prev.computedAt === res.computedAt ? prev : res));
+      } catch {
+        // Transient failure; the age badge will show the reading going stale.
+      }
+    };
+
+    const id = setInterval(tick, LIVE_POLL_MS);
+    void tick();
+    return () => { stopped = true; clearInterval(id); };
+  }, [submitted, activeRequestId, status]);
 
   const runAnalysis = useCallback(async (raw: string) => {
     const symbol = raw.toUpperCase().trim();
@@ -76,6 +109,7 @@ export function TradingViewPage() {
     setStatus("waiting");
     setMessage("Queued — waiting for the desktop sidecar…");
     setResult(null);
+    setActiveRequestId(null); // stop the previous ticker's live refresh
 
     let requestId: string;
     try {
@@ -101,6 +135,7 @@ export function TradingViewPage() {
             return;
           }
           setResult(res);
+          setActiveRequestId(requestId); // hands over to the live-refresh effect
           setStatus("done");
           setMessage(null);
           return;
@@ -188,8 +223,11 @@ export function TradingViewPage() {
             <span className="text-xs text-text-secondary">
               daily bias: <strong className="text-text-primary">{result.dailyBias ?? "none"}</strong>
             </span>
-            <span className={`text-[10px] uppercase tracking-wider ml-auto ${stale ? "text-signal-bear font-bold" : "text-dim"}`}>
-              {stale ? `STALE — ${result.ageSeconds}s old` : `${result.ageSeconds}s ago`}
+            <span className={`flex items-center gap-1.5 text-[10px] uppercase tracking-wider ml-auto ${stale ? "text-signal-bear font-bold" : "text-dim"}`}>
+              {!stale && <span className="w-1.5 h-1.5 rounded-full bg-signal-bull animate-pulse" />}
+              {stale
+                ? `STALE — ${Math.floor(result.ageSeconds / 60)}m old, sidecar may be down`
+                : `WATCHING · updated ${result.ageSeconds < 60 ? `${result.ageSeconds}s` : `${Math.floor(result.ageSeconds / 60)}m`} ago`}
             </span>
           </div>
 

@@ -90,18 +90,24 @@ async function ensureRunning(cfg) {
   return 'launched';
 }
 
-/** Does this target carry the full indicator template we score against? */
-async function targetHasTemplate(target) {
+/** Probe a target: does it carry the full template, and what is it showing? */
+async function probeTarget(target) {
   let sess;
   try {
     sess = await new cdp.Session(target.webSocketDebuggerUrl).connect();
-    const names = await sess.evaluate(
-      `JSON.stringify(window.TradingViewApi.activeChart().getAllStudies().map(s => s.name))`
+    const raw = await sess.evaluate(
+      `JSON.stringify({` +
+      ` studies: window.TradingViewApi.activeChart().getAllStudies().map(s => s.name),` +
+      ` symbol: window.TradingViewApi.activeChart().symbol() })`
     );
-    const list = JSON.parse(names || '[]');
-    return CRITICAL_STUDIES.every((re) => list.some((n) => re.test(n)));
+    const info = JSON.parse(raw || '{}');
+    const studies = info.studies || [];
+    return {
+      hasTemplate: CRITICAL_STUDIES.every((re) => studies.some((n) => re.test(n))),
+      symbol: String(info.symbol || '')
+    };
   } catch {
-    return false;
+    return { hasTemplate: false, symbol: '' };
   } finally {
     if (sess) sess.close();
   }
@@ -116,7 +122,7 @@ async function targetHasTemplate(target) {
  * actively trading, so candidates are probed for the indicator template and
  * anything ambiguous is a hard error rather than a guess.
  */
-async function bindTab(cfg, timeoutMs = 15000) {
+async function bindTab(cfg, timeoutMs = 15000, wantedSymbol = null) {
   const deadline = Date.now() + timeoutMs;
   let lastError = new Error('No TradingView chart tabs found');
 
@@ -136,20 +142,34 @@ async function bindTab(cfg, timeoutMs = 15000) {
       if (candidates.length) {
         const matches = [];
         for (const t of candidates) {
-          if (await targetHasTemplate(t)) matches.push(t);
+          const info = await probeTarget(t);
+          if (info.hasTemplate) matches.push({ target: t, symbol: info.symbol });
         }
-        if (matches.length === 1) return matches[0];
 
-        // More than one is a configuration problem, not a timing one - waiting
-        // will never resolve it, so fail immediately rather than burning the
-        // whole timeout.
+        if (matches.length === 1) return matches[0].target;
+
         if (matches.length > 1) {
-          throw new Error(
-            `${matches.length} tabs carry the indicator template ` +
-            `(${matches.map((t) => cdp.chartIdOf(t)).join(', ')}). ` +
-            `Set "chartId" in config.json to pick one.`
+          // Several tabs can legitimately carry the template AND share a chart
+          // id - TradingView restores the same saved layout into more than one
+          // target, so "set chartId to pick one" is advice the user cannot act
+          // on. Choose deterministically instead of failing:
+          //   1. a tab already showing the requested symbol (that is the one
+          //      being refreshed, so leave it where it is), then
+          //   2. lowest target id - arbitrary but STABLE, so the same tab is
+          //      driven every cycle rather than flip-flopping between them.
+          const want = wantedSymbol ? wantedSymbol.split(':').pop().toUpperCase() : null;
+          const onSymbol = want
+            ? matches.find((m) => m.symbol.split(':').pop().toUpperCase() === want)
+            : null;
+          const chosen = onSymbol || [...matches].sort((a, b) =>
+            a.target.id.localeCompare(b.target.id))[0];
+          console.log(
+            `[bindTab] ${matches.length} tabs match; using target ${chosen.target.id.slice(0, 8)}` +
+            ` (chart ${cdp.chartIdOf(chosen.target)}, showing ${chosen.symbol || 'unknown'})`
           );
+          return chosen.target;
         }
+
         lastError = new Error(
           `No chart tab carries the full indicator template ` +
           `(${CRITICAL_STUDIES.map((r) => r.source).join(', ')}).`
@@ -258,16 +278,35 @@ async function analyze(ticker, cfg = loadConfig()) {
   const bindTimeout = launchState === 'already-running'
     ? 15_000
     : (cfg.coldStartTimeoutMs || 180_000);
-  const target = await bindTab(cfg, bindTimeout);
+  const target = await bindTab(cfg, bindTimeout, ticker);
   const sess = await new cdp.Session(target.webSocketDebuggerUrl).connect();
   try {
+    // Only touch the chart when it is not already showing what we want. On a
+    // periodic refresh of the same ticker, re-setting the symbol would force a
+    // needless reload and make the chart flicker every cycle.
+    const currentRaw = await sess.evaluate(
+      `JSON.stringify({ s: window.TradingViewApi.activeChart().symbol(),` +
+      ` r: window.TradingViewApi.activeChart().resolution() })`
+    );
+    let current = { s: '', r: '' };
+    try { current = JSON.parse(currentRaw); } catch { /* fall through to setting both */ }
+
+    const sameSymbol =
+      String(current.s).split(':').pop().toUpperCase() ===
+      ticker.split(':').pop().toUpperCase();
+    const sameResolution = String(current.r) === String(cfg.intradayResolution);
+
     // Set symbol first, then resolution; both are async on the chart model.
-    await sess.evaluate(
-      `window.TradingViewApi.activeChart().setSymbol(${JSON.stringify(ticker)})`
-    );
-    await sess.evaluate(
-      `window.TradingViewApi.activeChart().setResolution(${JSON.stringify(cfg.intradayResolution)})`
-    );
+    if (!sameSymbol) {
+      await sess.evaluate(
+        `window.TradingViewApi.activeChart().setSymbol(${JSON.stringify(ticker)})`
+      );
+    }
+    if (!sameResolution) {
+      await sess.evaluate(
+        `window.TradingViewApi.activeChart().setResolution(${JSON.stringify(cfg.intradayResolution)})`
+      );
+    }
     const snap = await waitForChart(sess, ticker, cfg.intradayResolution);
 
     const result = score(snap);

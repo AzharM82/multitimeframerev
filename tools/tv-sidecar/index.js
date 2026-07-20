@@ -10,10 +10,15 @@
  *
  *   node index.js
  *
+ * Once a ticker is requested it stays live: the sidecar keeps re-reading it on
+ * a timer and republishing, so the portal shows a rolling grade, until a
+ * different ticker is requested.
+ *
  * Env:
  *   PORTAL_BASE   default https://salmon-river-0a7a0c30f.1.azurestaticapps.net
  *   TIMER_SECRET  required - shared secret for POST /api/tv-analysis
- *   POLL_MS       default 3000
+ *   POLL_MS       default 3000   (how often to check for a NEW ticker)
+ *   REFRESH_MS    default 600000 (how often to re-read the CURRENT ticker)
  */
 
 const { analyze, loadConfig } = require('./analyze.js');
@@ -21,6 +26,13 @@ const { analyze, loadConfig } = require('./analyze.js');
 const PORTAL_BASE = (process.env.PORTAL_BASE || 'https://salmon-river-0a7a0c30f.1.azurestaticapps.net').replace(/\/$/, '');
 const TIMER_SECRET = process.env.TIMER_SECRET || '';
 const POLL_MS = Number(process.env.POLL_MS || 3000);
+
+/**
+ * How often to re-read the ticker that is currently being watched. Defaults to
+ * the chart's own timeframe (10 minutes), because that is the rate at which the
+ * underlying bar - and therefore most of the rubric - can actually change.
+ */
+const REFRESH_MS = Number(process.env.REFRESH_MS || 600_000);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -73,40 +85,57 @@ async function main() {
   const cfg = loadConfig();
   log(`sidecar up | portal ${PORTAL_BASE} | poll ${POLL_MS}ms | chartId ${cfg.chartId ?? '(auto-detect)'}`);
 
-  let lastRequestId = null;
+  // The ticker currently being watched. Survives until a DIFFERENT one is
+  // requested, so the portal gets a rolling grade rather than a single reading.
+  let watching = null; // { ticker, requestId }
+  let lastRunAt = 0;
+
+  async function runOnce(ticker, requestId, reason) {
+    log(`${reason} -> ${ticker}`);
+    lastRunAt = Date.now();
+    try {
+      const result = await analyze(ticker, cfg);
+      await publish(toPayload(result, requestId));
+      log(`published ${result.symbol}: ${result.verdict} (bull ${result.bullScore} / bear ${result.bearScore})`);
+    } catch (e) {
+      // Publish the failure too - otherwise the portal polls until timeout and
+      // the user has no idea what went wrong.
+      log(`ANALYSE FAILED: ${e.message}`);
+      await publish({
+        requestId,
+        symbol: ticker,
+        verdict: 'ERROR',
+        error: e.message,
+        price: null,
+        dailyBias: null,
+        bullScore: 0,
+        bearScore: 0,
+        net: 0,
+        gateFailures: [],
+        bullish: [],
+        bearish: []
+      }).catch((pe) => log(`could not publish error: ${pe.message}`));
+    }
+  }
 
   for (;;) {
     try {
       const req = await fetchRequest();
-      if (req && req.ticker && req.requestId && req.requestId !== lastRequestId) {
+
+      // A new requestId means the user submitted again - even for the same
+      // ticker, which is how "Refresh" asks for an immediate re-read.
+      const isNew = req && req.ticker && req.requestId &&
+                    (!watching || req.requestId !== watching.requestId);
+
+      if (isNew) {
         // Claim it before the work starts, so a failure cannot spin the loop
         // re-analysing the same request forever.
-        lastRequestId = req.requestId;
-        log(`request ${req.requestId} -> ${req.ticker}`);
-
-        try {
-          const result = await analyze(req.ticker, cfg);
-          await publish(toPayload(result, req.requestId));
-          log(`published ${result.symbol}: ${result.verdict} (bull ${result.bullScore} / bear ${result.bearScore})`);
-        } catch (e) {
-          // Publish the failure too - otherwise the portal polls until timeout
-          // and the user has no idea what went wrong.
-          log(`ANALYSE FAILED: ${e.message}`);
-          await publish({
-            requestId: req.requestId,
-            symbol: req.ticker,
-            verdict: 'ERROR',
-            error: e.message,
-            price: null,
-            dailyBias: null,
-            bullScore: 0,
-            bearScore: 0,
-            net: 0,
-            gateFailures: [],
-            bullish: [],
-            bearish: []
-          }).catch((pe) => log(`could not publish error: ${pe.message}`));
-        }
+        watching = { ticker: req.ticker, requestId: req.requestId };
+        await runOnce(watching.ticker, watching.requestId, `request ${req.requestId}`);
+      } else if (watching && Date.now() - lastRunAt >= REFRESH_MS) {
+        // Republished under the ORIGINAL requestId: this is the same watch,
+        // refreshed. The portal distinguishes updates by computedAt.
+        await runOnce(watching.ticker, watching.requestId, 'refresh');
       }
     } catch (e) {
       log(`poll error: ${e.message}`);
