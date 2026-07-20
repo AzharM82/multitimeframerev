@@ -84,10 +84,19 @@ async function publish(payload) {
   return res.json();
 }
 
-/** Strip the raw snapshot; the portal only needs the scored rows. */
-function toPayload(result, requestId) {
+/**
+ * Strip the raw snapshot; the portal only needs the scored rows.
+ *
+ * `ticker` is what the USER typed and is the key the portal looks results up
+ * by. `symbol` is what TradingView resolved it to, for display. Publishing only
+ * the resolved symbol meant a request for "NIFTY" was stored under "NSE:NIFTY"
+ * and the portal polled for a row that never existed - every unqualified ticker
+ * hung until the 2-minute timeout.
+ */
+function toPayload(result, requestId, requestedTicker) {
   return {
     requestId,
+    ticker: requestedTicker,
     symbol: result.symbol,
     resolution: result.resolution,
     price: result.price,
@@ -123,7 +132,7 @@ async function main() {
     nextDueAt = nextBarDue();
     try {
       const result = await analyze(ticker, cfg);
-      await publish(toPayload(result, requestId));
+      await publish(toPayload(result, requestId, ticker));
       log(`published ${result.symbol}: ${result.verdict} (bull ${result.bullScore} / bear ${result.bearScore})`);
     } catch (e) {
       // Publish the failure too - otherwise the portal polls until timeout and
@@ -131,6 +140,7 @@ async function main() {
       log(`ANALYSE FAILED: ${e.message}`);
       await publish({
         requestId,
+        ticker,
         symbol: ticker,
         verdict: 'ERROR',
         error: e.message,

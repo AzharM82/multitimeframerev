@@ -120,11 +120,24 @@ export function TradingViewPage() {
       return;
     }
 
-    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    const startedAt = Date.now();
+    const deadline = startedAt + POLL_TIMEOUT_MS;
     while (Date.now() < deadline) {
       if (cancelRef.current) return;
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       if (cancelRef.current) return;
+
+      // Tell the user what is actually happening. A silent spinner for two
+      // minutes is indistinguishable from a broken app.
+      const elapsed = Math.round((Date.now() - startedAt) / 1000);
+      setMessage(
+        elapsed < 8
+          ? `Requested ${symbol} — desktop sidecar is reading the chart… (${elapsed}s)`
+          : elapsed < 45
+            ? `Still working (${elapsed}s). If TradingView was closed, the sidecar is launching it — that takes ~40s.`
+            : `No response after ${elapsed}s. The sidecar may not be running, or TradingView was opened without the CDP launcher.`,
+      );
+
       try {
         const res = await getTvAnalysis(symbol);
         // Only accept a result produced for THIS request.
@@ -147,8 +160,9 @@ export function TradingViewPage() {
 
     setStatus("error");
     setMessage(
-      "Timed out after 2 minutes. The desktop sidecar is probably not running, " +
-      "or TradingView Desktop was opened without the CDP launcher.",
+      `Timed out after 2 minutes waiting for a result for "${symbol}". ` +
+      "Check tools/tv-sidecar/sidecar.log — if it shows a published result, the " +
+      "sidecar worked and the result was filed under a different key.",
     );
   }, []);
 

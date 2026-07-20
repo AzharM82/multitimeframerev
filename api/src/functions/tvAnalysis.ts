@@ -16,6 +16,9 @@ import { upsert, getOne, TABLES } from "../lib/tables.js";
  */
 
 interface AnalysisBody {
+  /** What the user typed, e.g. "NIFTY". The key the portal reads back by. */
+  ticker?: string;
+  /** What TradingView resolved it to, e.g. "NSE:NIFTY". For display only. */
   symbol?: string;
   requestId?: string;
   verdict?: string;
@@ -86,8 +89,11 @@ async function tvAnalysisHandler(req: HttpRequest): Promise<HttpResponseInit> {
     return { status: 400, jsonBody: { error: "Invalid JSON body" } };
   }
 
-  const symbol = (body.symbol || "").toUpperCase().trim();
-  if (!symbol) return { status: 400, jsonBody: { error: "symbol required" } };
+  // Key by the REQUESTED ticker, falling back to the resolved symbol for older
+  // publishers. Keying by the resolved symbol alone stored a request for
+  // "NIFTY" under "NSE:NIFTY", so the portal polled a row that never existed.
+  const symbol = (body.ticker || body.symbol || "").toUpperCase().trim();
+  if (!symbol) return { status: 400, jsonBody: { error: "ticker or symbol required" } };
 
   const payloadJson = JSON.stringify(body);
   if (Buffer.byteLength(payloadJson, "utf8") > MAX_PAYLOAD_BYTES) {
