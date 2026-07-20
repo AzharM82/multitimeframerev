@@ -371,6 +371,17 @@ async function analyze(ticker, cfg = loadConfig()) {
     }
     const snap = await waitForChart(sess, ticker, cfg.intradayResolution);
 
+    // Label the driven tab so it is distinguishable in TradingView's tab bar.
+    // Two tabs can be open on the SAME saved layout and look identical - the
+    // user watched the twin, saw it stay on the old ticker, and reasonably
+    // concluded nothing had happened. Marking the tab makes "which window is
+    // the robot using" answerable at a glance instead of via CDP target ids.
+    if (cfg.markTab !== false) {
+      await sess
+        .evaluate(`document.title = ${JSON.stringify('[SIDECAR] ' + snap.symbol)}`)
+        .catch(() => { /* cosmetic only - never fail an analysis over it */ });
+    }
+
     const result = score(snap);
     result.meta = {
       launchState,
