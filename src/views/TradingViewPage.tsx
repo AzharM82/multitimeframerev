@@ -15,7 +15,7 @@ import type { TvAnalysisResponse, TvSignalRow } from "../types.js";
  * otherwise indistinguishable from a fresh one.
  */
 
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 700;
 const POLL_TIMEOUT_MS = 120_000;
 
 /** How often to check for a refreshed reading once one is on screen. */

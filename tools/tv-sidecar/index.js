@@ -25,7 +25,10 @@ const { analyze, loadConfig } = require('./analyze.js');
 
 const PORTAL_BASE = (process.env.PORTAL_BASE || 'https://salmon-river-0a7a0c30f.1.azurestaticapps.net').replace(/\/$/, '');
 const TIMER_SECRET = process.env.TIMER_SECRET || '';
-const POLL_MS = Number(process.env.POLL_MS || 3000);
+// Tight: this is a local GET against the portal and it sets the floor on how
+// long a ticker change sits unnoticed. At 3000ms it was the single largest
+// component of perceived switch latency.
+const POLL_MS = Number(process.env.POLL_MS || 800);
 
 /**
  * How often to re-read the ticker that is currently being watched. Defaults to

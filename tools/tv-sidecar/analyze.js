@@ -130,6 +130,7 @@ async function probeTarget(target) {
 async function bindTab(cfg, timeoutMs = 15000, wantedSymbol = null) {
   const deadline = Date.now() + timeoutMs;
   let lastError = new Error('No TradingView chart tabs found');
+  let navigated = false; // commandeer at most one tab per bind attempt
 
   for (;;) {
     try {
@@ -174,9 +175,31 @@ async function bindTab(cfg, timeoutMs = 15000, wantedSymbol = null) {
           return chosen.target;
         }
 
+        // Nothing loaded has the template. TradingView restores tabs lazily,
+        // so the template tab may not exist as a CDP target at all until it is
+        // activated - observed after a restart: 3 of 11 tabs awake, none of
+        // them the right one, every request failing. Rather than wait for a tab
+        // that may never appear, commandeer one and navigate it to the
+        // configured layout. This is what makes the sidecar's window dedicated.
+        if (cfg.chartUrl && !navigated) {
+          const victim = [...candidates].sort((a, b) => a.id.localeCompare(b.id))[0];
+          console.log(`[bindTab] no tab has the template; navigating target ${victim.id.slice(0, 8)} to ${cfg.chartUrl}`);
+          try {
+            const s = await new cdp.Session(victim.webSocketDebuggerUrl).connect();
+            try { await s.send('Page.navigate', { url: cfg.chartUrl }, 20000); }
+            finally { s.close(); }
+            navigated = true;
+            await sleep(5000); // let the layout and its studies load
+            continue;
+          } catch (e) {
+            lastError = new Error(`could not navigate a tab to ${cfg.chartUrl}: ${e.message}`);
+          }
+        }
+
         lastError = new Error(
           `No chart tab carries the full indicator template ` +
-          `(${CRITICAL_STUDIES.map((r) => r.source).join(', ')}).`
+          `(${CRITICAL_STUDIES.map((r) => r.source).join(', ')}).` +
+          (cfg.chartUrl ? '' : ' Set "chartUrl" in config.json to a layout that has it.')
         );
       }
     } catch (e) {
@@ -263,7 +286,10 @@ async function waitForChart(sess, wantSymbol, wantRes, timeoutMs = 45000) {
       prevAnchor = anchor;
       last = { symbol: snap.symbol, resolution: snap.resolution, populated, total, missing };
     }
-    await sleep(1000);
+    // Tight poll: the stability check needs TWO consecutive agreeing reads, so
+    // this interval is paid twice on every switch. At 1000ms that alone was 2s
+    // of the perceived latency.
+    await sleep(350);
   }
 
   throw new Error(
@@ -275,15 +301,47 @@ async function waitForChart(sess, wantSymbol, wantRes, timeoutMs = 45000) {
   );
 }
 
-async function analyze(ticker, cfg = loadConfig()) {
-  const launchState = await ensureRunning(cfg);
-  // A cold start restores every saved tab, which takes far longer than the CDP
-  // port takes to open. Port-open is not app-ready.
+/**
+ * Cached CDP session for the bound tab.
+ *
+ * Rebinding per request was the single biggest source of switch latency: every
+ * analyse re-listed targets and opened/closed a CDP session against EVERY
+ * candidate tab just to re-discover the same window. Holding one session open
+ * turns a ticker change into "set the symbol on the window we already have".
+ * Revalidated with a trivial eval each time and rebuilt on any failure, so a
+ * TradingView restart heals on the next request.
+ */
+let bound = null; // { targetId, session, chartId }
+
+async function releaseSession() {
+  if (bound) {
+    try { bound.session.close(); } catch { /* already gone */ }
+    bound = null;
+  }
+}
+
+async function acquireSession(cfg, ticker, launchState) {
+  if (bound) {
+    try {
+      await bound.session.evaluate('1'); // cheap liveness probe
+      return bound;
+    } catch {
+      await releaseSession();
+    }
+  }
   const bindTimeout = launchState === 'already-running'
     ? (cfg.warmBindTimeoutMs || 60_000)
     : (cfg.coldStartTimeoutMs || 180_000);
   const target = await bindTab(cfg, bindTimeout, ticker);
-  const sess = await new cdp.Session(target.webSocketDebuggerUrl).connect();
+  const session = await new cdp.Session(target.webSocketDebuggerUrl).connect();
+  bound = { targetId: target.id, session, chartId: cdp.chartIdOf(target) };
+  return bound;
+}
+
+async function analyze(ticker, cfg = loadConfig()) {
+  const launchState = await ensureRunning(cfg);
+  const held = await acquireSession(cfg, ticker, launchState);
+  const sess = held.session;
   try {
     // Only touch the chart when it is not already showing what we want. On a
     // periodic refresh of the same ticker, re-setting the symbol would force a
@@ -316,18 +374,21 @@ async function analyze(ticker, cfg = loadConfig()) {
     const result = score(snap);
     result.meta = {
       launchState,
-      chartId: cdp.chartIdOf(target),
+      chartId: held.chartId,
       studiesPopulated: populatedCount(snap),
       totalStudies: Object.keys(snap.studies).length
     };
     result.snapshot = snap;
     return result;
-  } finally {
-    sess.close();
+  } catch (e) {
+    // Drop the cached session so the next attempt rebinds from scratch rather
+    // than reusing a window that may be wedged or gone.
+    await releaseSession();
+    throw e;
   }
 }
 
-module.exports = { analyze, loadConfig, bindTab, ensureRunning };
+module.exports = { analyze, loadConfig, bindTab, ensureRunning, releaseSession };
 
 if (require.main === module) {
   const ticker = process.argv[2];
@@ -336,12 +397,17 @@ if (require.main === module) {
     console.error('usage: node analyze.js <TICKER> [--json]');
     process.exit(2);
   }
+  // The cached session holds an open WebSocket, which keeps the event loop
+  // alive forever. The long-running sidecar wants that; a one-shot CLI run must
+  // let go or it never exits.
+  const finish = (code) => { releaseSession().finally(() => process.exit(code)); };
+
   analyze(ticker)
     .then((r) => {
       if (asJson) {
         const { snapshot, ...rest } = r;
         console.log(JSON.stringify(rest, null, 2));
-        return;
+        return finish(0);
       }
       const pad = (s, n) => String(s).padEnd(n);
       console.log(`\n=== ${r.symbol} @ ${r.price} (${r.resolution}m) ===`);
@@ -356,6 +422,7 @@ if (require.main === module) {
       if (!r.bearish.length) console.log('  (none)');
       for (const x of r.bearish) console.log(`  [${x.weight}] ${pad(x.signal, 34)} ${x.detail}`);
       console.log('');
+      finish(0);
     })
-    .catch((e) => { console.error('ANALYZE FAILED:', e.message); process.exit(1); });
+    .catch((e) => { console.error('ANALYZE FAILED:', e.message); finish(1); });
 }

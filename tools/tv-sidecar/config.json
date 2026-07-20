@@ -1,6 +1,7 @@
 {
   "port": 9222,
   "chartId": null,
+  "chartUrl": "https://www.tradingview.com/chart/SJYkgXd7/",
   "intradayResolution": "10",
   "dailyResolution": "D",
   "autoLaunch": true,
