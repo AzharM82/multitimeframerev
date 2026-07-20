@@ -200,7 +200,14 @@ async function waitForChart(sess, wantSymbol, wantRes, timeoutMs = 45000) {
     try { snap = JSON.parse(raw); } catch { snap = null; }
 
     if (snap && snap.ok) {
-      const symOk = !wantSymbol || snap.symbol.toUpperCase().includes(wantSymbol.split(':').pop().toUpperCase());
+      // Exact match on the symbol part, NOT substring. A substring test made
+      // short tickers dangerous: requesting "BE" would accept a chart still
+      // showing BEAM or BEN and score the wrong company under the right name.
+      // The exchange prefix is ignored because the user types "NIFTY" and
+      // TradingView resolves it to "NSE:NIFTY".
+      const symOk =
+        !wantSymbol ||
+        snap.symbol.split(':').pop().toUpperCase() === wantSymbol.split(':').pop().toUpperCase();
       const resOk = !wantRes || String(snap.resolution) === String(wantRes);
       const missing = missingCritical(snap);
       const total = Object.keys(snap.studies).length;

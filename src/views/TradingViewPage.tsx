@@ -118,7 +118,6 @@ export function TradingViewPage() {
   }, []);
 
   const stale = result != null && result.ageSeconds > STALE_AFTER_SECONDS;
-  const embedSymbol = (submitted ?? "").replace(":", "%3A");
 
   return (
     <div className="space-y-4">
@@ -164,19 +163,14 @@ export function TradingViewPage() {
         </p>
       )}
 
-      {/* Chart — the widget renders independently of the sidecar, so it still
-          shows something useful even when the desktop side is down. */}
-      {submitted && (
-        <div className="bg-bg-card border border-border rounded overflow-hidden">
-          <iframe
-            key={submitted}
-            title={`TradingView chart — ${submitted}`}
-            src={`https://s.tradingview.com/widgetembed/?symbol=${embedSymbol}&interval=10&theme=dark&style=1&hidesidetoolbar=1&withdateranges=1&saveimage=0`}
-            className="w-full h-[420px] border-0"
-            loading="lazy"
-          />
-        </div>
-      )}
+      {/* No embedded chart by design.
+          A TradingView widget iframe was tried and removed: it cannot resolve a
+          bare ticker (asking for "NIFTY" silently rendered Apple Inc), it does
+          not carry the user's indicator template, and it duplicates the real
+          chart the sidecar is already driving in TradingView Desktop. Showing a
+          second, different chart next to the numbers is worse than showing
+          none. The resolved symbol in the verdict bar is the confirmation that
+          the right instrument was read. */}
 
       {/* Verdict */}
       {result && (
