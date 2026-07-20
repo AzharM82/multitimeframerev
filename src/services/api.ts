@@ -15,6 +15,7 @@ import type {
   UoaDatesResponse,
   TvAnalysisResponse,
   TvRequestResponse,
+  TvHistoryResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -62,6 +63,13 @@ export function requestTvAnalysis(ticker: string): Promise<TvRequestResponse> {
 export function getTvAnalysis(ticker: string): Promise<TvAnalysisResponse> {
   return request<TvAnalysisResponse>(
     `/tv-analysis?ticker=${encodeURIComponent(ticker.toUpperCase().trim())}`,
+  );
+}
+
+/** The day's per-bar net-score trend for one ticker. */
+export function getTvHistory(ticker: string): Promise<TvHistoryResponse> {
+  return request<TvHistoryResponse>(
+    `/tv-history?ticker=${encodeURIComponent(ticker.toUpperCase().trim())}`,
   );
 }
 

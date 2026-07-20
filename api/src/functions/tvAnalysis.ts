@@ -48,6 +48,28 @@ const PARTITION = "result";
 /** Azure Table caps a single property at 64KB; keep well clear of it. */
 const MAX_PAYLOAD_BYTES = 48_000;
 
+/** Bar size the history is bucketed to, matching the sidecar's refresh. */
+const BUCKET_MS = 10 * 60 * 1000;
+
+/**
+ * History partition key. UTC date deliberately: both the US and Indian sessions
+ * fall wholly inside one UTC day (NSE 03:45-10:00Z, US 13:30-20:00Z), so no
+ * session is ever split across two partitions.
+ */
+export function historyPartition(ticker: string, when: Date): string {
+  return `hist_${ticker}_${when.toISOString().slice(0, 10)}`;
+}
+
+/**
+ * Row key is the 10-minute bucket the reading falls in, zero-padded so Azure
+ * Table's lexical row ordering is also chronological. Bucketing means a restart
+ * or a manual refresh overwrites that bar rather than adding a duplicate point.
+ */
+function historyRowKey(when: Date): string {
+  const bucket = Math.floor(when.getTime() / BUCKET_MS) * BUCKET_MS;
+  return String(bucket).padStart(15, "0");
+}
+
 async function tvAnalysisHandler(req: HttpRequest): Promise<HttpResponseInit> {
   if (req.method === "GET") {
     const ticker = (req.query.get("ticker") || "").toUpperCase().trim();
@@ -110,6 +132,27 @@ async function tvAnalysisHandler(req: HttpRequest): Promise<HttpResponseInit> {
 
   try {
     await upsert(TABLES.TV_ANALYSIS, PARTITION, symbol, row);
+
+    // Append to the day's trend history. Errors here must NOT fail the publish:
+    // losing one history point is cosmetic, losing the reading is not.
+    if (!body.error && typeof body.net === "number") {
+      const when = new Date(row.computedAt);
+      try {
+        await upsert(TABLES.TV_ANALYSIS, historyPartition(symbol, when), historyRowKey(when), {
+          ticker: symbol,
+          symbol: body.symbol ?? symbol,
+          net: body.net,
+          bullScore: body.bullScore ?? 0,
+          bearScore: body.bearScore ?? 0,
+          verdict: body.verdict ?? "",
+          price: body.price ?? null,
+          computedAt: row.computedAt,
+        });
+      } catch {
+        /* history is best-effort */
+      }
+    }
+
     return { jsonBody: { status: "ok", symbol, computedAt: row.computedAt } };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { requestTvAnalysis, getTvAnalysis } from "../services/api.js";
-import type { TvAnalysisResponse, TvSignalRow } from "../types.js";
+import { requestTvAnalysis, getTvAnalysis, getTvHistory } from "../services/api.js";
+import type { TvAnalysisResponse, TvSignalRow, TvHistoryPoint } from "../types.js";
 
 /**
  * TradingView chart analysis tab.
@@ -64,6 +64,80 @@ function SignalTable({ title, rows, tone }: { title: string; rows: TvSignalRow[]
   );
 }
 
+/**
+ * Intraday net-score trend, one bar per 10-minute reading.
+ *
+ * Net = bullish weight - bearish weight, so the zero line is the flip between
+ * a bullish and bearish reading and bar height is conviction. Bars are placed
+ * by chronological order rather than on a real time axis: the sidecar watches
+ * one ticker at a time, so gaps where it was watching something else are real
+ * and are shown as absent bars, never interpolated into a smooth line.
+ */
+function TrendHistogram({ points }: { points: TvHistoryPoint[] }) {
+  if (!points.length) return null;
+
+  const maxAbs = Math.max(5, ...points.map((p) => Math.abs(p.net)));
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const netNow = last.net;
+  const netThen = first.net;
+  const drift = netNow - netThen;
+
+  return (
+    <div className="bg-bg-card border border-border rounded p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-text-primary">
+          Intraday trend · net score per 10m bar
+        </h3>
+        <span className="text-[10px] font-mono text-text-secondary">
+          {points.length} bar{points.length === 1 ? "" : "s"} · {fmt(first.at)}–{fmt(last.at)} ·{" "}
+          <span className={drift > 0 ? "text-signal-bull" : drift < 0 ? "text-signal-bear" : ""}>
+            {drift > 0 ? "+" : ""}{drift} since open
+          </span>
+        </span>
+      </div>
+
+      <div className="relative flex items-stretch gap-[2px] h-[132px] w-full">
+        {/* zero line */}
+        <div className="absolute left-0 right-0 top-1/2 border-t border-border pointer-events-none" />
+        {points.map((p) => {
+          const pct = (Math.abs(p.net) / maxAbs) * 50; // half the box is one polarity
+          const up = p.net > 0;
+          return (
+            <div
+              key={p.bucket}
+              className="relative flex-1 min-w-[3px] group"
+              title={`${fmt(p.at)} — net ${p.net > 0 ? "+" : ""}${p.net} (bull ${p.bullScore} / bear ${p.bearScore})${p.price != null ? ` @ ${p.price}` : ""}\n${p.verdict}`}
+            >
+              <div
+                className={`absolute left-0 right-0 rounded-[1px] ${
+                  up ? "bg-signal-bull" : p.net < 0 ? "bg-signal-bear" : "bg-text-secondary"
+                } opacity-80 group-hover:opacity-100 transition-opacity`}
+                style={
+                  p.net === 0
+                    ? { top: "calc(50% - 1px)", height: "2px" }
+                    : up
+                      ? { bottom: "50%", height: `${pct}%` }
+                      : { top: "50%", height: `${pct}%` }
+                }
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex justify-between mt-1 text-[10px] font-mono text-dim">
+        <span>{fmt(first.at)}</span>
+        <span>+{maxAbs} / −{maxAbs} scale · hover a bar for detail</span>
+        <span>{fmt(last.at)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function TradingViewPage() {
   const [ticker, setTicker] = useState("");
   const [submitted, setSubmitted] = useState<string | null>(null);
@@ -71,6 +145,7 @@ export function TradingViewPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [result, setResult] = useState<TvAnalysisResponse | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const [history, setHistory] = useState<TvHistoryPoint[]>([]);
   const cancelRef = useRef(false);
 
   useEffect(() => () => { cancelRef.current = true; }, []);
@@ -93,6 +168,12 @@ export function TradingViewPage() {
       } catch {
         // Transient failure; the age badge will show the reading going stale.
       }
+      try {
+        const h = await getTvHistory(submitted);
+        if (!stopped) setHistory(h.points);
+      } catch {
+        // History is supplementary — never let its absence blank the tables.
+      }
     };
 
     const id = setInterval(tick, LIVE_POLL_MS);
@@ -109,6 +190,7 @@ export function TradingViewPage() {
     setStatus("waiting");
     setMessage("Queued — waiting for the desktop sidecar…");
     setResult(null);
+    setHistory([]); // previous ticker's trend must not linger under a new one
     setActiveRequestId(null); // stop the previous ticker's live refresh
 
     let requestId: string;
@@ -255,6 +337,8 @@ export function TradingViewPage() {
             <SignalTable title="Bullish" rows={result.bullish} tone="bull" />
             <SignalTable title="Bearish" rows={result.bearish} tone="bear" />
           </div>
+
+          <TrendHistogram points={history} />
 
           {result.meta && (
             <p className="text-[10px] text-dim">

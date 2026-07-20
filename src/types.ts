@@ -636,3 +636,21 @@ export interface TvRequestResponse {
   requestId: string;
   requestedAt: string;
 }
+
+/** One 10-minute bar's net score, for the intraday trend histogram. */
+export interface TvHistoryPoint {
+  at: string;
+  bucket: number;
+  net: number;
+  bullScore: number;
+  bearScore: number;
+  verdict: string;
+  price: number | null;
+}
+
+export interface TvHistoryResponse {
+  ticker: string;
+  date: string;
+  count: number;
+  points: TvHistoryPoint[];
+}

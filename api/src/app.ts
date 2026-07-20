@@ -54,6 +54,7 @@ import "./functions/rotWeeklyHistory.js";
 // Scoring runs in tools/tv-sidecar on the trading desktop, not here.
 import "./functions/tvRequest.js";
 import "./functions/tvAnalysis.js";
+import "./functions/tvHistory.js";
 
 // Portal authentication — SWA rolesSource allowlist (Google sign-in).
 // Invoked by the SWA platform, not the browser; must stay anonymous.
