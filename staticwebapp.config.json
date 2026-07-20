@@ -103,6 +103,15 @@
       ]
     },
     {
+      "route": "/api/tv-history",
+      "methods": [
+        "POST"
+      ],
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/*",
       "allowedRoles": [
         "portal"

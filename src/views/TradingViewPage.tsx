@@ -89,8 +89,18 @@ function TrendHistogram({ points }: { points: TvHistoryPoint[] }) {
   return (
     <div className="bg-bg-card border border-border rounded p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-text-primary">
-          Intraday trend · net score per 10m bar
+        <h3
+          className="text-xs font-bold uppercase tracking-wider text-text-primary"
+          title={
+            "Structural net = bullish minus bearish weight, counting only signals derivable " +
+            "from the chart's own bar history (levels, MAs, VWAP, oscillators). " +
+            "Volume and relative-strength signals come from Pine tables, which keep no " +
+            "history, so they are excluded from EVERY bar — backfilled and live alike — " +
+            "to keep the series comparable. The cards above use the full rubric, so their " +
+            "net will differ from the latest bar here."
+          }
+        >
+          Intraday trend · structural net per 10m bar
         </h3>
         <span className="text-[10px] font-mono text-text-secondary">
           {points.length} bar{points.length === 1 ? "" : "s"} · {fmt(first.at)}–{fmt(last.at)} ·{" "}
@@ -131,7 +141,7 @@ function TrendHistogram({ points }: { points: TvHistoryPoint[] }) {
 
       <div className="flex justify-between mt-1 text-[10px] font-mono text-dim">
         <span>{fmt(first.at)}</span>
-        <span>+{maxAbs} / −{maxAbs} scale · hover a bar for detail</span>
+        <span>±{maxAbs} scale · structural signals only · hover a bar for detail</span>
         <span>{fmt(last.at)}</span>
       </div>
     </div>

@@ -401,6 +401,27 @@ const RULES = [
 
 // ---------------------------------------------------------------- scoring
 
+/**
+ * Rules that depend on Pine TABLE values (Swing Data, Saty Volume Stack).
+ *
+ * Tables render current state only - the chart keeps no history of them - so
+ * these cannot be computed for a past bar. Everything else is plot-derived and
+ * IS recoverable from the chart's per-bar series.
+ *
+ * The trend histogram scores every bar with these excluded, backfilled and live
+ * alike. Mixing a 23-point backfilled bar with a 31-point live bar would put a
+ * step at the boundary that reads as a regime change but is only a scoring
+ * change - on a trend chart that is worse than having no history at all.
+ */
+const NON_STRUCTURAL_RULES = new Set([
+  'relativeVolume',
+  'volumeStack',
+  'upDownRatio',
+  'lodDistance',
+  'offHigh',
+  'sectorTrend',
+]);
+
 function checkGates(f) {
   const failures = [];
   if (f.avgDollarVol != null && f.avgDollarVol < GATES.minAvgDollarVol)
@@ -410,7 +431,8 @@ function checkGates(f) {
   return failures;
 }
 
-function score(snap) {
+function score(snap, opts = {}) {
+  const { structuralOnly = false } = opts;
   const facts = extractFacts(snap);
   const gateFailures = checkGates(facts);
 
@@ -419,6 +441,7 @@ function score(snap) {
   let dailyBias = null;
 
   for (const rule of RULES) {
+    if (structuralOnly && NON_STRUCTURAL_RULES.has(rule.name)) continue;
     let row;
     try { row = rule(facts); } catch (e) { continue; }
     if (!row) continue;
@@ -444,6 +467,7 @@ function score(snap) {
   const sortRows = (rows) => rows.sort((a, b) => b.weight - a.weight);
 
   return {
+    structuralOnly,
     symbol: facts.symbol,
     resolution: facts.resolution,
     capturedAt: snap.capturedAt,
@@ -460,4 +484,7 @@ function score(snap) {
   };
 }
 
-module.exports = { score, extractFacts, num, side, pctFrom, DEADBAND_PCT, GATES, RULES };
+module.exports = {
+  score, extractFacts, num, side, pctFrom,
+  DEADBAND_PCT, GATES, RULES, NON_STRUCTURAL_RULES,
+};

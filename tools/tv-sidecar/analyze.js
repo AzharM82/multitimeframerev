@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const cdp = require('./cdp.js');
 const { COLLECT_JS } = require('./collector.js');
+const { COLLECT_HISTORY_JS, toBarSnapshots } = require('./collector-history.js');
 const { score } = require('./rules.js');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -431,7 +432,60 @@ async function analyze(ticker, cfg = loadConfig()) {
   }
 }
 
-module.exports = { analyze, loadConfig, bindTab, ensureRunning, releaseSession };
+/**
+ * Recompute the day's trend from the chart's own bar history.
+ *
+ * Call this right after analyze() for the same ticker: it reuses the bound
+ * session and the chart is already on the right symbol, so nothing is switched
+ * and nothing is stored - the history is derived from the chart every time.
+ *
+ * Every bar is scored structural-only. Pine table values have no history, so a
+ * backfilled bar could never carry them; scoring live bars the same way is what
+ * keeps the whole series comparable.
+ */
+async function backfillHistory(ticker, cfg = loadConfig(), bars = 96) {
+  const launchState = await ensureRunning(cfg);
+  const held = await acquireSession(cfg, ticker, launchState);
+
+  const raw = await held.session.evaluate(COLLECT_HISTORY_JS(bars));
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { parsed = null; }
+  if (!parsed || !parsed.ok) {
+    throw new Error(`history collection failed: ${(parsed && parsed.error) || 'unparseable'}`);
+  }
+
+  // Guard against scoring one ticker's bars under another's name - the same
+  // class of mistake as the live readiness check.
+  if (
+    parsed.symbol.split(':').pop().toUpperCase() !==
+    ticker.split(':').pop().toUpperCase()
+  ) {
+    throw new Error(`history is for ${parsed.symbol}, expected ${ticker}`);
+  }
+
+  const snapshots = toBarSnapshots(parsed);
+  const points = [];
+  for (const snap of snapshots) {
+    let s;
+    try { s = score(snap, { structuralOnly: true }); } catch { continue; }
+    // A bar with no scored rules carries no information; emitting it as net 0
+    // would draw a flat bar that looks like a genuine neutral reading.
+    if (!s.bullish.length && !s.bearish.length) continue;
+    points.push({
+      at: new Date(snap.capturedAt).toISOString(),
+      net: s.net,
+      bullScore: s.bullScore,
+      bearScore: s.bearScore,
+      verdict: s.verdict,
+      price: s.price,
+    });
+  }
+  return { symbol: parsed.symbol, resolution: parsed.resolution, barsRead: snapshots.length, points };
+}
+
+module.exports = {
+  analyze, backfillHistory, loadConfig, bindTab, ensureRunning, releaseSession,
+};
 
 if (require.main === module) {
   const ticker = process.argv[2];

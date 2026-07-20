@@ -21,7 +21,7 @@
  *   REFRESH_MS    default 600000 (how often to re-read the CURRENT ticker)
  */
 
-const { analyze, loadConfig } = require('./analyze.js');
+const { analyze, backfillHistory, loadConfig } = require('./analyze.js');
 
 const PORTAL_BASE = (process.env.PORTAL_BASE || 'https://salmon-river-0a7a0c30f.1.azurestaticapps.net').replace(/\/$/, '');
 const TIMER_SECRET = process.env.TIMER_SECRET || '';
@@ -46,6 +46,9 @@ const BAR_SETTLE_MS = Number(process.env.BAR_SETTLE_MS || 15_000);
 /** Align refreshes to wall-clock bar boundaries rather than "N ms since last". */
 const ALIGN_TO_BAR = process.env.ALIGN_TO_BAR !== 'false';
 
+/** Bars of chart history to recompute on a ticker change (96 x 10m = 16h). */
+const BACKFILL_BARS = Number(process.env.BACKFILL_BARS || 96);
+
 /**
  * Next wall-clock bar boundary + settle time.
  *
@@ -68,6 +71,16 @@ async function fetchRequest() {
     headers: { accept: 'application/json' }
   });
   if (!res.ok) throw new Error(`GET /api/tv-request -> ${res.status}`);
+  return res.json();
+}
+
+async function publishHistory(ticker, symbol, points) {
+  const res = await fetch(`${PORTAL_BASE}/api/tv-history`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-timer-secret': TIMER_SECRET },
+    body: JSON.stringify({ ticker, symbol, points })
+  });
+  if (!res.ok) throw new Error(`POST /api/tv-history -> ${res.status}`);
   return res.json();
 }
 
@@ -170,6 +183,21 @@ async function main() {
         // re-analysing the same request forever.
         watching = { ticker: req.ticker, requestId: req.requestId };
         await runOnce(watching.ticker, watching.requestId, `request ${req.requestId}`);
+
+        // Recompute the day's trend from the chart's own bars. Runs AFTER the
+        // live result so the cards appear immediately and the histogram fills
+        // in behind them; a backfill failure must never delay or block the
+        // reading the user is waiting for.
+        try {
+          const h = await backfillHistory(watching.ticker, cfg, BACKFILL_BARS);
+          if (h.points.length) {
+            const w = await publishHistory(watching.ticker, h.symbol, h.points);
+            log(`backfilled ${w.written}/${h.points.length} bars from chart history`);
+          }
+        } catch (e) {
+          log(`backfill skipped: ${e.message}`);
+        }
+
         log(`next refresh at ${new Date(nextDueAt).toISOString()}`);
       } else if (watching && Date.now() >= nextDueAt) {
         // Republished under the ORIGINAL requestId: this is the same watch,
