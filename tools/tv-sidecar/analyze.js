@@ -206,7 +206,15 @@ async function bindTab(cfg, timeoutMs = 15000, wantedSymbol = null) {
         // that may never appear, commandeer one and navigate it to the
         // configured layout. This is what makes the sidecar's window dedicated.
         if (cfg.chartUrl && !navigated) {
-          const victim = [...candidates].sort((a, b) => a.id.localeCompare(b.id))[0];
+          // Prefer navigating a VISIBLE tab. On a cold start the template tab
+          // may not have restored yet, and loading the layout into a hidden
+          // renderer would leave the user watching an unchanging chart again.
+          let victim = null;
+          for (const t of [...candidates].sort((a, b) => a.id.localeCompare(b.id))) {
+            const info = await probeTarget(t);
+            if (info.visible) { victim = t; break; }
+            if (!victim) victim = t; // fallback: first by id
+          }
           console.log(`[bindTab] no tab has the template; navigating target ${victim.id.slice(0, 8)} to ${cfg.chartUrl}`);
           try {
             const s = await new cdp.Session(victim.webSocketDebuggerUrl).connect();
