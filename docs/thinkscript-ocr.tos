@@ -298,18 +298,21 @@ AddLabel(showOcrLabels and haveBuy,
     "SL " + AsDollars(lastSL),
     Color.PINK);
 
-AddLabel(showOcrLabels and haveTP,
-    "TP " + AsDollars(lastTP),
-    Color.YELLOW);
+# TP is intentionally NOT drawn as a pre-trade chip: the exit is DYNAMIC — it is
+# only decided when the opposite (red) reversal fires (isTpBar = D1[1]). Showing a
+# fixed TP before that would be misleading. The TP tracking above still drives the
+# dynamic exit line/bubble on the red-reversal bar; we just don't label a target.
 
-# Risk / reward (R-multiple) — handy for the OCR pipeline to filter low-quality setups
-def risk   = lastBuy - lastSL;
-def reward = lastTP  - lastBuy;
-def rMult  = if risk > 0 and haveTP then reward / risk else Double.NaN;
+# RISK % — distance from entry (BUY) to the stop as a % of entry, with a small
+# buffer added BEYOND the chart stop (slBufferPct) for slippage. This replaces the
+# static TP/R chips: risk is knowable at entry, reward (TP) is not.
+input slBufferPct = 0.05;                       # % widened beyond the chart stop
+def slBuffered = lastSL * (1 - slBufferPct / 100);
+def riskPct    = if haveBuy and lastBuy > 0 then (lastBuy - slBuffered) / lastBuy * 100 else Double.NaN;
 
-AddLabel(showOcrLabels and haveTP and !IsNaN(rMult),
-    "R " + Round(rMult, 2),
-    if rMult >= 1.5 then Color.GREEN else if rMult >= 1.0 then Color.YELLOW else Color.RED);
+AddLabel(showOcrLabels and haveBuy and !IsNaN(riskPct),
+    "RISK " + Round(riskPct, 2) + "%",
+    if riskPct <= 20 then Color.GREEN else if riskPct <= 40 then Color.YELLOW else Color.RED);
 
 #==============================================
 # Hidden / disabled bubble blocks from the original (kept for reference,

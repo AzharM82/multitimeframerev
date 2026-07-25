@@ -168,6 +168,17 @@ WATCHLIST_CALLS_TAG = os.environ.get("WATCHLIST_CALLS_TAG", "call").strip().lowe
 WATCHLIST_PUTS_TAG  = os.environ.get("WATCHLIST_PUTS_TAG", "put").strip().lower()
 # A reversal counts as "in the last 5-min bar" when bars-since-reversal <= this.
 WATCHLIST_REV_MAX_BARS = int(os.environ.get("WATCHLIST_REV_MAX_BARS", "1"))
+# OCR-strip crop for the OPTION chart in watchlist mode. Larger than STRIP_PCT
+# (0.12) on purpose: the BigDog label row sits at a fixed PIXEL offset below the
+# toolbar (~8–15% of window height depending on how tall the chart window is),
+# so a fixed 0.12 clips it whenever the window is shorter than when 0.12 was
+# tuned. 0.22 reliably contains the label band across window sizes; the extra
+# chart rows are ignored by the anchored REV/TREND/BD regexes.
+WATCHLIST_STRIP_PCT = float(os.environ.get("WATCHLIST_STRIP_PCT", "0.22"))
+# Slippage buffer widened BEYOND the chart stop when computing the Buy→Stop
+# risk %. Must match the study's slBufferPct input. Used only as a fallback when
+# the chart's RISK% chip isn't OCR'd (chart value wins when present).
+SL_BUFFER_PCT = float(os.environ.get("SCANNER_SL_BUFFER_PCT", "0.05"))
 # Whether the watchlists exceed one screen and must be scrolled. Default off:
 # on DESKTOP2 both lists fit fully on screen, so the scanner reads one page and
 # that IS the whole list. Set true only where a list is longer than the window
@@ -204,10 +215,11 @@ def _get_engine() -> RapidOCR:
     return _engine
 
 
-def crop_strip(image_path: Path) -> np.ndarray:
+def crop_strip(image_path: Path, strip_pct: float | None = None) -> np.ndarray:
     img = Image.open(image_path).convert("RGB")
     w, h = img.size
-    strip = img.crop((0, 0, w, int(h * STRIP_PCT)))
+    pct = STRIP_PCT if strip_pct is None else strip_pct
+    strip = img.crop((0, 0, w, int(h * pct)))
     strip = strip.resize((strip.width * 2, strip.height * 2), Image.LANCZOS)
     return cv2.cvtColor(np.array(strip), cv2.COLOR_RGB2BGR)
 
@@ -249,6 +261,17 @@ _TREND_MAP = {"UP": "U", "DN": "D", "FLAT": "F"}
 # strike(+optional .frac). `search` (not fullmatch) tolerates a stray OCR prefix.
 _OPT_SYM_RE = re.compile(r"[A-Z]{1,6}\d{6}[CP]\d+(?:\.\d+)?")
 
+# Azhar reversal-study trade levels (the study drawn on the OPTION charts):
+# BUY $price Nb · SL $price · TP $price · R <ratio>. The '$' frequently OCRs as
+# 'S'. R is the reward/risk ratio as a bare "R<num>" — distinct from the chart's
+# own "R:<num>" range quote field (the colon in "R:" guards against a false match).
+_BUY_RE = re.compile(r"\bBUY\s*[\$S]?\s*(\d+\.\d{2})\s*(\d+)\s*[bB]\b", re.IGNORECASE)
+_SL_RE  = re.compile(r"\bSL\s*[\$S]?\s*(\d+\.\d{2})", re.IGNORECASE)
+_TP_RE  = re.compile(r"\bTP\s*[\$S]?\s*(\d+\.\d{2})", re.IGNORECASE)   # legacy (TP chip removed)
+_RR_RE  = re.compile(r"\bR\s*(\d+\.\d+)\b")                            # legacy (R chip removed)
+# New chip: RISK <pct>%  — Buy→Stop distance as % of entry (with slBufferPct buffer).
+_RISK_RE = re.compile(r"\bRISK\s*(\d+\.\d+)\s*%", re.IGNORECASE)
+
 
 def parse_bigdog_strip(lines: list[str]) -> dict:
     """Parse the consolidated BigDog_OCR strip into raw features. Any missing
@@ -264,6 +287,10 @@ def parse_bigdog_strip(lines: list[str]) -> dict:
         "tick": None,          # day green-red histogram-bar balance (signed)
         "stoch_k": None, "stoch_d": None, "stoch_side": None,  # side = A(K>D)/B(K<D)
         "score": None,         # on-chart signed composite score (BD SC), -6..+6
+        # Azhar reversal-study trade levels (present on the OPTION charts).
+        # tp/rr are legacy (chips removed); risk_pct = Buy→Stop distance (%).
+        "buy_price": None, "buy_bars": None, "sl": None, "tp": None, "rr": None,
+        "risk_pct": None,
     }
     if lines and (m := _TICKER_RE.match(lines[0].strip())):
         f["ticker"] = m.group(1)
@@ -293,6 +320,23 @@ def parse_bigdog_strip(lines: list[str]) -> dict:
     if (m := _BD_SC.search(blob)):
         sign = {"P": 1, "N": -1, "Z": 0}[m.group(1).upper()]
         f["score"] = sign * int(m.group(2))
+    # Reversal-study trade levels (options charts).
+    if (m := _BUY_RE.search(blob)):
+        f["buy_price"] = float(m.group(1))
+        f["buy_bars"]  = int(m.group(2))
+    if (m := _SL_RE.search(blob)):
+        f["sl"] = float(m.group(1))
+    if (m := _TP_RE.search(blob)):
+        f["tp"] = float(m.group(1))
+    if (m := _RR_RE.search(blob)):
+        f["rr"] = float(m.group(1))
+    # Buy→Stop risk %. Prefer the chart's RISK chip (chart-truth); otherwise
+    # compute it from BUY/SL with the same slBufferPct buffer beyond the stop.
+    if (m := _RISK_RE.search(blob)):
+        f["risk_pct"] = float(m.group(1))
+    elif f["buy_price"] and f["sl"] and f["buy_price"] > 0:
+        sl_buffered = f["sl"] * (1 - SL_BUFFER_PCT / 100.0)
+        f["risk_pct"] = round((f["buy_price"] - sl_buffered) / f["buy_price"] * 100, 2)
     return f
 
 
@@ -764,6 +808,19 @@ def _is_bullish_dir(direction: str) -> bool:
     return direction in ("LONG", "CALL")
 
 
+def _levels_line(f: dict) -> str:
+    """Options trade levels line, e.g. 'BUY 0.98  SL 0.68  RISK 30.66%'. Empty
+    when the chart has no BUY level (finviz/stock BigDog charts)."""
+    if not f.get("buy_price"):
+        return ""
+    parts = [f"BUY {f['buy_price']}"]
+    if f.get("sl") is not None:
+        parts.append(f"SL {f['sl']}")
+    if f.get("risk_pct") is not None:
+        parts.append(f"RISK {f['risk_pct']}%")
+    return "  ".join(parts)
+
+
 def send_pushover(ticker: str, scored: dict, f: dict, counts: dict | None = None) -> bool:
     if not (PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN):
         print("  WARN: skipping Pushover (keys missing)", file=sys.stderr)
@@ -804,12 +861,20 @@ def enqueue_whatsapp(ticker: str, scored: dict, f: dict, counts: dict | None = N
         print("  WARN: azure-storage-queue not installed", file=sys.stderr)
         return False
     arrow = "\U0001f7e2" if _is_bullish_dir(scored["direction"]) else "\U0001f534"
-    text = (
-        f"{arrow} BIGDOG {scored['direction']} {scored['score']:+d} — {ticker}\n"
-        f"{_parts_line(scored['parts'])}\n"
-        f"REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  buy%={f.get('buy_pct')}  "
-        f"stoch={f.get('stoch_k')}/{f.get('stoch_d')}"
-    )
+    if f.get("buy_price"):
+        # Options alert: no score; carry the trade levels + risk% + list skew.
+        text = (
+            f"{arrow} BIGDOG {scored['direction']} — {ticker}\n"
+            f"REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  {_levels_line(f)}"
+        )
+    else:
+        # Stock/finviz BigDog alert: signed score + metric parts.
+        text = (
+            f"{arrow} BIGDOG {scored['direction']} {scored['score']:+d} — {ticker}\n"
+            f"{_parts_line(scored['parts'])}\n"
+            f"REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  buy%={f.get('buy_pct')}  "
+            f"stoch={f.get('stoch_k')}/{f.get('stoch_d')}"
+        )
     if counts:
         text += f"\n{_counts_line(counts)}"
     payload = {
@@ -859,6 +924,9 @@ def post_to_portal(ticker: str, scored: dict, f: dict, cfg: dict, counts: dict |
             "stoch_k": f.get("stoch_k"), "stoch_d": f.get("stoch_d"), "stoch_side": f.get("stoch_side"),
             "vwap_side": f.get("vwap_side"), "vwap": f.get("vwap"),
             "atr_side": f.get("atr_side"), "atr": f.get("atr"),
+            # Options trade levels (reversal study on the option chart).
+            "buy_price": f.get("buy_price"), "buy_bars": f.get("buy_bars"),
+            "sl": f.get("sl"), "risk_pct": f.get("risk_pct"),
         },
         "thresholds": {"buy_pct_min": cfg["BUY_PCT_MIN"], "alert_min": cfg["ALERT_MIN"]},
         "ocr_misses": ocr_misses,
@@ -915,7 +983,7 @@ def _process_watchlist_row(kind: str, sym: str, x: int, y: int, idx: int,
         print("CAPTURE FAILED")
         return False
     try:
-        lines = run_ocr(crop_strip(cap))
+        lines = run_ocr(crop_strip(cap, WATCHLIST_STRIP_PCT))
         f = parse_bigdog_strip(lines)
     except Exception as e:
         print(f"OCR ERROR: {e}")
@@ -923,8 +991,8 @@ def _process_watchlist_row(kind: str, sym: str, x: int, y: int, idx: int,
     if args.show_text:
         print(f"\n  raw: {lines}\n  feat: {f}")
     scored = evaluate_watchlist(f, kind, cfg)
-    tag = (f"{kind} score {scored['score']:+d} REV {f.get('rv_dir') or '?'} "
-           f"{f.get('rv_bars')}b [{_parts_line(scored['parts'])}]")
+    tag = (f"{kind} REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  "
+           f"{_levels_line(f) or '(no levels)'}")
     if not scored["alert"]:
         print(f"no alert — {tag}")
         return False
