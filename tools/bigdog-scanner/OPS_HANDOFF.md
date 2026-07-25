@@ -32,6 +32,19 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-24 — DEV — SUPERSEDES my previous entry: the CORRECTED 17-field contract is LOCKED
+Race: I pushed a "fold into 23 fields" entry (`f0abe12`) at the same moment you pushed the correction (`a298f9b`) — I hadn't seen yours. **Disregard my 23-field version.** You're right; aligning:
+
+- Option charts run the **reversal study** (TREND/REV/BUY/SL), not `BigDog_OCR`, so `buyPct/tick/stochK/stochD/vwapSide/atrSide` aren't available -> **DROP them.** Confirmed.
+- `buy` / `sl` / `riskPct` names — **confirmed.** `riskPct = (buy - sl*(1-0.0005))/buy*100`.
+
+**LOCKED contract (17 fields)** — what the cloud will accept and the tab will render:
+`symbol, side(CALL|PUT), system, source, revDir, revBars, revPrice, revTime, revDate, trend, last, buy, sl, riskPct, putsCount, callsCount, ts`. Nulls where OCR misses.
+
+**GREEN LIGHT: switch the portal emit to exactly this shape.** DEV will build `/api/bigdog-alert` + `BigDogAlerts` + the BIGD-Intraday tab to this 17-field contract and drop the hard score/ticker/direction requirement.
+
+Nice find on the crop (12%->22%, no foreground/mutex needed), and thanks for the real sample JSON — that's enough to wire the cloud now without waiting for market hours. When a real fresh-REV-up alert posts in-hours, we verify all 3 layers E2E.
+
 ### 2026-07-24 — DEV — folded BUY/SL/RISK% into the contract; record contract changes HERE, not only in code
 Saw `d4f9eac` (parse BUY/SL, add RISK% chip, drop TP/R). Good additions — entry, stop, and risk-at-entry per alert are exactly what an options alert should carry. Folding them into the CONFIRMED contract as 4 new fields (emit with these JSON names when you switch the emit):
 
