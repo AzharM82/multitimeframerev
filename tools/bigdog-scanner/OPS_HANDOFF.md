@@ -25,12 +25,37 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 - [x] **DESKTOP2: drop your options-migration spec here** — done 2026-07-24, see LOG entry below (all 5 points: watchlist source, payload contract w/ example, trigger/gate, OCR chips, what's already coded+pushed). Scanner code pushed as `ee976b2`. **DEV: please review the proposed payload field names and confirm/adjust so all 3 layers match before I wire the exact JSON.**
 - [ ] **DEV:** once the payload contract is posted, draft the 3-layer plan (scanner ↔ API/table ↔ BIGD-Intraday UI) in chat for operator approval, then implement the cloud + UI side. **-> DONE reviewing; contract CONFIRMED (DEV LOG below). DEV owns cloud+UI.**
-- [ ] **DESKTOP2: switch the scanner emit** from the legacy shape to the CONFIRMED field names below (symbol/side/revDir/revBars/revPrice/revTime/revDate/trend/last/buyPct/tick/stochK/stochD/vwapSide/atrSide/putsCount/callsCount/ts). Drop `score` from the payload.
-- [ ] **DESKTOP2: fix the OPEN BLOCKER** — `PrintWindow` returns empty study labels when the option chart isn't foreground. Foreground the Charts window before capture (respect the shared GUI mutex `SCANNER_GUI_LOCK_NAME` so you don't collide with the stock/options scanners), then re-verify a real `REV` chip parses. This is the critical path on your side — no alert can fire until it's fixed.
-- [ ] **DESKTOP2: confirm** dedup key `SYMBOL:SIDE` once/calendar-day is active, and post ONE real sample alert JSON once the blocker's fixed (lets us verify all 3 layers E2E).
+- [~] **DESKTOP2: switch the scanner emit** to the confirmed names — **BUT the field list needs a CORRECTION first (see my LOG below).** The option charts carry the *reversal* study, not `BigDog_OCR`, so `buyPct/tick/stochK/stochD/vwapSide/atrSide` **do not exist on them** — replace with `buy/sl/riskPct`. WhatsApp already emits the new data; portal-shape switch is staged pending your endpoint + the corrected fields.
+- [x] **DESKTOP2: OPEN BLOCKER RESOLVED — it was the OCR CROP, not foreground.** `PrintWindow` (PW_RENDERFULLCONTENT) *does* capture the non-foreground option chart's GPU study labels — verified on a real capture (full PNG showed `REV/BUY/SL`). Empty features were caused by the fixed 12% top-crop clipping the label row on a shorter window. Fix: watchlist mode crops 22% (`WATCHLIST_STRIP_PCT`). Re-verified `REV D 5b / BUY 3.92 / SL 3.75 / RISK 4.38%` parse from `wl_NVDA260731P210.png`. **No foreground/`SCANNER_GUI_LOCK_NAME` mutex needed** — the capture never has to steal focus (row-clicks keep the watchlist frontmost; the chart is captured behind it). Shipped in `d4f9eac`.
+- [~] **DESKTOP2: confirm dedup + post sample.** Dedup `SYMBOL:SIDE` once/day is active (`dispatch_alert`). Real fresh-REV-up sample must wait for market hours (closed now → no `revBars<=1 & revDir==U` rows); a representative JSON is in my LOG below so you can wire the cloud now.
 - [ ] **DEV:** build cloud+UI to the confirmed contract — extend `/api/bigdog-alert` + `BigDogAlerts` (accept options shape, no score) and rework the BIGD-Intraday tab. Plan to operator first, then build/deploy/verify.
 
 ## LOG (newest first)
+
+### 2026-07-24 — DESKTOP2 — CONTRACT CORRECTION (reversal-study fields) + blocker resolved + sample JSON
+
+Two updates since my last entry — please re-confirm the field list before building the table/UI.
+
+**A. Blocker was the CROP, not foreground (RESOLVED, shipped `d4f9eac`).** `PrintWindow` captures the non-foreground option chart's study labels fine; the empty REV was a 12% top-crop clipping the label row. Watchlist mode now crops 22%. No mutex/foreground change needed.
+
+**B. Field-list correction.** Operator refined the model AND I found the option charts run the **reversal study** (TREND/REV/BUY/SL — the `Azhar_Rversal` labels), NOT `BigDog_OCR`. So the BD chips you accepted (`buyPct, tick, stochK, stochD, vwapSide, atrSide`) **are not present on option charts** — drop them. Operator also: **removed TP & R** (TP is dynamic — only decided on the red reversal), and **added a risk %** (Buy→Stop distance, with a 0.05% buffer beyond the chart stop). Corrected contract:
+
+- **KEEP:** `symbol, side(CALL|PUT), system, source, revDir, revBars, revPrice, revTime, revDate, trend, last, putsCount, callsCount, ts`
+- **DROP:** `buyPct, tick, stochK, stochD, vwapSide, atrSide` (not on option charts) and `score` (already dropped)
+- **ADD:** `buy` (entry price, float), `sl` (stop price, float), `riskPct` (Buy→Stop % incl. 0.05% buffer, float)
+
+```json
+{
+  "symbol": "NFLX260731C70", "side": "CALL",
+  "system": "bigdog", "source": "bigdog-watchlist",
+  "revDir": "U", "revBars": 1, "revPrice": 1.60, "revTime": "12:05", "revDate": "7/24",
+  "trend": "F", "last": 1.34,
+  "buy": 0.98, "sl": 0.68, "riskPct": 30.65,
+  "putsCount": 46, "callsCount": 35,
+  "ts": "2026-07-24T19:05:00Z"
+}
+```
+(Values above are from a real capture `wl_NFLX260731C70.png`, except `revDir` shown as the fire case `U`; that capture was actually REV D so it would NOT alert.) `riskPct` = `(buy − sl·(1−0.0005))/buy·100`. Study source for the new labels: `docs/thinkscript-ocr.tos` (edited in `d4f9eac`); operator will re-import it into TOS on the option charts. **DEV: confirm buy/sl/riskPct names + that dropping the BD chips is fine, then I'll switch the portal emit to this exact shape.**
 
 ### 2026-07-24 — DEV — CONTRACT CONFIRMED + cloud/UI is DEV's job
 Reviewed your spec + `ee976b2`. Clear and well-structured. Decisions:
