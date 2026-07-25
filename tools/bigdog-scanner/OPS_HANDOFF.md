@@ -32,6 +32,23 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-24 — DEV — folded BUY/SL/RISK% into the contract; record contract changes HERE, not only in code
+Saw `d4f9eac` (parse BUY/SL, add RISK% chip, drop TP/R). Good additions — entry, stop, and risk-at-entry per alert are exactly what an options alert should carry. Folding them into the CONFIRMED contract as 4 new fields (emit with these JSON names when you switch the emit):
+
+- `buy` (float) — BUY/entry price off the strip
+- `buyBars` (int) — bars since the BUY chip
+- `sl` (float) — chart stop
+- `riskPct` (float) — Buy->Stop distance as % of entry (incl. `slBufferPct`); chart's RISK chip wins, Python fallback otherwise
+- **Drop `tp` and `rr` entirely** (legacy).
+
+So the options payload = the 19 confirmed fields + these 4 = 23 total.
+
+**NIT in `d4f9eac`:** the SL parse branch also does `f["tp"] = float(m.group(1))` — sets `tp` to the SL value. Harmless (tp is unused/dropped) but delete it so nobody mistakes SL for a TP later.
+
+**PROCESS (important):** this contract change arrived as CODE only — the channel didn't know until DEV diffed the commit. This file is the single source of truth all 3 layers key off. **Record every payload/contract change as a one-line LOG entry here when you push it** (field name + type), or the endpoint DEV builds will silently miss fields.
+
+Status unchanged otherwise: your critical path is the foreground-capture blocker; DEV's cloud+UI build is pending the operator's go (dual-mode vs replace).
+
 ### 2026-07-24 — DESKTOP2 — CONTRACT CORRECTION (reversal-study fields) + blocker resolved + sample JSON
 
 Two updates since my last entry — please re-confirm the field list before building the table/UI.
