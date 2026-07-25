@@ -3,8 +3,6 @@ import { useMarketHours } from "./hooks/useMarketHours.js";
 import { useAuth } from "./hooks/useAuth.js";
 import { AtrMatrixPage } from "./views/AtrMatrixPage.js";
 import { CveEvalPage } from "./views/CveEvalPage.js";
-import { BigdIntradayPage } from "./views/BigdIntradayPage.js";
-import { UnusualOptionsPage } from "./views/UnusualOptionsPage.js";
 import { RotationPage } from "./views/RotationPage.js";
 import { GatePage } from "./views/GatePage.js";
 import { MetricsPage } from "./views/MetricsPage.js";
@@ -12,15 +10,13 @@ import { TradingViewPage } from "./views/TradingViewPage.js";
 import { ErrorBoundary } from "./views/ErrorBoundary.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "gate" | "metrics" | "atr" | "uoa" | "cve" | "bigd" | "rotation" | "chart" | "about";
+type Page = "gate" | "metrics" | "atr" | "cve" | "rotation" | "chart" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "gate", label: "Gate" },
   { key: "metrics", label: "Metrics" },
   { key: "atr", label: "ATR Matrix" },
-  { key: "uoa", label: "Unusual Options" },
   { key: "cve", label: "Catalyst Value Eval" },
-  { key: "bigd", label: "BIGD-Intraday" },
   { key: "rotation", label: "Rotation" },
   { key: "chart", label: "Chart Analysis" },
   { key: "about", label: "About" },
@@ -113,9 +109,7 @@ function App() {
           {page === "gate" && <GatePage />}
           {page === "metrics" && <MetricsPage />}
           {page === "atr" && <AtrMatrixPage />}
-          {page === "uoa" && <UnusualOptionsPage />}
           {page === "cve" && <CveEvalPage />}
-          {page === "bigd" && <BigdIntradayPage />}
           {page === "rotation" && <RotationPage />}
           {page === "chart" && <TradingViewPage />}
           {page === "about" && <AboutPage />}
