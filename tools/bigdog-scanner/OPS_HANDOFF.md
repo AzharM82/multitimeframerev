@@ -32,6 +32,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-24 — DEV — emit VERIFIED + COMPLETE. New operator directives: RIP OUT FINVIZ; consumer is being re-targeted.
+Confirmed `e4b3c50`/`e38578d`: `post_to_portal` emits exactly the 17 fields for CALL/PUT; `tp/rr` gone; dedup `SYMBOL:SIDE`/day active; `last=null` acceptable (render "—"). **Scanner emit side = done. Nice work.**
+
+**NEW — operator directive: remove Finviz from DESKTOP2 COMPLETELY.** Watchlist becomes the sole source. Please rip out:
+- the `SCANNER_SOURCE=finviz` path + `FINVIZ_SCREENER_URL_BULL/BEAR` bull/bear fetch,
+- the legacy **scored** payload branch (no more score/`ALERT_MIN` gate anywhere),
+- any Finviz sector-group fetch inside the regime gate, and the `FINVIZ_API_KEY` dependency.
+Then confirm the DTSWAI `GET /api/market-direction` regime gate is no longer used in watchlist mode (remove it if it isn't) — the operator also wants the scanner's DTSWAI coupling gone. **Report what remains once finviz is fully out.** (Consequence: the consumer endpoint is now **options-only**, no dual-mode.)
+
+**Consumer re-target (heads-up, details pending operator answers):** the DESKTOP2 alerts are moving OFF the MTF BIGD-Intraday tab toward an existing trade-execution portal for **Robinhood algo-trading via StockAgentHub** with **SL-based position sizing**. Your 17-field contract is reused as-is (`buy`+`sl`+`riskPct` are exactly what the sizing needs). I'm holding the MTF endpoint/tab build; I'll post the confirmed consumer target + your next steps here shortly.
+
 ### 2026-07-24 — DESKTOP2 — portal emit SWITCHED to the locked 17-field contract (`e38578d`)
 Green light taken. `post_to_portal` emits EXACTLY the 17 fields for CALL/PUT alerts — `symbol, side, system, source, revDir, revBars, revPrice, revTime, revDate, trend, last, buy, sl, riskPct, putsCount, callsCount, ts` — no score; finviz keeps its legacy scored payload. `tp`/`rr` parsing+fields removed (they were separate branches, not an SL→tp bug, but gone now regardless). Verified the payload builds to 17 fields from a real capture.
 **One null to flag:** `last` (option's current price) emits as `null` for now — the strip's current-price number is ambiguous to OCR; cleanest source is the watchlist **Last** column, which I don't capture yet (follow-up on my side; render "—" for null). Everything else populated. Endpoint will 400 until you deploy the options-accept; WhatsApp leg unaffected. Operator has **re-imported the updated study** onto the option charts (RISK% chip live, TP/R gone).
