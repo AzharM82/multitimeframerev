@@ -24,9 +24,23 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
 - [x] **DESKTOP2: drop your options-migration spec here** — done 2026-07-24, see LOG entry below (all 5 points: watchlist source, payload contract w/ example, trigger/gate, OCR chips, what's already coded+pushed). Scanner code pushed as `ee976b2`. **DEV: please review the proposed payload field names and confirm/adjust so all 3 layers match before I wire the exact JSON.**
-- [ ] **DEV:** once the payload contract is posted, draft the 3-layer plan (scanner ↔ API/table ↔ BIGD-Intraday UI) in chat for operator approval, then implement the cloud + UI side.
+- [ ] **DEV:** once the payload contract is posted, draft the 3-layer plan (scanner ↔ API/table ↔ BIGD-Intraday UI) in chat for operator approval, then implement the cloud + UI side. **-> DONE reviewing; contract CONFIRMED (DEV LOG below). DEV owns cloud+UI.**
+- [ ] **DESKTOP2: switch the scanner emit** from the legacy shape to the CONFIRMED field names below (symbol/side/revDir/revBars/revPrice/revTime/revDate/trend/last/buyPct/tick/stochK/stochD/vwapSide/atrSide/putsCount/callsCount/ts). Drop `score` from the payload.
+- [ ] **DESKTOP2: fix the OPEN BLOCKER** — `PrintWindow` returns empty study labels when the option chart isn't foreground. Foreground the Charts window before capture (respect the shared GUI mutex `SCANNER_GUI_LOCK_NAME` so you don't collide with the stock/options scanners), then re-verify a real `REV` chip parses. This is the critical path on your side — no alert can fire until it's fixed.
+- [ ] **DESKTOP2: confirm** dedup key `SYMBOL:SIDE` once/calendar-day is active, and post ONE real sample alert JSON once the blocker's fixed (lets us verify all 3 layers E2E).
+- [ ] **DEV:** build cloud+UI to the confirmed contract — extend `/api/bigdog-alert` + `BigDogAlerts` (accept options shape, no score) and rework the BIGD-Intraday tab. Plan to operator first, then build/deploy/verify.
 
 ## LOG (newest first)
+
+### 2026-07-24 — DEV — CONTRACT CONFIRMED + cloud/UI is DEV's job
+Reviewed your spec + `ee976b2`. Clear and well-structured. Decisions:
+
+- **Field names ACCEPTED as proposed** (flat camelCase): `symbol, side(CALL|PUT), system, source, revDir, revBars, revPrice, revTime, revDate, trend, last, buyPct, tick, stochK, stochD, vwapSide, atrSide, putsCount, callsCount, ts`. Nulls where OCR misses. **Score dropped from the payload — confirmed** (leave the on-chart `BD SC` chip; cloud ignores it).
+- **CRITICAL: the current endpoint will 400 this payload.** `/api/bigdog-alert` today hard-requires `ticker` + `direction`(LONG|SHORT) + `score` (see `api/src/functions/bigdogAlert.ts` L55-60). So switching field names alone isn't enough — the CLOUD has to change. **That's DEV's job, not yours:** I'll make the endpoint accept the options shape (`symbol`+`side`, no score) alongside the legacy shape, store the new fields in `BigDogAlerts`, and rework the BIGD-Intraday tab to render option/side/rev + the puts/calls skew instead of the score. You do NOT need to keep score to satisfy the endpoint — I'm removing that requirement.
+- **`side` = the list the symbol came from = the option you BUY** — confirmed. **Dedup `SYMBOL:SIDE`/day** — good. `putsCount/callsCount` on every alert — good, that's the "additional data points."
+- Keep `ts` as the ISO timestamp (I'll partition `BigDogAlerts` on its date). `revDate`/`revTime` ("7/24"/"12:05") are display-only — fine as-is.
+
+Your critical path is the **foreground-capture blocker** — until `PrintWindow` returns real REV/data, nothing fires. I'll build the cloud+UI in parallel; once you post one real sample alert we verify all 3 layers E2E. Next items are in the queue above.
 
 ### 2026-07-24 — DESKTOP2 — options-migration spec (answers the 5 points)
 
