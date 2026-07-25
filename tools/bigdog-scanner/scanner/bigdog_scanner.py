@@ -267,9 +267,8 @@ _OPT_SYM_RE = re.compile(r"[A-Z]{1,6}\d{6}[CP]\d+(?:\.\d+)?")
 # own "R:<num>" range quote field (the colon in "R:" guards against a false match).
 _BUY_RE = re.compile(r"\bBUY\s*[\$S]?\s*(\d+\.\d{2})\s*(\d+)\s*[bB]\b", re.IGNORECASE)
 _SL_RE  = re.compile(r"\bSL\s*[\$S]?\s*(\d+\.\d{2})", re.IGNORECASE)
-_TP_RE  = re.compile(r"\bTP\s*[\$S]?\s*(\d+\.\d{2})", re.IGNORECASE)   # legacy (TP chip removed)
-_RR_RE  = re.compile(r"\bR\s*(\d+\.\d+)\b")                            # legacy (R chip removed)
-# New chip: RISK <pct>%  — Buy→Stop distance as % of entry (with slBufferPct buffer).
+# RISK <pct>%  — Buy→Stop distance as % of entry (with slBufferPct buffer).
+# TP and R chips were removed from the study (TP is dynamic) — no longer parsed.
 _RISK_RE = re.compile(r"\bRISK\s*(\d+\.\d+)\s*%", re.IGNORECASE)
 
 
@@ -279,6 +278,7 @@ def parse_bigdog_strip(lines: list[str]) -> dict:
     blob = " ".join(lines)
     f: dict = {
         "ticker": None,
+        "last": None,          # option's current price (TODO: from watchlist Last column)
         "rv_dir": None, "rv_bars": None, "rv_price": None, "rv_date": None, "rv_time": None,
         "trend": None,
         "vwap_side": None, "vwap": None,
@@ -288,9 +288,8 @@ def parse_bigdog_strip(lines: list[str]) -> dict:
         "stoch_k": None, "stoch_d": None, "stoch_side": None,  # side = A(K>D)/B(K<D)
         "score": None,         # on-chart signed composite score (BD SC), -6..+6
         # Azhar reversal-study trade levels (present on the OPTION charts).
-        # tp/rr are legacy (chips removed); risk_pct = Buy→Stop distance (%).
-        "buy_price": None, "buy_bars": None, "sl": None, "tp": None, "rr": None,
-        "risk_pct": None,
+        # risk_pct = Buy→Stop distance (%). TP/R chips removed from the study.
+        "buy_price": None, "buy_bars": None, "sl": None, "risk_pct": None,
     }
     if lines and (m := _TICKER_RE.match(lines[0].strip())):
         f["ticker"] = m.group(1)
@@ -326,10 +325,6 @@ def parse_bigdog_strip(lines: list[str]) -> dict:
         f["buy_bars"]  = int(m.group(2))
     if (m := _SL_RE.search(blob)):
         f["sl"] = float(m.group(1))
-    if (m := _TP_RE.search(blob)):
-        f["tp"] = float(m.group(1))
-    if (m := _RR_RE.search(blob)):
-        f["rr"] = float(m.group(1))
     # Buy→Stop risk %. Prefer the chart's RISK chip (chart-truth); otherwise
     # compute it from BUY/SL with the same slBufferPct buffer beyond the stop.
     if (m := _RISK_RE.search(blob)):
@@ -901,6 +896,41 @@ def post_to_portal(ticker: str, scored: dict, f: dict, cfg: dict, counts: dict |
     if not TIMER_SECRET:
         print("  WARN: TIMER_SECRET missing, skipping portal log", file=sys.stderr)
         return False
+
+    # Options mode → the LOCKED 17-field contract (DEV, 2026-07-24). No score.
+    if scored["direction"] in ("CALL", "PUT"):
+        cts = counts or {}
+        body = json.dumps({
+            "symbol": ticker,
+            "side": scored["direction"],
+            "system": "bigdog",
+            "source": "bigdog-watchlist",
+            "revDir": f.get("rv_dir"),
+            "revBars": f.get("rv_bars"),
+            "revPrice": f.get("rv_price"),
+            "revTime": f.get("rv_time"),
+            "revDate": f.get("rv_date"),
+            "trend": f.get("trend"),
+            "last": f.get("last"),
+            "buy": f.get("buy_price"),
+            "sl": f.get("sl"),
+            "riskPct": f.get("risk_pct"),
+            "putsCount": cts.get("PUT"),
+            "callsCount": cts.get("CALL"),
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }).encode()
+        req = urllib.request.Request(
+            f"{API_BASE}/api/bigdog-alert", data=body,
+            headers={"Content-Type": "application/json", "x-timer-secret": TIMER_SECRET},
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=30)
+            return resp.status == 200
+        except Exception as e:
+            print(f"  ERROR: portal POST failed: {e}", file=sys.stderr)
+            return False
+
+    # Finviz/stock mode → legacy scored payload (unchanged).
     ocr_misses = [k for k in ("vwap_side", "atr_side", "buy_pct", "tick", "stoch_k", "score") if f.get(k) is None]
     body = json.dumps({
         "ticker": ticker,
