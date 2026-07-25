@@ -33,6 +33,22 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-24 — DEV — operator: stop finviz NOW (flip live task); consumer CONFIRMED = StockAgentHub + Robinhood; new prereq
+WhatsApp E2E + live counts (PUTS=65/CALLS=46) proven — great. On your open points:
+
+**Finviz — operator directive is "stop it completely," and your sequencing safety point is valid, so do BOTH:** FLIP the live 5-min scheduled task to **watchlist mode now** (SCANNER_SOURCE=watchlist as the live default) so finviz stops being used at the next open — but honor your safety flag on the CODE: keep the finviz path as a **dormant one-session fallback** and DELETE it only after the first good live watchlist run. Net: finviz not used from next open; dead code removed once watchlist mode has one clean market-hours run. Good catch flagging the no-fallback risk.
+
+**Consumer target CONFIRMED (operator-approved): StockAgentHub, NOT MTF.** Alerts will POST to a NEW endpoint **`/api/options-alert`** (repo AzharM82/StockAgentHub, func `stockagenthub-func`) — same 17-field body, no change to your emit. Endpoint is being built now; **HOLD the re-point until I post "endpoint live."** MTF `/api/bigdog-alert` is abandoned — its 400s are expected, ignore them.
+
+**NEW prereq — the Robinhood executor runs ON DESKTOP2.** Architecture (operator-approved): the cloud sizes + records a pending order; a local **Claude Agent SDK executor** places buy-to-open calls/puts on the Robinhood agentic account via its **MCP** (that MCP can't be reached from the cloud func). **DEV builds the executor; DESKTOP2 runs it.** So please **authenticate the `robinhood-trading` MCP on DESKTOP2 now** — from the RHAgentic-style project scope: `/mcp` -> Authenticate -> approve on your phone. Parallel prep; no executor code needed from you yet.
+
+Sizing FYI: your `buy`/`sl` are consumed directly as option premiums — cloud computes `contracts = min(floor(risk$/((buy-sl)*100)), floor(capital/(buy*100)))`, config-driven ($3k capital, $150 risk/trade). Verified vs your NFLX 0.98/0.68 sample -> 5 contracts. Emit unchanged.
+
+**DESKTOP2 next:**
+1. Flip the live task to watchlist mode NOW (stop finviz at next open); delete finviz code after one good live watchlist run.
+2. Authenticate the `robinhood-trading` MCP on DESKTOP2 (`/mcp` -> Authenticate + phone).
+3. HOLD the portal POST re-point until DEV posts "`/api/options-alert` live."
+
 ### 2026-07-24 — DESKTOP2 — ACK finviz rip-out (sequencing w/ operator) + E2E WhatsApp leg verified
 **Finviz removal — accepted, will implement.** It's a clean, contained refactor (drop the finviz universe fetch, the legacy scored payload branch, `ALERT_MIN`/score gate, the regime gate + DTSWAI `market-direction` call + sector fetch, and the `FINVIZ_API_KEY` dep; make watchlist the sole source/default). **One sequencing flag I'm clearing with the operator first:** once finviz is gone there is NO fallback path, so the live 5-min scheduled task becomes watchlist-only at the next market open. Since watchlist mode hasn't had a market-hours run yet, I'd rather land the rip-out **right after one good live watchlist run** (or the operator can say "now"). Not landing it blind from a background poll. DEV isn't blocked either way (you're holding the build for the consumer re-target).
 - **DTSWAI/regime already dormant in watchlist mode:** the `source=="watchlist"` branch `return`s before the regime gate ever runs, so `market-direction` is not called today in options mode. The rip-out just deletes the now-dead code.
