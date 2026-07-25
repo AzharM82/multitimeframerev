@@ -1,56 +1,39 @@
 """
-BigDog Trades — Finviz → TOS → OCR → score → alert scanner.
+BigDog Trades — TOS watchlists → OCR → fresh-reversal → options alert scanner.
 
-Pulls two Finviz Elite screener exports (a bullish and a bearish universe),
-loads each ticker into a dedicated TOS chart window (running the BigDog_OCR
-study), OCRs the consolidated label strip, reads the on-chart signed score, and
-alerts via WhatsApp (Pushover opt-in) + logs the full feature payload to the MTF
-portal.
+Source = two on-screen TOS watchlists (Puts + Calls). Per cycle the scanner
+identifies the two watchlist windows (Calls/Puts by OCRing the tab), reads each
+Symbol column, and clicks each row — TOS symbol-linking loads that OPTION's chart
+into the shared Charts window (no typing). It OCRs the reversal study's label
+strip and alerts on the option's own FRESH bullish reversal, via WhatsApp
+(Pushover opt-in) + the MTF portal. Finviz/score/DTSWAI-regime were removed
+2026-07-24 — the watchlist is the sole source and there is no score.
 
-Chart-truth: the score AND every value come off the BigDog_OCR strip your
-studies draw — no server-side re-derivation. Python recomputes the score from
-the features only as a fallback / QA cross-check.
+Reversal-study strip fields (docs/thinkscript-ocr.tos):
+  TREND UP/DN/FLAT · REV U/D $price M/D HH:MM Nb · BUY $price Nb · SL $price · RISK <pct>%
 
-Strip fields (see thinkscript/BigDog_OCR.tos):
-  Reversal   TREND UP/DN/FLAT  +  REV U/D $price M/D HH:MM Nb
-  VWAP       BD VW A|B <int>     close above/below VWAP
-  ATR line   BD AT A|B <int>     close above/below ATR line
-  Buy vol %  BD BV <int>         buy-volume percent of last bar
-  Cum TICK   BD CT P|N <int>     day breadth: green vs red histogram bars (signed)
-  Stoch      BD ST <k> <d>       SlowK / SlowD
-  Score      BD SC P|N|Z <int>   composite signed score, -6..+6
+Trigger: REV U (bullish reversal of the option) AND rv_bars <= WATCHLIST_REV_MAX_BARS
+(fresh, on the just-closed 5-min bar). No score gate. side = CALL|PUT = which list
+= the option you buy. Dedup key SYMBOL:SIDE, once/calendar-day.
 
-Scoring (signed, -6..+6): each metric +1 bullish / -1 bearish / 0 neutral
-(reversal has NO freshness gate). Bull universe alerts at score >= +ALERT_MIN;
-bear universe alerts at score <= -ALERT_MIN (default 3).
+Alert payload (17-field options contract): symbol, side, system, source, revDir,
+revBars, revPrice, revTime, revDate, trend, last, buy, sl, riskPct, putsCount,
+callsCount, ts.  riskPct = (buy − sl·(1−slBufferPct/100))/buy·100.
 
-Workflow per scan cycle:
-  1. Gate: skip if outside market hours (default 6:30 AM – 1:00 PM PT, weekdays).
-  2. For each universe (bull, bear): pull Finviz export → tickers.
-  3. Find dedicated TOS scanner chart window (config: TOS_SCANNER_WINDOW).
-  4. For each ticker: Ctrl+L → type → Enter → wait → PrintWindow → crop → OCR →
-     parse → read score → alert if it clears the universe's gate.
-
-Required env (read from .env in this directory or process env):
-  FINVIZ_API_KEY, FINVIZ_SCREENER_URL_BULL, FINVIZ_SCREENER_URL_BEAR
-  PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN
+Required env (.env in this dir or process env):
   AZURE_STORAGE_CONNECTION_STRING, WHATSAPP_QUEUE_NAME, WHATSAPP_RECEIVER
-  TIMER_SECRET, SCANNER_API_BASE, TOS_SCANNER_WINDOW
-Tunable (optional, defaults below):
-  ALERT_MIN (3), BUY_PCT_MIN (70), ENABLE_PUSHOVER (false),
-  REGIME_GATE (true), REGIME_BASE, REGIME_SECRET (DTSWAI's secret), REGIME_STRONG (70),
-  SECTOR_TOP_N (3), EXCLUDE_SECTORS (Financial), SCANNER_LOAD_WAIT_S, SCANNER_KEY_INTERVAL_S
-
-Regime gate: fetch DTSWAI /api/market-direction (0-100) → (score-50)*2 = -100..+100.
-  >= +70 → longs only · <= -70 → shorts only · in between → both, restrict bull to
-  the top-3 Finviz sectors and bear to the bottom-3 (Financial excluded). Fail-open.
+  TIMER_SECRET, SCANNER_API_BASE, TOS_SCANNER_WINDOW (the Charts window)
+Tunable (defaults): ENABLE_PUSHOVER (false), TOS_WATCHLIST_WINDOW (Watchlist),
+  WATCHLIST_CALLS_TAG (call), WATCHLIST_PUTS_TAG (put), WATCHLIST_REV_MAX_BARS (1),
+  WATCHLIST_STRIP_PCT (0.22), SCANNER_SL_BUFFER_PCT (0.05), WATCHLIST_SCROLL (false),
+  SCANNER_LOAD_WAIT_S, SCANNER_STRIP_PCT.
 
 Usage:
-  python bigdog_scanner.py             # one full scan cycle (Task Scheduler entry)
-  python bigdog_scanner.py --dry-run   # OCR + score, no alerts
-  python bigdog_scanner.py --show-text # print raw OCR + parsed features per ticker
-  python bigdog_scanner.py --max 5     # limit to first 5 tickers (debug)
-  python bigdog_scanner.py --force     # ignore market-hours gate
+  python bigdog_scanner.py                    # one scan cycle (Task Scheduler entry)
+  python bigdog_scanner.py --dry-run          # click + OCR + gate, no alerts
+  python bigdog_scanner.py --calibrate-watchlist  # dump detected symbols/click-points, no clicks
+  python bigdog_scanner.py --max 5            # limit to 5 rows per list (debug)
+  python bigdog_scanner.py --force            # ignore market-hours gate
 """
 
 import argparse
@@ -124,24 +107,6 @@ QUEUE_NAME = os.environ.get("WHATSAPP_QUEUE_NAME", "whatsapp-alerts")
 RECEIVER = os.environ.get("WHATSAPP_RECEIVER", "")
 TIMER_SECRET = os.environ.get("TIMER_SECRET", "")
 TOS_SCANNER_WINDOW = os.environ.get("TOS_SCANNER_WINDOW", "")
-FINVIZ_API_KEY = os.environ.get("FINVIZ_API_KEY", "")
-# Two directional universes; legacy FINVIZ_SCREENER_URL is treated as the bull list.
-FINVIZ_SCREENER_URL_BULL = os.environ.get("FINVIZ_SCREENER_URL_BULL") or os.environ.get("FINVIZ_SCREENER_URL", "")
-FINVIZ_SCREENER_URL_BEAR = os.environ.get("FINVIZ_SCREENER_URL_BEAR", "")
-
-# Market-regime gate. Regime number = DTSWAI /api/market-direction score (0-100)
-# normalized to -100..+100 via (score-50)*2.
-#   >= +REGIME_STRONG  → longs only     <= -REGIME_STRONG → shorts only
-#   in between         → both, but restrict bull to the top-N sectors and bear to
-#                        the bottom-N sectors (Finviz group perf; Financial excluded).
-# Fail-open: if the regime endpoint is unreachable, allow both with no group filter.
-REGIME_GATE   = os.environ.get("REGIME_GATE", "true").strip().lower() in ("1", "true", "yes", "on")
-REGIME_BASE   = os.environ.get("REGIME_BASE", "https://dtswai-func.azurewebsites.net")
-# The regime endpoint is DTSWAI's — its x-timer-secret differs from the MTF one.
-REGIME_SECRET = os.environ.get("REGIME_SECRET") or TIMER_SECRET
-REGIME_STRONG = float(os.environ.get("REGIME_STRONG", "70"))
-SECTOR_TOP_N  = int(os.environ.get("SECTOR_TOP_N", "3"))
-EXCLUDE_SECTORS = {s.strip() for s in os.environ.get("EXCLUDE_SECTORS", "Financial").split(",") if s.strip()}
 PUSHOVER_USER_KEY = os.environ.get("PUSHOVER_USER_KEY", "")
 PUSHOVER_APP_TOKEN = os.environ.get("PUSHOVER_APP_TOKEN", "")
 # WhatsApp is the primary channel; Pushover is opt-in (set ENABLE_PUSHOVER=true).
@@ -153,12 +118,10 @@ ENABLE_PUSHOVER = os.environ.get("ENABLE_PUSHOVER", "false").strip().lower() in 
 # with SCANNER_STRIP_PCT if the strip lands elsewhere on your layout.
 STRIP_PCT = float(os.environ.get("SCANNER_STRIP_PCT", "0.12"))
 
-# ─── Watchlist-source config ─────────────────────────────────────────────────
-# SCANNER_SOURCE: "finviz" (legacy screener export) or "watchlist" (read the two
-# on-screen TOS watchlists, click each row to load its option chart). Watchlist
-# mode replaces Ctrl+L typing with row clicks and gates alerts on a FRESH
-# bullish reversal of the option itself (see evaluate_watchlist).
-SCANNER_SOURCE = os.environ.get("SCANNER_SOURCE", "finviz").strip().lower()
+# ─── Watchlist config (the sole source — Finviz removed 2026-07-24) ──────────
+# The scanner reads the two on-screen TOS watchlists (Puts/Calls), clicks each
+# row to load its option chart, OCRs the reversal-study strip, and alerts on a
+# FRESH bullish reversal of the option itself (see evaluate_watchlist).
 # Substring matched against the watchlist window titles (both are literally
 # "Watchlist Main@thinkorswim"; the Calls/Puts distinction comes from OCR).
 TOS_WATCHLIST_WINDOW = os.environ.get("TOS_WATCHLIST_WINDOW", "Watchlist")
@@ -195,18 +158,7 @@ WATCHLIST_FALLBACK_ORDER = [s.strip().upper() for s in
                             os.environ.get("WATCHLIST_FALLBACK_ORDER", "PUT,CALL").split(",")]
 
 
-def load_cfg() -> dict:
-    """Scoring config. The score itself is computed on-chart (BD SC chip); these
-    only drive the alert gate + the Python fallback recompute / cross-check.
-    ALERT_MIN=3 → bull alerts at score>=+3, bear at score<=-3.
-    BUY_PCT_MIN=70 must match the study's bdBuyThresh input."""
-    return {
-        "BUY_PCT_MIN": float(os.environ.get("BUY_PCT_MIN", "70")),
-        "ALERT_MIN":   int(os.environ.get("ALERT_MIN", "3")),
-    }
-
-
-# ─── OCR pipeline (mirror of finviz_scanner.py) ──────────────────────────────
+# ─── OCR pipeline ────────────────────────────────────────────────────────────
 _engine = None
 def _get_engine() -> RapidOCR:
     global _engine
@@ -335,162 +287,15 @@ def parse_bigdog_strip(lines: list[str]) -> dict:
     return f
 
 
-# ─── Scoring (signed, -6..+6) ────────────────────────────────────────────────
-def compute_parts(f: dict, cfg: dict) -> dict:
-    """Per-metric signed contribution (+1 bullish / -1 bearish / 0 neutral) from
-    the OCR'd features. Mirrors the on-chart BD SC calc; used as fallback + QA."""
-    def side_pt(s: str | None) -> int:
-        return 1 if s == "A" else -1 if s == "B" else 0
-
-    if f["buy_pct"] is None:
-        vol = 0
-    elif f["buy_pct"] >= cfg["BUY_PCT_MIN"]:
-        vol = 1
-    elif f["buy_pct"] <= 100 - cfg["BUY_PCT_MIN"]:
-        vol = -1
-    else:
-        vol = 0
-
-    tick_bal = f["tick"] or 0
-    tick = 1 if tick_bal > 0 else -1 if tick_bal < 0 else 0
-
-    # Prefer the on-chart decision letter (precise) over comparing rounded ints.
-    ss = f.get("stoch_side")
-    if ss in ("A", "B"):
-        stoch = 1 if ss == "A" else -1
-    elif f["stoch_k"] is not None and f["stoch_d"] is not None:
-        stoch = 1 if f["stoch_k"] > f["stoch_d"] else -1 if f["stoch_k"] < f["stoch_d"] else 0
-    else:
-        stoch = 0
-
-    return {
-        "rev":   1 if f["rv_dir"] == "U" else -1 if f["rv_dir"] == "D" else 0,
-        "atr":   side_pt(f["atr_side"]),
-        "vwap":  side_pt(f["vwap_side"]),
-        "vol":   vol,
-        "tick":  tick,
-        "stoch": stoch,
-    }
-
-
-def evaluate(f: dict, list_dir: str, cfg: dict) -> dict:
-    """Score a ticker for its universe's direction. The on-chart BD SC score is
-    authoritative; the feature recompute is a fallback + cross-check.
-    Bull list alerts at score>=+ALERT_MIN; bear list at score<=-ALERT_MIN."""
-    parts = compute_parts(f, cfg)
-    computed = sum(parts.values())
-    onchart = f.get("score")
-    score = onchart if onchart is not None else computed
-
-    if list_dir == "bull":
-        direction, alert = "LONG", score >= cfg["ALERT_MIN"]
-    else:
-        direction, alert = "SHORT", score <= -cfg["ALERT_MIN"]
-
-    return {
-        "direction": direction, "list_dir": list_dir,
-        "score": score, "onchart_score": onchart, "computed_score": computed,
-        "score_mismatch": onchart is not None and onchart != computed,
-        "parts": parts, "alert": alert,
-    }
-
-
-def evaluate_watchlist(f: dict, kind: str, cfg: dict) -> dict:
-    """Watchlist-mode gate: the loaded chart is the OPTION contract itself, and
-    you are BUYING that option, so for BOTH lists the trigger is the option's own
-    FRESH bullish reversal — REV U on the just-closed bar (rv_bars <=
-    WATCHLIST_REV_MAX_BARS). The composite score is reported but is NOT a gate
-    (unlike finviz mode). `kind` is 'CALL' or 'PUT' (which list the row is on)
-    and becomes the alert direction label."""
-    parts = compute_parts(f, cfg)
-    computed = sum(parts.values())
-    onchart = f.get("score")
-    score = onchart if onchart is not None else computed
+# ─── Alert gate (options: fresh bullish reversal only) ───────────────────────
+def evaluate_watchlist(f: dict, kind: str) -> dict:
+    """The loaded chart is the OPTION contract itself and you are BUYING it, so
+    for BOTH lists the trigger is the option's own FRESH bullish reversal — REV U
+    on the just-closed bar (rv_bars <= WATCHLIST_REV_MAX_BARS). No score. `kind`
+    is 'CALL' or 'PUT' (which list the row is on) and is the alert direction."""
     rb = f.get("rv_bars")
     fresh_rev_up = (f.get("rv_dir") == "U") and (rb is not None and rb <= WATCHLIST_REV_MAX_BARS)
-    return {
-        "direction": kind, "list_dir": kind.lower(),
-        "score": score, "onchart_score": onchart, "computed_score": computed,
-        "score_mismatch": onchart is not None and onchart != computed,
-        "parts": parts, "alert": fresh_rev_up,
-    }
-
-
-# ─── Finviz ──────────────────────────────────────────────────────────────────
-def finviz_to_export_url(screener_url: str) -> str:
-    parsed = urllib.parse.urlparse(screener_url)
-    return urllib.parse.urlunparse(parsed._replace(path="/export.ashx"))
-
-
-def fetch_finviz_tickers(screener_url: str) -> list[tuple[str, str]]:
-    """Return [(ticker, sector), ...]. Sector comes from the export's Sector
-    column (present in the bull/bear URLs' c= list); "" if absent."""
-    if not FINVIZ_API_KEY:
-        raise RuntimeError("FINVIZ_API_KEY not set")
-    export_url = finviz_to_export_url(screener_url)
-    sep = "&" if "?" in export_url else "?"
-    full = f"{export_url}{sep}auth={FINVIZ_API_KEY}"
-    req = urllib.request.Request(full, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    })
-    resp = urllib.request.urlopen(req, timeout=60)
-    text = resp.read().decode("utf-8", errors="replace").lstrip("﻿")
-    if text.lstrip().startswith("<") or "login" in text[:500].lower():
-        raise RuntimeError("Finviz returned HTML/login redirect — check FINVIZ_API_KEY")
-    reader = csv.DictReader(io.StringIO(text))
-    out: list[tuple[str, str]] = []
-    for row in reader:
-        sym = (row.get("Ticker") or row.get("ticker") or "").strip().upper()
-        if sym and re.match(r"^[A-Z][A-Z0-9.\-]{0,6}$", sym):
-            out.append((sym, (row.get("Sector") or "").strip()))
-    return out
-
-
-def fetch_regime() -> float | None:
-    """DTSWAI market-direction 0-100 score → signed -100..+100. None on failure
-    (fail-open: caller then allows both directions with no group filter)."""
-    if not REGIME_SECRET:
-        print("  WARN: no REGIME_SECRET → regime gate disabled this run", file=sys.stderr)
-        return None
-    req = urllib.request.Request(f"{REGIME_BASE}/api/market-direction",
-                                 headers={"x-timer-secret": REGIME_SECRET})
-    try:
-        d = json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
-        return (float(d["score"]) - 50.0) * 2.0
-    except Exception as e:
-        print(f"  WARN: regime fetch failed ({e}); allowing both directions", file=sys.stderr)
-        return None
-
-
-def fetch_sector_rankings() -> tuple[list[str], list[str]]:
-    """Finviz sector performance → (top_bull_sectors, top_bear_sectors), each of
-    size SECTOR_TOP_N, with EXCLUDE_SECTORS removed. ([],[]) on failure."""
-    if not FINVIZ_API_KEY:
-        return [], []
-    url = f"https://elite.finviz.com/grp_export.ashx?g=sector&v=140&auth={FINVIZ_API_KEY}"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        text = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "replace").lstrip("﻿")
-        reader = csv.DictReader(io.StringIO(text))
-        rows: list[tuple[str, float]] = []
-        for r in reader:
-            name = (r.get("Name") or r.get("Sector") or "").strip()
-            raw = (r.get("Change") or r.get("Perf Week") or "").replace("%", "").strip()
-            if not name or name in EXCLUDE_SECTORS:
-                continue
-            try:
-                rows.append((name, float(raw)))
-            except ValueError:
-                pass
-        if not rows:
-            return [], []
-        rows.sort(key=lambda t: t[1], reverse=True)
-        top = [n for n, _ in rows[:SECTOR_TOP_N]]
-        bot = [n for n, _ in rows[-SECTOR_TOP_N:]]
-        return top, bot
-    except Exception as e:
-        print(f"  WARN: sector-rank fetch failed ({e})", file=sys.stderr)
-        return [], []
+    return {"direction": kind, "list_dir": kind.lower(), "alert": fresh_rev_up}
 
 
 # ─── Window automation ───────────────────────────────────────────────────────
@@ -612,7 +417,7 @@ public class WC {
     return res.returncode == 0 and out_path.exists() and out_path.stat().st_size > 10_000
 
 
-# ─── Watchlist automation (SCANNER_SOURCE=watchlist) ─────────────────────────
+# ─── Watchlist automation (the sole source) ──────────────────────────────────
 def list_tos_watchlist_windows() -> list[tuple[int, str]]:
     """Visible top-level TOS windows whose title marks them as watchlists."""
     if not HAVE_WIN_AUTOMATION:
@@ -785,27 +590,16 @@ def save_state(state: dict) -> None:
 
 
 # ─── Alert dispatch ─────────────────────────────────────────────────────────
-def _parts_line(parts: dict) -> str:
-    order = ["rev", "atr", "vwap", "vol", "tick", "stoch"]
-    sym = lambda v: "+" if v > 0 else "-" if v < 0 else "0"
-    return " ".join(f"{k}{sym(parts[k])}" for k in order)
-
-
 def _counts_line(counts: dict | None) -> str:
-    """One-line watchlist skew, e.g. 'PUTS Count=50  CALLS Count=42'. Empty in
-    finviz mode (counts is None)."""
+    """One-line watchlist skew, e.g. 'PUTS Count=50  CALLS Count=42'."""
     if not counts:
         return ""
     return f"PUTS Count={counts.get('PUT', '?')}  CALLS Count={counts.get('CALL', '?')}"
 
 
-def _is_bullish_dir(direction: str) -> bool:
-    return direction in ("LONG", "CALL")
-
-
 def _levels_line(f: dict) -> str:
     """Options trade levels line, e.g. 'BUY 0.98  SL 0.68  RISK 30.66%'. Empty
-    when the chart has no BUY level (finviz/stock BigDog charts)."""
+    when the chart has no BUY level."""
     if not f.get("buy_price"):
         return ""
     parts = [f"BUY {f['buy_price']}"]
@@ -820,21 +614,15 @@ def send_pushover(ticker: str, scored: dict, f: dict, counts: dict | None = None
     if not (PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN):
         print("  WARN: skipping Pushover (keys missing)", file=sys.stderr)
         return False
-    msg = (
-        f"score {scored['score']:+d} ({scored['direction']})\n"
-        f"{_parts_line(scored['parts'])}\n"
-        f"REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b buy%={f.get('buy_pct')} "
-        f"tick={f.get('tick')} stoch={f.get('stoch_k')}/{f.get('stoch_d')} "
-        f"vwap={f.get('vwap_side')} atr={f.get('atr_side')}"
-    )
+    msg = f"REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  {_levels_line(f)}"
     if counts:
         msg += f"\n{_counts_line(counts)}"
     body = urllib.parse.urlencode({
         "token": PUSHOVER_APP_TOKEN,
         "user": PUSHOVER_USER_KEY,
-        "title": f"BIGDOG {scored['direction']} {scored['score']:+d}: {ticker}",
+        "title": f"BIGDOG {scored['direction']}: {ticker}",
         "message": msg,
-        "priority": "1" if abs(scored["score"]) >= 5 else "0",
+        "priority": "0",
     }).encode()
     req = urllib.request.Request("https://api.pushover.net/1/messages.json", data=body)
     try:
@@ -855,28 +643,18 @@ def enqueue_whatsapp(ticker: str, scored: dict, f: dict, counts: dict | None = N
     except ImportError:
         print("  WARN: azure-storage-queue not installed", file=sys.stderr)
         return False
-    arrow = "\U0001f7e2" if _is_bullish_dir(scored["direction"]) else "\U0001f534"
-    if f.get("buy_price"):
-        # Options alert: no score; carry the trade levels + risk% + list skew.
-        text = (
-            f"{arrow} BIGDOG {scored['direction']} — {ticker}\n"
-            f"REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  {_levels_line(f)}"
-        )
-    else:
-        # Stock/finviz BigDog alert: signed score + metric parts.
-        text = (
-            f"{arrow} BIGDOG {scored['direction']} {scored['score']:+d} — {ticker}\n"
-            f"{_parts_line(scored['parts'])}\n"
-            f"REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  buy%={f.get('buy_pct')}  "
-            f"stoch={f.get('stoch_k')}/{f.get('stoch_d')}"
-        )
+    # CALL → green, PUT → red. Options alert: no score; trade levels + list skew.
+    arrow = "\U0001f7e2" if scored["direction"] == "CALL" else "\U0001f534"
+    text = (
+        f"{arrow} BIGDOG {scored['direction']} — {ticker}\n"
+        f"REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  {_levels_line(f)}"
+    )
     if counts:
         text += f"\n{_counts_line(counts)}"
     payload = {
         "to": RECEIVER,
         "text": text,
-        "meta": {"ticker": ticker, "source": "bigdog", "score": scored["score"],
-                 "counts": counts or {}},
+        "meta": {"ticker": ticker, "source": "bigdog", "counts": counts or {}},
     }
     body = base64.b64encode(json.dumps(payload).encode()).decode()
     try:
@@ -892,80 +670,33 @@ def enqueue_whatsapp(ticker: str, scored: dict, f: dict, counts: dict | None = N
         return False
 
 
-def post_to_portal(ticker: str, scored: dict, f: dict, cfg: dict, counts: dict | None = None) -> bool:
+def post_to_portal(ticker: str, scored: dict, f: dict, counts: dict | None = None) -> bool:
+    """POST the LOCKED 17-field options contract (DEV, 2026-07-24). No score."""
     if not TIMER_SECRET:
         print("  WARN: TIMER_SECRET missing, skipping portal log", file=sys.stderr)
         return False
-
-    # Options mode → the LOCKED 17-field contract (DEV, 2026-07-24). No score.
-    if scored["direction"] in ("CALL", "PUT"):
-        cts = counts or {}
-        body = json.dumps({
-            "symbol": ticker,
-            "side": scored["direction"],
-            "system": "bigdog",
-            "source": "bigdog-watchlist",
-            "revDir": f.get("rv_dir"),
-            "revBars": f.get("rv_bars"),
-            "revPrice": f.get("rv_price"),
-            "revTime": f.get("rv_time"),
-            "revDate": f.get("rv_date"),
-            "trend": f.get("trend"),
-            "last": f.get("last"),
-            "buy": f.get("buy_price"),
-            "sl": f.get("sl"),
-            "riskPct": f.get("risk_pct"),
-            "putsCount": cts.get("PUT"),
-            "callsCount": cts.get("CALL"),
-            "ts": datetime.now(timezone.utc).isoformat(),
-        }).encode()
-        req = urllib.request.Request(
-            f"{API_BASE}/api/bigdog-alert", data=body,
-            headers={"Content-Type": "application/json", "x-timer-secret": TIMER_SECRET},
-        )
-        try:
-            resp = urllib.request.urlopen(req, timeout=30)
-            return resp.status == 200
-        except Exception as e:
-            print(f"  ERROR: portal POST failed: {e}", file=sys.stderr)
-            return False
-
-    # Finviz/stock mode → legacy scored payload (unchanged).
-    ocr_misses = [k for k in ("vwap_side", "atr_side", "buy_pct", "tick", "stoch_k", "score") if f.get(k) is None]
+    cts = counts or {}
     body = json.dumps({
-        "ticker": ticker,
+        "symbol": ticker,
+        "side": scored["direction"],
         "system": "bigdog",
-        "direction": scored["direction"],
-        "listDir": scored["list_dir"],
-        "counts": counts or {},
-        "score": scored["score"],
-        "onchartScore": scored["onchart_score"],
-        "computedScore": scored["computed_score"],
-        "scoreMismatch": scored["score_mismatch"],
-        "alertMin": cfg["ALERT_MIN"],
-        "parts": scored["parts"],
-        "raw": {
-            "rv_dir": f.get("rv_dir"), "rv_bars": f.get("rv_bars"),
-            "rv_price": f.get("rv_price"), "rv_time": f.get("rv_time"), "rv_date": f.get("rv_date"),
-            "trend": f.get("trend"),
-            "buy_pct": f.get("buy_pct"),
-            "sell_pct": (100 - f["buy_pct"]) if f.get("buy_pct") is not None else None,
-            "tick_bal": f.get("tick"),
-            "stoch_k": f.get("stoch_k"), "stoch_d": f.get("stoch_d"), "stoch_side": f.get("stoch_side"),
-            "vwap_side": f.get("vwap_side"), "vwap": f.get("vwap"),
-            "atr_side": f.get("atr_side"), "atr": f.get("atr"),
-            # Options trade levels (reversal study on the option chart).
-            "buy_price": f.get("buy_price"), "buy_bars": f.get("buy_bars"),
-            "sl": f.get("sl"), "risk_pct": f.get("risk_pct"),
-        },
-        "thresholds": {"buy_pct_min": cfg["BUY_PCT_MIN"], "alert_min": cfg["ALERT_MIN"]},
-        "ocr_misses": ocr_misses,
+        "source": "bigdog-watchlist",
+        "revDir": f.get("rv_dir"),
+        "revBars": f.get("rv_bars"),
+        "revPrice": f.get("rv_price"),
+        "revTime": f.get("rv_time"),
+        "revDate": f.get("rv_date"),
+        "trend": f.get("trend"),
+        "last": f.get("last"),
+        "buy": f.get("buy_price"),
+        "sl": f.get("sl"),
+        "riskPct": f.get("risk_pct"),
+        "putsCount": cts.get("PUT"),
+        "callsCount": cts.get("CALL"),
         "ts": datetime.now(timezone.utc).isoformat(),
-        "source": "bigdog-ocr",
     }).encode()
     req = urllib.request.Request(
-        f"{API_BASE}/api/bigdog-alert",
-        data=body,
+        f"{API_BASE}/api/bigdog-alert", data=body,
         headers={"Content-Type": "application/json", "x-timer-secret": TIMER_SECRET},
     )
     try:
@@ -977,10 +708,10 @@ def post_to_portal(ticker: str, scored: dict, f: dict, cfg: dict, counts: dict |
 
 
 # ─── Alert dispatch (shared dedup + multi-sink) ──────────────────────────────
-def dispatch_alert(symbol: str, scored: dict, f: dict, cfg: dict,
+def dispatch_alert(symbol: str, scored: dict, f: dict,
                    counts: dict | None, args, alerted_today: set) -> bool:
-    """Per-day dedup on 'SYMBOL:DIRECTION' + fan-out to WhatsApp / portal /
-    Pushover. Returns True only when a brand-new alert was actually sent."""
+    """Per-day dedup on 'SYMBOL:SIDE' + fan-out to WhatsApp / portal / Pushover.
+    Returns True only when a brand-new alert was actually sent."""
     dedup_key = f"{symbol}:{scored['direction']}"
     if dedup_key in alerted_today:
         print("  (already alerted today)")
@@ -989,7 +720,7 @@ def dispatch_alert(symbol: str, scored: dict, f: dict, cfg: dict,
         print("  (dry-run: would alert)")
         return False
     wa_ok = enqueue_whatsapp(symbol, scored, f, counts)
-    portal_ok = post_to_portal(symbol, scored, f, cfg, counts)
+    portal_ok = post_to_portal(symbol, scored, f, counts)
     po_ok = send_pushover(symbol, scored, f, counts) if ENABLE_PUSHOVER else False
     if wa_ok or portal_ok or po_ok:
         alerted_today.add(dedup_key)
@@ -1000,7 +731,7 @@ def dispatch_alert(symbol: str, scored: dict, f: dict, cfg: dict,
 
 # ─── Watchlist scan mode ─────────────────────────────────────────────────────
 def _process_watchlist_row(kind: str, sym: str, x: int, y: int, idx: int,
-                           chart_hwnd: int, cfg: dict, counts: dict,
+                           chart_hwnd: int, counts: dict,
                            args, alerted_today: set) -> bool:
     """Click one watchlist row (loads its option chart), OCR the strip, evaluate
     the fresh-reversal gate, and alert if it fires. Returns True if a NEW alert
@@ -1020,20 +751,20 @@ def _process_watchlist_row(kind: str, sym: str, x: int, y: int, idx: int,
         return False
     if args.show_text:
         print(f"\n  raw: {lines}\n  feat: {f}")
-    scored = evaluate_watchlist(f, kind, cfg)
+    scored = evaluate_watchlist(f, kind)
     tag = (f"{kind} REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  "
            f"{_levels_line(f) or '(no levels)'}")
     if not scored["alert"]:
         print(f"no alert — {tag}")
         return False
     print(f"ALERT {tag}")
-    return dispatch_alert(sym, scored, f, cfg, counts, args, alerted_today)
+    return dispatch_alert(sym, scored, f, counts, args, alerted_today)
 
 
-def run_watchlist_mode(args, cfg: dict, chart_hwnd: int, alerted_today: set) -> tuple[int, int]:
+def run_watchlist_mode(args, chart_hwnd: int, alerted_today: set) -> tuple[int, int]:
     """Read the two on-screen TOS watchlists (Puts + Calls), click each row to
-    load its option chart into `chart_hwnd`, OCR the BigDog strip, and alert on a
-    fresh bullish reversal. Every alert carries the PUTS/CALLS symbol counts.
+    load its option chart into `chart_hwnd`, OCR the reversal strip, and alert on
+    a fresh bullish reversal. Every alert carries the PUTS/CALLS symbol counts.
     Default single-page (lists fit on screen); WATCHLIST_SCROLL adds paging."""
     wins = identify_watchlist_windows()
     print("Watchlist windows: " + ", ".join(f"{k}=hwnd {h}" for k, h in wins.items()))
@@ -1069,7 +800,7 @@ def run_watchlist_mode(args, cfg: dict, chart_hwnd: int, alerted_today: set) -> 
                 if args.max and i > args.max:
                     break
                 scanned += 1
-                if _process_watchlist_row(kind, sym, x, y, i, chart_hwnd, cfg,
+                if _process_watchlist_row(kind, sym, x, y, i, chart_hwnd,
                                           counts, args, alerted_today):
                     fired += 1
             continue
@@ -1094,7 +825,7 @@ def run_watchlist_mode(args, cfg: dict, chart_hwnd: int, alerted_today: set) -> 
                     break
                 processed += 1
                 scanned += 1
-                if _process_watchlist_row(kind, sym, x, y, processed, chart_hwnd, cfg,
+                if _process_watchlist_row(kind, sym, x, y, processed, chart_hwnd,
                                           counts, args, alerted_today):
                     fired += 1
             if stop:
@@ -1131,14 +862,12 @@ def run_calibrate_watchlist() -> int:
 # ─── Main ────────────────────────────────────────────────────────────────────
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true", help="OCR + score but don't alert")
+    parser.add_argument("--dry-run", action="store_true", help="OCR + gate but don't alert")
     parser.add_argument("--force",   action="store_true", help="ignore market-hours gate")
-    parser.add_argument("--max", type=int, default=0, help="limit to N tickers (debug)")
-    parser.add_argument("--show-text", action="store_true", help="print raw OCR + features per ticker")
+    parser.add_argument("--max", type=int, default=0, help="limit to N rows per list (debug)")
+    parser.add_argument("--show-text", action="store_true", help="print raw OCR + features per row")
     parser.add_argument("--pick-window", action="store_true",
                         help="force re-selection of the scanner chart (clears the saved hwnd)")
-    parser.add_argument("--source", choices=["finviz", "watchlist"], default=None,
-                        help="ticker source (overrides SCANNER_SOURCE env)")
     parser.add_argument("--calibrate-watchlist", action="store_true",
                         help="watchlist mode: identify windows + dump detected symbols/click-points "
                              "(+ annotated screenshots), no clicks, no alerts")
@@ -1154,8 +883,6 @@ def main() -> int:
             pass
 
     print(f"=== BigDog Scanner — {datetime.now():%Y-%m-%d %H:%M:%S} ===")
-    cfg = load_cfg()
-    source = (args.source or SCANNER_SOURCE)
 
     if not HAVE_WIN_AUTOMATION:
         print("ERROR: pip install pyautogui pywin32 azure-storage-queue python-dotenv")
@@ -1172,17 +899,13 @@ def main() -> int:
               f"Use --force to bypass.")
         return 0
 
-    if source == "finviz" and not (FINVIZ_SCREENER_URL_BULL or FINVIZ_SCREENER_URL_BEAR):
-        print("ERROR: set FINVIZ_SCREENER_URL_BULL and/or FINVIZ_SCREENER_URL_BEAR")
-        return 1
-
     state = load_state()
     today = datetime.now().strftime("%Y-%m-%d")
     if state.get("date") != today:
         state = {"date": today, "alerted_today": [], "scanner_hwnd": state.get("scanner_hwnd")}
     if args.pick_window:
         state["scanner_hwnd"] = None
-    alerted_today = set(state["alerted_today"])   # keys: "TICKER:DIRECTION"
+    alerted_today = set(state["alerted_today"])   # keys: "SYMBOL:SIDE"
 
     found = get_or_pick_scanner_window(state)
     if not found:
@@ -1194,109 +917,11 @@ def main() -> int:
         print(f"Saved scanner window for future runs: hwnd {hwnd}")
     print(f"Scanner (chart) window: '{title}' (hwnd {hwnd})")
 
-    if source == "watchlist":
-        print("Source: TOS watchlists (Puts + Calls) — row-click load, fresh-REV-up gate")
-        scanned, fired_count = run_watchlist_mode(args, cfg, hwnd, alerted_today)
-        state["alerted_today"] = sorted(alerted_today)
-        save_state(state)
-        print(f"\n=== Scan complete: {scanned} rows, {fired_count} new alerts ===")
-        return 0
-
-    # ── Market-regime gate ──────────────────────────────────────────────────
-    regime = fetch_regime() if REGIME_GATE else None
-    run_bull = run_bear = True
-    bull_sectors = bear_sectors = None   # None = no group filter
-    if regime is not None:
-        if regime >= REGIME_STRONG:
-            run_bear = False
-            print(f"Regime {regime:+.0f} → STRONG BULL: longs only")
-        elif regime <= -REGIME_STRONG:
-            run_bull = False
-            print(f"Regime {regime:+.0f} → STRONG BEAR: shorts only")
-        else:
-            bull_sectors, bear_sectors = fetch_sector_rankings()
-            print(f"Regime {regime:+.0f} → NEUTRAL: both, prefer groups  "
-                  f"bull∈{bull_sectors or 'ALL'}  bear∈{bear_sectors or 'ALL'}")
-    else:
-        print("Regime gate off/unavailable → scanning both directions, no group filter")
-
-    universes: list[tuple[str, str, list | None]] = []
-    if run_bull and FINVIZ_SCREENER_URL_BULL:
-        universes.append(("bull", FINVIZ_SCREENER_URL_BULL, bull_sectors))
-    if run_bear and FINVIZ_SCREENER_URL_BEAR:
-        universes.append(("bear", FINVIZ_SCREENER_URL_BEAR, bear_sectors))
-
-    fired_count = 0
-    scanned = 0
-    for list_dir, url, allowed in universes:
-        print(f"\n--- {list_dir.upper()} universe ---")
-        try:
-            rows = fetch_finviz_tickers(url)
-        except Exception as e:
-            print(f"ERROR: Finviz fetch failed ({list_dir}): {e}")
-            continue
-        if allowed:  # neutral-zone group filter; keep unknown-sector names (fail-open)
-            before = len(rows)
-            rows = [(t, s) for t, s in rows if not s or s in allowed]
-            print(f"group filter → {before}→{len(rows)} in {allowed}")
-        if args.max:
-            rows = rows[:args.max]
-        syms = [t for t, _ in rows]
-        print(f"Got {len(rows)} tickers: {', '.join(syms[:10])}{'…' if len(rows) > 10 else ''}")
-
-        for i, (ticker, sector) in enumerate(rows):
-            print(f"[{list_dir} {i+1}/{len(rows)}] {ticker} …", end=" ", flush=True)
-            scanned += 1
-
-            load_ticker_in_tos(hwnd, ticker)
-            time.sleep(LOAD_WAIT_S)
-
-            cap_path = WORKSPACE / f"scan_{ticker}.png"
-            if not capture_window(hwnd, cap_path):
-                print("CAPTURE FAILED")
-                continue
-
-            try:
-                lines = run_ocr(crop_strip(cap_path))
-                f = parse_bigdog_strip(lines)
-            except Exception as e:
-                print(f"OCR ERROR: {e}")
-                continue
-
-            if args.show_text:
-                print(f"\n  raw: {lines}\n  feat: {f}")
-
-            scored = evaluate(f, list_dir, cfg)
-            mism = " !score-mismatch" if scored["score_mismatch"] else ""
-            tag = (f"{scored['direction']} score {scored['score']:+d} "
-                   f"[{_parts_line(scored['parts'])}]{mism}")
-
-            if not scored["alert"]:
-                print(f"no alert — {tag}")
-                continue
-
-            dedup_key = f"{ticker}:{scored['direction']}"
-            if dedup_key in alerted_today:
-                print(f"{tag} (already alerted today)")
-                continue
-
-            print(f"ALERT {tag}")
-            if args.dry_run:
-                print("  (dry-run: would alert)")
-                continue
-
-            wa_ok = enqueue_whatsapp(ticker, scored, f)
-            portal_ok = post_to_portal(ticker, scored, f, cfg)
-            po_ok = send_pushover(ticker, scored, f) if ENABLE_PUSHOVER else False
-            if wa_ok or portal_ok or po_ok:
-                alerted_today.add(dedup_key)
-                fired_count += 1
-                print(f"  sent: whatsapp={wa_ok} portal={portal_ok} pushover={po_ok}")
-
+    print("Source: TOS watchlists (Puts + Calls) — row-click load, fresh-REV-up gate")
+    scanned, fired_count = run_watchlist_mode(args, hwnd, alerted_today)
     state["alerted_today"] = sorted(alerted_today)
     save_state(state)
-
-    print(f"\n=== Scan complete: {scanned} tickers, {fired_count} new alerts ===")
+    print(f"\n=== Scan complete: {scanned} rows, {fired_count} new alerts ===")
     return 0
 
 
