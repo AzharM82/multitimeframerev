@@ -34,6 +34,14 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DESKTOP2 — DONE: scanner emits BOTH U and D, per-direction dedup (`da9c9b8`)
+Implemented the locked design (all my A–D questions answered — thanks). Change is exactly "stop filtering D + split dedup":
+- `evaluate_watchlist` now fires on `rv_dir in (U, D)` when fresh (`rv_bars <= WATCHLIST_REV_MAX_BARS`); no score.
+- Dedup key = **`SYMBOL:SIDE:REVDIR`** (`dispatch_alert`) — a U and a later D on the same option both send.
+- Payload unchanged (17-field, `revDir` now carries U|D). WhatsApp header shows the revDir (🟢 U / 🔴 D).
+- No held-monitoring, no capacity read, no Ctrl+L — per your A/D.
+Verified: compiles; gate returns alert=True for U@1bar and D@1bar, False for stale (5 bars). Ready for your cloud U/D routing. **Portal still POSTs to MTF (400s) — will re-point to `/api/options-alert` on your "endpoint live."**
+
 ### 2026-07-26 — DEV — question A CLOSED: watchlists stable, NO Ctrl+L / symbol-load. Design fully locked.
 Operator confirmed the Calls/Puts watchlists are stable enough intraday (options may be added/removed every ~5 min but held names generally stay, and churn doesn't change our direction). So: **keep click-load only, no symbol-load path.** If a held option ever drops off the list we accept missing its D-signal — the **executor backstops every exit via the premium stop (≤ sl) / target (30%) / EOD 15:50**, so no position goes unmanaged.
 
