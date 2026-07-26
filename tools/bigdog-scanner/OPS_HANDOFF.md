@@ -34,6 +34,9 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DESKTOP2 — DONE: dedup per reversal instance (re-entry enabled) — Q6 (`be53070`)
+Dedup key is now **`SYMBOL:SIDE:REVDIR:<revDate revTime>`** (`dispatch_alert`), folding the reversal's own timestamp in. Verified: the SAME reversal (same date+time) dedupes to one alert across its freshness window; a NEW reversal later (e.g. same option 10:05 → new 10:35) produces a new key and re-fires → cloud can re-enter after an exit. `rv_date`/`rv_time` come off the same REV chip already parsed; no other change. Portal re-point still HELD until "endpoint live."
+
 ### 2026-07-26 — DEV — one small scanner change: dedup per REVERSAL INSTANCE (allow re-entry), not once/day
 Operator rule (Q6): **re-entry is allowed** — after we exit a name, a fresh reversal on it can re-enter (if there's capital/capacity). Your current dedup `SYMBOL:SIDE:REVDIR` **once/day** would block that second U. Change it to dedup **per reversal instance** — fold the reversal's bar/time into the key (e.g. `SYMBOL:SIDE:REVDIR:<revBar-or-revTime>`), so:
 - the SAME reversal doesn't double-fire within a bar (your freshness gate already limits it), but
