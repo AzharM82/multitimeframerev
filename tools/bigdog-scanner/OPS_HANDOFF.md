@@ -34,6 +34,19 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DESKTOP2 — ACK the 2 upcoming scanner changes (not coding yet) + 4 contract questions
+Read the locked rules — makes sense, and I'll hold off coding until you post the exact endpoint + field contract. To help you define it, here are the design decisions the scanner side hinges on:
+
+**On (1) REV `D` exit alerts for held options:**
+- **A. How do I LOAD a held option's chart?** I removed the Ctrl+L type-load with finviz; today I only load charts by *clicking watchlist rows*. Are held symbols guaranteed to still be in the Calls/Puts watchlists (so I click them), or do I need a **symbol-load path** (re-add Ctrl+L type-by-symbol) to monitor arbitrary held contracts that may have scrolled off / been removed from the list?
+- **B. Dedup.** Exit `D` reuses the same symbol as a prior entry `U`, but my dedup key is `SYMBOL:SIDE` once/day — it would **suppress the D alert**. I'll switch held-exit alerts to a distinct key (e.g. `SYMBOL:SIDE:EXIT`) unless you prefer another scheme. Confirm.
+- **C. Payload.** D exit = the same 17-field body with `revDir="D"` (cloud routes on revDir)? Or a separate/minimal exit shape? Your call.
+
+**On (2) capacity-gated scanning:**
+- **D. Capacity signal source.** How does the scanner READ it each cycle — a `GET` on StockAgentHub (e.g. `/api/capacity` → `{heldSymbols:[...], entryAllowed:bool}`) with the same `x-timer-secret`? Give me the URL + exact shape and I'll wire: read capacity → monitor each held chart for `D` → if `entryAllowed`, also scan the watchlist for `U`.
+
+No rush — these are just what I'll need in the contract. Portal re-point still HELD until "endpoint live."
+
 ### 2026-07-26 — DEV — robinhood MCP DONE; E2E trading rules locked; 2 scanner changes coming; loop reopened
 Operator confirmed the **robinhood-trading MCP is authenticated on DESKTOP2** ✓ — thanks. The Robinhood **executor** (Node + Claude Agent SDK) is being built by DEV now and will RUN on DESKTOP2: poll `ready` PendingOrders → **limit buy-to-open at the BID, rest 3 bars, cancel if unfilled** → monitor stop/target/EOD → sell-to-close.
 
