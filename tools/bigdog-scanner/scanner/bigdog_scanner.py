@@ -12,9 +12,10 @@ strip and alerts on the option's own FRESH bullish reversal, via WhatsApp
 Reversal-study strip fields (docs/thinkscript-ocr.tos):
   TREND UP/DN/FLAT · REV U/D $price M/D HH:MM Nb · BUY $price Nb · SL $price · RISK <pct>%
 
-Trigger: REV U (bullish reversal of the option) AND rv_bars <= WATCHLIST_REV_MAX_BARS
-(fresh, on the just-closed 5-min bar). No score gate. side = CALL|PUT = which list
-= the option you buy. Dedup key SYMBOL:SIDE, once/calendar-day.
+Trigger: a FRESH reversal of the option in EITHER direction (REV U or D) AND
+rv_bars <= WATCHLIST_REV_MAX_BARS (just-closed 5-min bar). No score gate. The cloud
+routes: revDir U → enter, D → exit (if held). side = CALL|PUT = which list. Dedup
+key SYMBOL:SIDE:REVDIR, once/calendar-day (U and D on the same option both send).
 
 Alert payload (17-field options contract): symbol, side, system, source, revDir,
 revBars, revPrice, revTime, revDate, trend, last, buy, sl, riskPct, putsCount,
@@ -289,13 +290,13 @@ def parse_bigdog_strip(lines: list[str]) -> dict:
 
 # ─── Alert gate (options: fresh bullish reversal only) ───────────────────────
 def evaluate_watchlist(f: dict, kind: str) -> dict:
-    """The loaded chart is the OPTION contract itself and you are BUYING it, so
-    for BOTH lists the trigger is the option's own FRESH bullish reversal — REV U
-    on the just-closed bar (rv_bars <= WATCHLIST_REV_MAX_BARS). No score. `kind`
-    is 'CALL' or 'PUT' (which list the row is on) and is the alert direction."""
+    """Fire on a FRESH reversal of the option in EITHER direction on the just-closed
+    bar (rv_bars <= WATCHLIST_REV_MAX_BARS). `revDir` U = bullish (cloud → entry),
+    D = bearish (cloud → exit if held); the cloud holds state and routes. No score.
+    `kind` is 'CALL' or 'PUT' (which list the row is on) = the alert `side`."""
     rb = f.get("rv_bars")
-    fresh_rev_up = (f.get("rv_dir") == "U") and (rb is not None and rb <= WATCHLIST_REV_MAX_BARS)
-    return {"direction": kind, "list_dir": kind.lower(), "alert": fresh_rev_up}
+    fresh_rev = (f.get("rv_dir") in ("U", "D")) and (rb is not None and rb <= WATCHLIST_REV_MAX_BARS)
+    return {"direction": kind, "list_dir": kind.lower(), "alert": fresh_rev}
 
 
 # ─── Window automation ───────────────────────────────────────────────────────
@@ -643,11 +644,12 @@ def enqueue_whatsapp(ticker: str, scored: dict, f: dict, counts: dict | None = N
     except ImportError:
         print("  WARN: azure-storage-queue not installed", file=sys.stderr)
         return False
-    # CALL → green, PUT → red. Options alert: no score; trade levels + list skew.
-    arrow = "\U0001f7e2" if scored["direction"] == "CALL" else "\U0001f534"
+    # REV U (bullish/entry) → green, REV D (bearish/exit) → red. No score.
+    rd = f.get("rv_dir") or "?"
+    arrow = "\U0001f7e2" if rd == "U" else "\U0001f534"
     text = (
-        f"{arrow} BIGDOG {scored['direction']} — {ticker}\n"
-        f"REV {f.get('rv_dir') or '?'} {f.get('rv_bars')}b  {_levels_line(f)}"
+        f"{arrow} BIGDOG {scored['direction']} {rd} — {ticker}\n"
+        f"REV {rd} {f.get('rv_bars')}b  {_levels_line(f)}"
     )
     if counts:
         text += f"\n{_counts_line(counts)}"
@@ -710,9 +712,10 @@ def post_to_portal(ticker: str, scored: dict, f: dict, counts: dict | None = Non
 # ─── Alert dispatch (shared dedup + multi-sink) ──────────────────────────────
 def dispatch_alert(symbol: str, scored: dict, f: dict,
                    counts: dict | None, args, alerted_today: set) -> bool:
-    """Per-day dedup on 'SYMBOL:SIDE' + fan-out to WhatsApp / portal / Pushover.
-    Returns True only when a brand-new alert was actually sent."""
-    dedup_key = f"{symbol}:{scored['direction']}"
+    """Per-day dedup on 'SYMBOL:SIDE:REVDIR' + fan-out to WhatsApp / portal /
+    Pushover. Split by revDir so a U (entry) and a later D (exit) on the same
+    option both send. Returns True only when a brand-new alert was actually sent."""
+    dedup_key = f"{symbol}:{scored['direction']}:{f.get('rv_dir') or '?'}"
     if dedup_key in alerted_today:
         print("  (already alerted today)")
         return False
