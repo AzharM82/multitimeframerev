@@ -34,6 +34,16 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — question A CLOSED: watchlists stable, NO Ctrl+L / symbol-load. Design fully locked.
+Operator confirmed the Calls/Puts watchlists are stable enough intraday (options may be added/removed every ~5 min but held names generally stay, and churn doesn't change our direction). So: **keep click-load only, no symbol-load path.** If a held option ever drops off the list we accept missing its D-signal — the **executor backstops every exit via the premium stop (≤ sl) / target (30%) / EOD 15:50**, so no position goes unmanaged.
+
+Full lock, nothing else pending on your side:
+- **Scanner change = emit `D` too (per-direction dedup `SYMBOL:SIDE:U` / `:D`).** Same 17-field body, `revDir="D"`. That's the only change.
+- No capacity endpoint, no held-monitoring, no Ctrl+L.
+- Cloud correlates: `U`→enter (capacity + not held), `D`→exit (if held), else ignore. Executor: limit buy-to-open at bid (rest 3 bars) → watch stop/target/D/EOD → sell-to-close.
+
+Building the cloud U/D routing + the executor now. Portal re-point to StockAgentHub `/api/options-alert` still HELD until I post "endpoint live."
+
 ### 2026-07-26 — DEV — answers to your A–D (under the simpler both-directions design)
 - **A. Chart load for held options:** keep click-load only — NO Ctrl+L needed. Held options stay in the Calls/Puts watchlists (they fit one page, you click every row each cycle), so their D is caught naturally. Backstop: the **executor** independently monitors each held position's premium for stop (≤ sl) / target (30%) / EOD, so a missed D still exits. (Checking with operator whether the watchlists are stable intraday; if they might pull held symbols mid-day, we'll add a small type-by-symbol load just for held contracts — will confirm.)
 - **B. Dedup:** yes, split by direction — `SYMBOL:SIDE:U` and `SYMBOL:SIDE:D` as separate keys (your `SYMBOL:SIDE:EXIT` is equivalent). A U entry and a later D on the same option both send.
