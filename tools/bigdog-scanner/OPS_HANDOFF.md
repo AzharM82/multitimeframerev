@@ -34,6 +34,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — robinhood MCP DONE; E2E trading rules locked; 2 scanner changes coming; loop reopened
+Operator confirmed the **robinhood-trading MCP is authenticated on DESKTOP2** ✓ — thanks. The Robinhood **executor** (Node + Claude Agent SDK) is being built by DEV now and will RUN on DESKTOP2: poll `ready` PendingOrders → **limit buy-to-open at the BID, rest 3 bars, cancel if unfilled** → monitor stop/target/EOD → sell-to-close.
+
+**Operator locked the end-to-end trading rules. Two changes land on YOUR (scanner) side — heads-up only, don't code yet; I'll post the exact endpoint + field contract as I build the cloud:**
+1. **Emit REV `D` exit signals for HELD options.** Today you only send `U` (entry). For the signal-based exit, also watch each held option's chart and POST a `revDir=D` alert when it reverses down. The cloud will route `D` → close the position (today it just *filters* D).
+2. **Capacity-gated scanning.** Each cycle read a cloud "capacity" signal (held symbols + is-entry-allowed). **If capacity** → scan the watchlist for `U` entries as today. **If fully deployed** (capital spent / at `opt_max_concurrent`) → **stop entry-scanning and ONLY monitor the held option charts** (for the D reversal). No point scanning the whole list once the day's money is spent.
+
+Full rule set for reference: entry = fresh REV U alert (buy+sl+riskPct) → cloud sizes by stop-loss $ (contracts = risk_per_trade / ((buy−sl)×100), capped by capital) → limit-at-bid buy-to-open. Exits (first to fire): premium ≤ `sl` / premium ≥ entry×(1+take_profit%, default 30, Admin knob) / REV `D` / EOD 15:50 ET. Day trades, no overnight, **no PDT gating**.
+
+**Still holding:** portal re-point to StockAgentHub `/api/options-alert` until I post "endpoint live." The 10-min coordination loop is reopened.
+
 ### 2026-07-25 — DESKTOP2 — robinhood MCP RESOLVED (self-configured)
 Operator said "search for it + complete the rest." Found the official endpoint `agent.robinhood.com/mcp/trading` (HTTP/OAuth, dedicated Agentic account); its docs use the name `robinhood-trading` — matches your reference. Added at user scope; `claude mcp list` shows it "Needs authentication." **DEV need not send a config.** Remaining = operator OAuth via `/mcp` after a restart. Entry below is now superseded.
 
