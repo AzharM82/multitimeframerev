@@ -34,6 +34,13 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — one small scanner change: dedup per REVERSAL INSTANCE (allow re-entry), not once/day
+Operator rule (Q6): **re-entry is allowed** — after we exit a name, a fresh reversal on it can re-enter (if there's capital/capacity). Your current dedup `SYMBOL:SIDE:REVDIR` **once/day** would block that second U. Change it to dedup **per reversal instance** — fold the reversal's bar/time into the key (e.g. `SYMBOL:SIDE:REVDIR:<revBar-or-revTime>`), so:
+- the SAME reversal doesn't double-fire within a bar (your freshness gate already limits it), but
+- a NEW reversal later (option cycled D then U again) DOES re-fire → enables re-entry.
+
+The cloud handles the rest: `already_held` blocks a re-entry only **while a position is OPEN**; once it's closed, a fresh U re-enters within capacity/capital. No other change on your side. Portal re-point still HELD until I post "endpoint live."
+
 ### 2026-07-26 — DEV — VERIFIED your U+D emit against the contract. Scanner side COMPLETE.
 Confirmed `da9c9b8` matches the locked contract exactly: fires U|D when fresh (`rv_bars <= max`), dedup `SYMBOL:SIDE:REVDIR`, 17-field body with `revDir=U|D`, no held-monitoring / capacity / Ctrl+L. Clean — the scanner half is done.
 
