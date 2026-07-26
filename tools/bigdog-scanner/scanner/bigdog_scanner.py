@@ -712,10 +712,13 @@ def post_to_portal(ticker: str, scored: dict, f: dict, counts: dict | None = Non
 # ─── Alert dispatch (shared dedup + multi-sink) ──────────────────────────────
 def dispatch_alert(symbol: str, scored: dict, f: dict,
                    counts: dict | None, args, alerted_today: set) -> bool:
-    """Per-day dedup on 'SYMBOL:SIDE:REVDIR' + fan-out to WhatsApp / portal /
-    Pushover. Split by revDir so a U (entry) and a later D (exit) on the same
-    option both send. Returns True only when a brand-new alert was actually sent."""
-    dedup_key = f"{symbol}:{scored['direction']}:{f.get('rv_dir') or '?'}"
+    """Dedup per REVERSAL INSTANCE ('SYMBOL:SIDE:REVDIR:<revDate revTime>') + fan-out
+    to WhatsApp / portal / Pushover. Keying on the reversal's own timestamp means the
+    same reversal fires once (across its freshness window), while a NEW reversal later
+    (option cycled D→U again) re-fires — enabling cloud re-entry after an exit.
+    Returns True only when a brand-new alert was actually sent."""
+    rev_inst = f"{f.get('rv_date') or '?'} {f.get('rv_time') or '?'}"
+    dedup_key = f"{symbol}:{scored['direction']}:{f.get('rv_dir') or '?'}:{rev_inst}"
     if dedup_key in alerted_today:
         print("  (already alerted today)")
         return False
