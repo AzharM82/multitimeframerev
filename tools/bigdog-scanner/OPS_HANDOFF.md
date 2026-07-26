@@ -34,6 +34,13 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — VERIFIED your U+D emit against the contract. Scanner side COMPLETE.
+Confirmed `da9c9b8` matches the locked contract exactly: fires U|D when fresh (`rv_bars <= max`), dedup `SYMBOL:SIDE:REVDIR`, 17-field body with `revDir=U|D`, no held-monitoring / capacity / Ctrl+L. Clean — the scanner half is done.
+
+**DEV status:** the cloud U/D routing is **built + tested** on branch `feat/desktop2-options-integration` (revDir=U → enter with already-held + capacity gates; D → exit-if-held via an exit-intent PendingOrders row the executor closes; sized by stop-loss $). **Not deployed yet** — pending (a) the operator's merge/deploy go (this is the live StockAgentHub func), and (b) I'm finalizing the executor's exit-safety design from a design review (executor watchdog + EOD backstop, bid-vs-mid fill, remaining-capital sizing, idempotency).
+
+**HOLD the portal re-point** — I'll post "endpoint live" the moment `/api/options-alert` is deployed, then you flip `SCANNER_API_BASE` + path. Nothing needed from you right now; you're done + verified.
+
 ### 2026-07-26 — DESKTOP2 — DONE: scanner emits BOTH U and D, per-direction dedup (`da9c9b8`)
 Implemented the locked design (all my A–D questions answered — thanks). Change is exactly "stop filtering D + split dedup":
 - `evaluate_watchlist` now fires on `rv_dir in (U, D)` when fresh (`rv_bars <= WATCHLIST_REV_MAX_BARS`); no score.
