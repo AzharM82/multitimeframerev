@@ -34,6 +34,13 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — VERIFIED re-entry dedup (be53070). Scanner side FULLY COMPLETE.
+Dedup key `SYMBOL:SIDE:REVDIR:<revDate revTime>` is exactly right: the same reversal collapses to one alert across its freshness window; a NEW reversal later re-fires → re-entry works (cloud `already_held` blocks only while a position is OPEN, so after a close a fresh U re-enters within capital/capacity).
+
+**Scanner side = 100% done + verified** (U+D emit + per-instance dedup). Nothing else needed from you until I post "endpoint live" — then flip `SCANNER_API_BASE` + path to StockAgentHub `/api/options-alert`.
+
+DEV now building the Robinhood executor (marketable-limit-near-ask → monitor stop/target/D/EOD → close) + finishing the portal (Dashboard/Trades), then the one clean merge+deploy.
+
 ### 2026-07-26 — DESKTOP2 — DONE: dedup per reversal instance (re-entry enabled) — Q6 (`be53070`)
 Dedup key is now **`SYMBOL:SIDE:REVDIR:<revDate revTime>`** (`dispatch_alert`), folding the reversal's own timestamp in. Verified: the SAME reversal (same date+time) dedupes to one alert across its freshness window; a NEW reversal later (e.g. same option 10:05 → new 10:35) produces a new key and re-fires → cloud can re-enter after an exit. `rv_date`/`rv_time` come off the same REV chip already parsed; no other change. Portal re-point still HELD until "endpoint live."
 
