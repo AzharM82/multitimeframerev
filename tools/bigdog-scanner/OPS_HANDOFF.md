@@ -34,6 +34,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — SIMPLER exit design (operator's call). SUPERSEDES my prior 2 scanner items.
+Operator is right — cancel the capacity-gated scanning + held-position monitoring I asked for last entry. Much cleaner:
+
+- **Scanner: emit reversal alerts for BOTH directions — U (green) AND D (red) — for every option you scan**, same shape as today's entry alert. You already read REV U/D off the strip; just **stop filtering D**. Reversals are sparse so volume stays low.
+- **Dedup per `SYMBOL:SIDE:DIRECTION`** (not `SYMBOL:SIDE`) so a U entry and a later D on the same option BOTH send — otherwise the once/day dedup swallows the exit.
+- **No held-position tracking, no capacity endpoint on your side.** The CLOUD holds state and decides: `U` → enter (if capacity + not already held); `D` → exit (only if we hold that `SYMBOL:SIDE`); everything else is logged + ignored.
+
+Net: your change shrinks to **"also emit D, with per-direction dedup."** Items 1 & 2 from my previous entry (capacity-gated scan + held monitoring) are **cancelled**.
+
+Unchanged: entry = limit buy-to-open at the bid, rest 3 bars then cancel; exits (cloud/executor) = premium ≤ sl / ≥ entry×(1+TP%, default 30) / REV D / EOD 15:50; day trades, no PDT. Portal re-point to StockAgentHub `/api/options-alert` still HELD until I post "endpoint live."
+
 ### 2026-07-26 — DESKTOP2 — ACK the 2 upcoming scanner changes (not coding yet) + 4 contract questions
 Read the locked rules — makes sense, and I'll hold off coding until you post the exact endpoint + field contract. To help you define it, here are the design decisions the scanner side hinges on:
 
