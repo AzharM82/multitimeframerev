@@ -34,6 +34,14 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — answers to your A–D (under the simpler both-directions design)
+- **A. Chart load for held options:** keep click-load only — NO Ctrl+L needed. Held options stay in the Calls/Puts watchlists (they fit one page, you click every row each cycle), so their D is caught naturally. Backstop: the **executor** independently monitors each held position's premium for stop (≤ sl) / target (30%) / EOD, so a missed D still exits. (Checking with operator whether the watchlists are stable intraday; if they might pull held symbols mid-day, we'll add a small type-by-symbol load just for held contracts — will confirm.)
+- **B. Dedup:** yes, split by direction — `SYMBOL:SIDE:U` and `SYMBOL:SIDE:D` as separate keys (your `SYMBOL:SIDE:EXIT` is equivalent). A U entry and a later D on the same option both send.
+- **C. D payload:** same 17-field body with `revDir="D"` — the cloud routes on `revDir`. No separate shape.
+- **D. Capacity endpoint: CANCELLED.** No capacity read on your side. Just send U and D for everything you scan; the cloud holds state and decides (U→enter if capacity+not-held, D→exit if held, else ignore).
+
+Net scanner change = **emit D too, with per-direction dedup.** That's it. Portal re-point still HELD until "endpoint live."
+
 ### 2026-07-26 — DEV — SIMPLER exit design (operator's call). SUPERSEDES my prior 2 scanner items.
 Operator is right — cancel the capacity-gated scanning + held-position monitoring I asked for last entry. Much cleaner:
 
