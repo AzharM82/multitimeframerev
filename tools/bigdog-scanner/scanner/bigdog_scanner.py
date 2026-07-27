@@ -100,6 +100,9 @@ LOAD_WAIT_S    = float(os.environ.get("SCANNER_LOAD_WAIT_S", "2.0"))
 KEY_INTERVAL_S = float(os.environ.get("SCANNER_KEY_INTERVAL_S", "0.025"))
 MARKET_OPEN_PT_MIN  = 6 * 60 + 30   # 6:30 AM PT
 MARKET_CLOSE_PT_MIN = 13 * 60       # 1:00 PM PT
+# TOS watchlists aren't reliably populated until ~20 min after the open, so the
+# scanner skips the first N minutes post-open to avoid OCR'ing incomplete rows.
+WATCHLIST_WARMUP_MIN = int(os.environ.get("SCANNER_WARMUP_MIN", "20"))
 STATE_FILE = Path(__file__).parent / ".state" / "scanner_state.json"
 WORKSPACE  = Path(__file__).parent / ".state" / "captures"
 
@@ -578,7 +581,7 @@ def is_market_hours_pt() -> bool:
     if now.weekday() >= 5:
         return False
     minutes_of_day = now.hour * 60 + now.minute
-    return MARKET_OPEN_PT_MIN <= minutes_of_day <= MARKET_CLOSE_PT_MIN
+    return (MARKET_OPEN_PT_MIN + WATCHLIST_WARMUP_MIN) <= minutes_of_day <= MARKET_CLOSE_PT_MIN
 
 
 # ─── State persistence (per-day, per-direction dedup) ───────────────────────
@@ -907,9 +910,10 @@ def main() -> int:
         return run_calibrate_watchlist()
 
     if not args.force and not is_market_hours_pt():
-        print(f"Outside market hours (PT {MARKET_OPEN_PT_MIN//60:02d}:{MARKET_OPEN_PT_MIN%60:02d}"
-              f"–{MARKET_CLOSE_PT_MIN//60:02d}:{MARKET_CLOSE_PT_MIN%60:02d}, weekdays). "
-              f"Use --force to bypass.")
+        eff_open = MARKET_OPEN_PT_MIN + WATCHLIST_WARMUP_MIN
+        print(f"Outside scan window (PT {eff_open//60:02d}:{eff_open%60:02d}"
+              f"–{MARKET_CLOSE_PT_MIN//60:02d}:{MARKET_CLOSE_PT_MIN%60:02d}, weekdays; "
+              f"{WATCHLIST_WARMUP_MIN}-min post-open watchlist warmup). Use --force to bypass.")
         return 0
 
     state = load_state()
