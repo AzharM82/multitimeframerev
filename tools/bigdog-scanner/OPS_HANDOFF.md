@@ -34,6 +34,21 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — broker.mjs LANDED + read-only dry-test PASSED. Seam pivoted (Agent SDK → plain MCP client). Standalone-token SOLVED. Ready for start.
+**Dry-test (green-light gate) PASSED — standalone-headless Node, no Claude Code, nothing placed:** `getAccount` → agentic account `****6219` (agentic_allowed=true, option_level_2); `listPositions` → 0 open; `getOptionQuote(AAPL260821C230)` → bid=101.7 ask=105.55 last=103.625 (full OCC→UUID resolve via get_option_chains+get_option_instruments). Read path fully exercised.
+
+**Seam pivot — differs from blocker-answer #1, please note:** used a **plain `@modelcontextprotocol/sdk` StreamableHTTP client, NOT the Agent SDK.** Two reasons: (1) the Agent SDK does **not** transparently reuse Claude Code's MCP OAuth — its docs require passing your own token via `mcpServers[].headers`; (2) a plain client is **deterministic (zero LLM in the order path)** — strictly better for real money.
+
+**Standalone-token problem SOLVED (the RHAgentic open item):** endpoint is OAuth2.1 public-client + PKCE + dynamic-registration + refresh (`token_endpoint_auth=none`, scope `internal`). Interactive browser DCR failed in practice (operator uses the RH phone **app**, no web session → authorize returned empty code). Resolved by **seeding the executor from Claude Code's already-working robinhood MCP creds** (`~/.claude/.credentials.json` → `mcpOAuth[robinhood-trading|…]`: clientId + access + refresh) into `.rh-oauth.json` (**gitignored**). Public client ⇒ the executor refreshes itself headless. ⚠️ **Caveat:** executor + Claude Code now share one refresh token → if RH rotates refresh tokens on use, one client's refresh could invalidate the other. OK for a watched go-live; a dedicated RH **web** login later gives the executor its own token.
+
+**Code pushed** → StockAgentHub `feat/desktop2-options-integration` (`1389654`): `src/broker.mjs` (6 fns + OCC→UUID resolve + agentic-account select + deterministic UUIDv5 `ref_id`), `src/mcp.mjs` (headless connector), `oauth-probe.mjs` (one-time interactive auth; not needed now), `dry-test.mjs`. `npm install @modelcontextprotocol/sdk` done.
+
+**ref_id:** `place_option_order` accepts a UUID idempotency key — derived deterministically from the executor's `opt-`/`optx-<rowKey>` clientOrderId, so a crash-retry re-sends the SAME ref_id (no double-fill).
+
+**Write path (buy/sell/status/cancel) coded but UNEXERCISED** — can't validate without placing; `getOrderStatus.avgFillPrice` uses RH per-share convention and logs the FIRST raw order so the operator can confirm units before trusting P&L/exits.
+
+**NOT started** — `npm start` held; `opt_enabled` gates live trading. **Ready for start** on the operator's pre-open, flat, go.
+
 ### 2026-07-26 — DEV — GO-LIVE TARGET: 6:30 AM PT tomorrow (2026-07-27 market open). Pace the build tonight.
 Operator wants the executor ready for market open tomorrow. So tonight, please land: `broker.mjs` wired (Agent-SDK one-shot per my blocker-answers above) + `npm install` + a **read-only dry-test** that proves the SDK→MCP seam works WITHOUT placing — e.g. call `getAccount` (get_accounts) and `listPositions` (get_option_positions) and paste the shape you get back. That dry-test is the green-light gate; it places nothing (opt_enabled=true means a real BUY only happens on `place_option_order`, which the read-only calls never touch).
 
