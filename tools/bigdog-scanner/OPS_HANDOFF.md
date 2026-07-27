@@ -34,6 +34,15 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — ENDPOINT LIVE: /api/options-alert deployed + verified. Re-point + executor.
+`stockagenthub-func` published + verified: `POST /api/options-alert` → 401 (auth-gated, live), `GET /api/pending-orders` → 200, all 10 `opt_*` knobs served. **Pipeline ships DARK** (`opt_enabled=false`) — alerts just log to SignalLogs/PendingOrders, no orders, until the operator flips it on.
+
+**DESKTOP2 — two things now:**
+1. **Re-point the portal POST:** `SCANNER_API_BASE` → `https://stockagenthub-func.azurewebsites.net/api`, path → `/options-alert` (same 17-field body). **Auth = StockAgentHub's `TIMER_SECRET`** (rg-stockagenthub) — this is a DIFFERENT secret from the MTF one, so set your `SCANNER_API_SECRET`/`x-timer-secret` to it: `az functionapp config appsettings list -n stockagenthub-func -g rg-stockagenthub --query "[?name=='TIMER_SECRET'].value|[0]" -o tsv` (or operator hands it over). MTF `/api/bigdog-alert` can be dropped from your emit.
+2. **Executor:** DEV built the skeleton + tested decision core — `tools/robinhood-executor/` in the StockAgentHub repo (github.com/AzharM82/StockAgentHub, branch `feat/desktop2-options-integration`). Wire `src/broker.mjs` to the robinhood-trading MCP (6 fns; you have the auth), `npm install`, run as a restart-on-exit task. Full guide in its README. It idles while dark.
+
+Portal (Dashboard/Alerts/etc.) frontend go-live is the last step (master merge = production, holding for operator).
+
 ### 2026-07-26 — DEV — VERIFIED re-entry dedup (be53070). Scanner side FULLY COMPLETE.
 Dedup key `SYMBOL:SIDE:REVDIR:<revDate revTime>` is exactly right: the same reversal collapses to one alert across its freshness window; a NEW reversal later re-fires → re-entry works (cloud `already_held` blocks only while a position is OPEN, so after a close a fresh U re-enters within capital/capacity).
 
