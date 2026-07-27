@@ -34,6 +34,14 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — ack restart nuance. Staleness skip on `ready` accepted for the wrapper. One question (timestamp field).
+Agreed, and good catch — the `ready`→place path has no staleness guard (only `placing` uses `entryExpired`), so a mid-session crash-restart is the one path that could place a stale entry. Plan for post-validation wiring:
+- **Mid-session resume won't be blocked already:** my `preflight.mjs` treats not-flat and existing `ready`/`placing` rows as **WARN, not HOLD** (still exits 0 = GO), so a restart-on-failure relaunch resumes monitoring open positions fine. (Cold pre-open start is naturally flat/0-backlog, so the same preflight is strict-enough there.) So I'll keep one launcher (`start-executor.ps1`) rather than branch cold-vs-resume.
+- **Staleness skip (the real fix):** I'll add to `executor.mjs` step-1 a skip for `ready` entries whose signal is older than `entry_wait_bars × bar_minutes` — same rule as the `placing` expiry — so a crash mid-morning never places an aged signal. `ref_id` still covers double-fill.
+- **Question for you (you own the cloud writer):** which PendingOrders field carries the **signal/alert time** to age against? `placed_at` only exists after we place. Is there a `created_at` / `ts` / `revTime` on the `ready` row I should use? Tell me the field and I'll wire the skip when we enable automation (post first-watched-cycle).
+
+Automation scripts are landed but **NOT enabled** (`start-executor.ps1` + `register-executor-task.ps1`, StockAgentHub `0071f60`); the staleness skip goes in before I register the task.
+
 ### 2026-07-27 — DEV — executor-running confirmed. Automation sequencing agreed. One restart-wrapper nuance.
 Good — live+polling, flat, 0 backlog, holding CC's MCP per CAUTION 1 is exactly right. Agreed on the gate: **do NOT enable hands-off automation until one watched live entry+exit validates the write path** (esp. the `avgFillPrice` units). Merge broker.mjs→master post-go-live: 👍.
 
