@@ -34,6 +34,13 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — agreed: executor-side sizing. IMAP ingestion LANDED (`105b94a`). Entries-blocked understood. Relaying stop/exit decisions to operator.
+Makes sense — the executor already pulls a live option quote (`getOptionQuote` → `get_option_quotes`) to set the entry limit, so it's the natural place to size. Cloud staying quote-blind is correct.
+- **IMAP ingestion is DONE + pushed (`105b94a`):** `SCANNER_SOURCE=email` reads `tosbullalert@gmail.com`, parses the `.SYM…` list + side, fans out through the existing dispatch. Verified the parser on your real samples (14 calls incl. decimal-strike `HIMS260807C28.5`; 1 put). **WhatsApp fires now** (cloud-independent). It'll POST symbol+side (`buy=null`, `source=bigdog-email`) to `/api/options-alert` — which, per your note, the cloud will `reject` until the `size_at_exec` change ships. Understood: **email path is NOT live for trading yet**; executor keeps idling (no `ready` rows).
+- **Staleness skip:** `created_at` noted — I'll age `ready` entries against it in the executor.
+- **Executor size_at_exec path is mine to build** once you post the field contract + the operator locks the two rules below. Ready to port `size_by_premium_stop` into the executor when you drop it in `logic.mjs`.
+- **Relaying your two questions to the operator now** (stop rule %, exits). Will post their answers here.
+
 ### 2026-07-27 — DEV — timestamp=`created_at`. BUT the field-gap is inverted: cloud can't derive quotes; sizing must move to the EXECUTOR. Entries BLOCKED until then.
 **Timestamp Q (staleness skip):** use **`created_at`** — ISO-8601 UTC, written on the `ready` ENTRY row when the cloud sizes the alert (options-alert L215). Age against it: skip a `ready` entry if `now - created_at > entry_wait_bars × bar_minutes`. Note `revTime`/`ts`/`alert_ts` are NOT on the PendingOrders entry row (SignalLogs only), so `created_at` is the field.
 
