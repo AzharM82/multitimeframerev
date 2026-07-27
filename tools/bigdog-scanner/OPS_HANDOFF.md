@@ -34,6 +34,26 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — DIAGNOSTIC: why the email path fired no alerts. Run one dry-run command; it pinpoints the gap.
+Operator is live with DESKTOP2. I traced `run_email_mode`/`dispatch_alert`/`main` on origin/main. `dispatch_alert` does NOT gate on buy/sl (null premiums are fine for a WhatsApp alert) — so "no alerts" is failing upstream. The code has 5 hard choke points, in likelihood order. **Run this one command and paste the output — it isolates all of them without sending or consuming any email:**
+```
+cd <scanner>\tools\bigdog-scanner\scanner
+# make sure BOTH are set in this shell (or .env): SCANNER_SOURCE=email  and  TOSALERT_IMAP_APP_PASSWORD=<gmail app pw>
+python bigdog_scanner.py --force --dry-run
+```
+`--dry-run` uses IMAP BODY.PEEK (leaves mail UNSEEN, sends nothing). Read what it prints:
+
+1. **"Outside scan window …"** → the real runs hit the **market-hours gate** (`main()` returns 0 before reading email; effective open is **6:50 AM PT** now with the 20-min warmup). If your live tests were off-hours/without `--force`, THIS is why nothing happened. (dry-run above uses `--force` to bypass.)
+2. **"ERROR: TOSALERT_IMAP_APP_PASSWORD not set"** → env not set in the *running* process (Task Scheduler task / run_bigdog.bat / .env). Set it.
+3. **Source line missing / watchlist mode runs** → `SCANNER_SOURCE` isn't `email` in the running env (default is `watchlist`). It must be `email` or it never reads the inbox.
+4. **"— N unseen message(s)"**:
+   - **0 unseen** → either no alert emails arrived, wrong mailbox, OR a prior REAL run already marked them `\Seen` (real fetch = RFC822 = marks Seen; `search UNSEEN` then skips them). Send yourself a fresh test alert, or check Gmail for unread. IMAP must be enabled on the account + app-password valid (a login failure throws here → that's your gap).
+   - **N>0 but "[subject] no contracts parsed"** → body/regex mismatch: `_EMAIL_SYM_RE` wants `.SYM` = `[A-Z]{1,6}\d{6}[CP]\d+(.\d+)?` (e.g. `.AAPL260807C340`). If the email is HTML-only or the format differs, it won't match — paste one raw body.
+   - **N>0, side skipped silently** → subject lacks "call"/"put" (`_email_side`). TOS subject must contain LargeCap-Calls/Puts.
+5. **"(dry-run: would alert)" prints per symbol** → read+parse WORK; the gap is the actual SEND on the real run: (a) it must be in-window or `--force`, and (b) the **WhatsApp SIDECAR** (the separate process draining the `whatsapp-alerts` Azure queue) must be RUNNING to deliver — if it's down, alerts enqueue but never arrive. Confirm the sidecar is up on DESKTOP2.
+
+Paste the dry-run output here (or tell me which line it stopped at) and I'll point to the exact fix. Note: this is the "email→direct-dispatch" build; separate from the earlier stand-down about feeding TOS for the trading payload — for the WhatsApp ALERT itself the direct path is fine, so let's get it firing first.
+
 ### 2026-07-27 — DEV — STAND DOWN the sizing redesign. Operator clarified: email is ONLY the symbol source feeding TOS; the reversal study still runs → payload UNCHANGED.
 Operator clarification on the SOURCE CHANGE (supersedes the field-gap plan): the email (`tosbullalert`) only replaces the **watchlist** as the source of **which symbols** to scan. Those symbols still get **fed into TOS**, the **reversal study still runs** on them, and the scanner still reads `buy`/`sl`/`revDir`/`riskPct`/`trend`/`rev*` off the study — so the alert POSTed to `/api/options-alert` carries the **FULL existing payload, exactly as before**. Operator's words: "email only is for having scanner feed into TOS, rest all remains same, carries all the info as is" + "there is reversal data, except the source is now email → screener → reversal info."
 
