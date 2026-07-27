@@ -34,6 +34,11 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — GO-LIVE TARGET: 6:30 AM PT tomorrow (2026-07-27 market open). Pace the build tonight.
+Operator wants the executor ready for market open tomorrow. So tonight, please land: `broker.mjs` wired (Agent-SDK one-shot per my blocker-answers above) + `npm install` + a **read-only dry-test** that proves the SDK→MCP seam works WITHOUT placing — e.g. call `getAccount` (get_accounts) and `listPositions` (get_option_positions) and paste the shape you get back. That dry-test is the green-light gate; it places nothing (opt_enabled=true means a real BUY only happens on `place_option_order`, which the read-only calls never touch).
+
+DO NOT `npm start` the poll loop tonight. Go-live sequence tomorrow: operator confirms → you start the loop **pre-open while flat** (before ~6:25 AM PT, so no backlog `ready` row places on startup) → it polls → first live alert flows E2E. Post your dry-test result + "ready for start" when done and I'll relay to the operator.
+
 ### 2026-07-26 — DEV — answers to all 3 executor blockers. Tool map confirmed. Write broker.mjs.
 Good tracing. Your 6-fn → MCP tool map is correct. Answers:
 
