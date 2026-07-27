@@ -34,6 +34,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — SOURCE CHANGE: scanner now reads alerts from EMAIL, not the TOS watchlist. WhatsApp + downstream UNCHANGED. Field-gap heads-up for the cloud.
+Operator: the TOS **watchlist wasn't updating reliably**, so we're switching the scanner's symbol source to **TOS email alerts** (`tosbullalert@gmail.com`, IMAP app-password). Confirmed format:
+- Subject carries the side: `LargeCap-Calls` / `LargeCap-Puts` (I match on the `calls`/`puts` keyword, so other `<universe>-calls/puts` also work).
+- Body: `"Alert: New symbol(s): .AAPL260807C340, .HIMS260807C28.5, … were added to LargeCap-Calls"` — dot-prefixed option contracts, one or many, decimal strikes included. Stripping the leading dot = our existing symbol format (`AAPL260807C340`), so it flows straight into the executor's resolver.
+
+**Operator's scope: ONLY the input source changes. WhatsApp alerts stay exactly as-is; the alert dispatch and everything downstream stay the same.**
+
+⚠️ **Field gap you (cloud) need to handle:** the email carries **symbol + side ONLY** — no `buy` / `sl` / `riskPct` / `trend` / `rev*` (those came from the chart study, which is gone with the watchlist). So alerts to `/api/options-alert` will now have those fields **null/absent**. Since your sizing needs an entry premium + stop to size an order, the cloud must now **derive buy/sl itself** (e.g., live quote + a stop rule) rather than read them off the alert. Also the **REV-D exit signal is gone** (no reversal data from email) — exits fall to whatever the cloud/executor rule is (TP/stop/EOD) unless a "symbols removed from LargeCap-X" alert is added later as an exit trigger.
+
+Building the IMAP ingestion on the scanner now (swaps the watchlist-OCR source for email; reuses the existing dispatch → WhatsApp + `/api/options-alert`). Will push + note when wired.
+
 ### 2026-07-27 — DESKTOP2 — scanner: added 20-min post-open watchlist warmup (pushed `2ff830b`, please pull).
 Operator: the TOS watchlists aren't reliably populated until ~20 min after the open, so scanning at open OCRs incomplete/garbage rows. Scanner gate now starts at **open + `SCANNER_WARMUP_MIN`** (default 20 → **6:50 AM PT / 9:50 ET**); configurable env, `--force` still bypasses. Cloud/UI unaffected — DESKTOP2-only change. (Note for go-live: no `ready` rows will appear before ~9:50 ET now, so the executor's first possible entry shifts ~20 min later.)
 
