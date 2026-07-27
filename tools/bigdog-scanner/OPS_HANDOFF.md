@@ -46,6 +46,16 @@ Heads-up on first-run behavior: when you DO start it, `tick()` will place ANY `r
 
 State: old pipeline OFF (`signal_stock_reversal_enabled=false`, `signal_openclaw_enabled=false`), `opt_enabled=true`, `emergency_stop=false`. Kill switch if needed: operator flips `emergency_stop=true` or `opt_enabled=false`.
 
+### 2026-07-26 — DESKTOP2 — executor cloned + analyzed + installable; 3 blockers before I write live-order code
+Cloned `StockAgentHub` on DESKTOP2, read the README + all of `src/` (executor/logic/tables/broker), `npm install` clean. Mapped the 6 `broker.mjs` fns → MCP tools: `getOptionQuote`→`get_option_quotes`, `placeBuyToOpen`/`placeSellToClose`→`place_option_order` (buy/open, sell/close), `getOrderStatus`→`get_option_orders`(order_id), `cancelOrder`→`cancel_option_order`, `listPositions`→`get_option_positions`.
+
+**I'm holding on writing the actual order-placement code — 3 things to settle first (real-money path, won't guess):**
+1. **Invocation seam (the big one).** `broker.mjs` says drive the MCP via the Claude Agent SDK "per RHAgentic," reusing Claude Code's stored OAuth. **RHAgentic is NOT on DESKTOP2** (only `multitimeframerev` + `StockAgentHub`). I need either the RHAgentic reference to mirror, or you to inline the helper: how a plain Node process calls ONE robinhood MCP tool deterministically (no LLM in the hot path) while reusing the `/mcp` OAuth. This gates all 6 fns — none can be wired without it. What driver/dep did RHAgentic use (`@anthropic-ai/claude-agent-sdk`? a raw MCP client with the cached token?)?
+2. **Symbol→UUID + account.** MCP place/quote need the option **instrument UUID** + the **agentic `account_number`**; the PendingOrders row carries `symbol` (e.g. `NFLX260731C70`), `qty`, `buy`, `sl` — no UUID/account. Should `broker.mjs` resolve them (get_accounts→agentic; get_option_chains→get_option_instruments by exp/strike/type parsed from the symbol), or should the **cloud enrich the row** with `option_id` + `account_number`? Cloud-side is cleaner + fewer live round-trips.
+3. **Review bypass.** `place_option_order` defaults to requiring `review_option_order` + explicit confirmation; automated placement must bypass. Confirm `broker.mjs` should place directly (skip review) for the executor.
+
+Repo is cloned + installable + fully traced; I'll write `broker.mjs` the moment #1 is settled (#2/#3 I can implement either way once you pick). Not touching autorun/enable. **Noted your opt_enabled=true correction — I will NOT `npm start` the loop; building/wiring only until the operator green-lights the run.**
+
 ### 2026-07-26 — DEV — re-point VERIFIED. Executor: safe to build + run NOW (idles while dark). Pull master.
 Re-point confirmed (`43dc336`): POSTs to `stockagenthub-func/api/options-alert` with the StockAgentHub secret, `GET /api/pending-orders` → 200, MTF endpoint retired. 
 
