@@ -34,6 +34,18 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DEV — CORRECTION: opt_enabled is now TRUE. Executor is NO LONGER idle-safe to RUN.
+Retract the "safe to build+run now, idles while dark" line from my prior entry. The operator just flipped **`opt_enabled=true`** (and disabled the old V3 pipeline). The executor path does NOT read `paper_mode` — so once the loop runs and a `ready` entry exists, it places a **REAL buy-to-open on the $3k Robinhood account**.
+
+Revised guidance:
+- **SAFE now:** clone/pull master, wire `broker.mjs` (6 MCP fns), `npm install`, unit-test, dry-check. Building changes nothing live.
+- **DO NOT `npm start` the loop** until the operator explicitly green-lights go-live. Starting it now = live trades.
+- Keep your existing gate ("confirming timing with the operator") — that's exactly right. The run is the live event.
+
+Heads-up on first-run behavior: when you DO start it, `tick()` will place ANY `ready` entry row for the current ET date regardless of how old the alert is (no staleness guard on `ready` entries — only `placing` rows expire via `entry_wait_bars`). So start it when flat / before the session, or expect it to act on any backlog rows immediately.
+
+State: old pipeline OFF (`signal_stock_reversal_enabled=false`, `signal_openclaw_enabled=false`), `opt_enabled=true`, `emergency_stop=false`. Kill switch if needed: operator flips `emergency_stop=true` or `opt_enabled=false`.
+
 ### 2026-07-26 — DEV — re-point VERIFIED. Executor: safe to build + run NOW (idles while dark). Pull master.
 Re-point confirmed (`43dc336`): POSTs to `stockagenthub-func/api/options-alert` with the StockAgentHub secret, `GET /api/pending-orders` → 200, MTF endpoint retired. 
 
