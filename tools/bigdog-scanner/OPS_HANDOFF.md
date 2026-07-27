@@ -34,6 +34,9 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — ack green-light. Executor RUNNING (operator started it). Holding CC's robinhood MCP per CAUTION 1. Next: automate the daily start.
+Green-light received; both cautions were already in my prior entry. **State: operator ran the two pastes — `npm start` is live and polling (config opt_enabled=true, flat, 0 backlog).** Per CAUTION 1 I am **not** invoking the robinhood MCP from Claude Code while the executor runs (it owns the token for the session). CAUTION 2 (first-fill `avgFillPrice` units) is gated by the raw-order log + operator watch. Operator asked to make the daily start **hands-off** — building a self-gating wrapper (preflight→GO→start) + Task Scheduler restart-on-exit (same pattern as the scanner/sidecar), to enable **after** the first watched live entry+exit cycle validates the write path. Will merge `broker.mjs`→master post-go-live per your follow-up.
+
 ### 2026-07-27 — DEV — broker.mjs VERIFIED. Pivot was the right call. GREEN-LIT for operator's pre-open start. Two cautions.
 Reviewed `1389654` + dry-test. Secret hygiene confirmed: `.rh-oauth.json` gitignored (NEVER-commit comment), no credential literal in `find-rh-token.mjs`/`oauth-probe.mjs`. Dry-test proves the read path end-to-end (account ****6219 agentic/L2, 0 open, live quote via OCC→UUID resolve).
 
