@@ -167,6 +167,19 @@ WATCHLIST_CLICK_SETTLE_S = float(os.environ.get("WATCHLIST_CLICK_SETTLE_S", "0.2
 WATCHLIST_FALLBACK_ORDER = [s.strip().upper() for s in
                             os.environ.get("WATCHLIST_FALLBACK_ORDER", "PUT,CALL").split(",")]
 
+# ─── Alert source ────────────────────────────────────────────────────────────
+# "email"  = read TOS email alerts from tosbullalert@gmail.com (IMAP) — the live
+#            source (the on-screen TOS watchlists weren't updating reliably).
+# "watchlist" = legacy on-screen OCR path (kept as fallback).
+SCANNER_SOURCE = os.environ.get("SCANNER_SOURCE", "watchlist").strip().lower()
+TOSALERT_IMAP_HOST = os.environ.get("TOSALERT_IMAP_HOST", "imap.gmail.com")
+TOSALERT_IMAP_USER = os.environ.get("TOSALERT_IMAP_USER", "tosbullalert@gmail.com")
+TOSALERT_IMAP_APP_PASSWORD = os.environ.get("TOSALERT_IMAP_APP_PASSWORD", "")
+# Matches a TOS option contract token in the email body, with or without the
+# leading dot: ".AAPL260807C340" / "HIMS260807C28.5" → captured WITHOUT the dot,
+# which is exactly the symbol format the executor's resolver expects.
+_EMAIL_SYM_RE = re.compile(r"\.?([A-Z]{1,6}\d{6}[CP]\d+(?:\.\d+)?)")
+
 
 # ─── OCR pipeline ────────────────────────────────────────────────────────────
 _engine = None
@@ -656,10 +669,11 @@ def enqueue_whatsapp(ticker: str, scored: dict, f: dict, counts: dict | None = N
     # REV U (bullish/entry) → green, REV D (bearish/exit) → red. No score.
     rd = f.get("rv_dir") or "?"
     arrow = "\U0001f7e2" if rd == "U" else "\U0001f534"
-    text = (
-        f"{arrow} BIGDOG {scored['direction']} {rd} — {ticker}\n"
-        f"REV {rd} {f.get('rv_bars')}b  {_levels_line(f)}"
-    )
+    text = f"{arrow} BIGDOG {scored['direction']} {rd} — {ticker}"
+    # Watchlist alerts carry the reversal detail; email alerts have no rev/levels
+    # data, so the REV line is appended only when it exists (keeps both clean).
+    if f.get("rv_bars") is not None:
+        text += f"\nREV {rd} {f.get('rv_bars')}b  {_levels_line(f)}"
     if counts:
         text += f"\n{_counts_line(counts)}"
     payload = {
@@ -692,7 +706,7 @@ def post_to_portal(ticker: str, scored: dict, f: dict, counts: dict | None = Non
         "symbol": ticker,
         "side": scored["direction"],
         "system": "bigdog",
-        "source": "bigdog-watchlist",
+        "source": f.get("source", "bigdog-watchlist"),
         "revDir": f.get("rv_dir"),
         "revBars": f.get("rv_bars"),
         "revPrice": f.get("rv_price"),
@@ -875,6 +889,114 @@ def run_calibrate_watchlist() -> int:
     return 0
 
 
+# ─── Email scan mode (TOS email alerts) ──────────────────────────────────────
+def parse_email_symbols(body: str) -> list:
+    """Extract TOS option contract symbols from an alert body, in order, deduped.
+    '.AAPL260807C340, .HIMS260807C28.5 …' → ['AAPL260807C340', 'HIMS260807C28.5']."""
+    out, seen = [], set()
+    for m in _EMAIL_SYM_RE.findall(body or ""):
+        if m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
+def _email_features(side: str) -> dict:
+    """Feature dict for an email-sourced alert. The email carries symbol + side
+    ONLY, so every reversal/level field is null; rv_dir is mapped from side just
+    to drive the WhatsApp arrow (CALL→green 'U', PUT→red 'D')."""
+    return {
+        "rv_dir": "U" if side == "CALL" else "D",
+        "rv_bars": None, "rv_price": None, "rv_time": None, "rv_date": None,
+        "trend": None, "last": None, "buy_price": None, "sl": None, "risk_pct": None,
+        "source": "bigdog-email",
+    }
+
+
+def _email_side(subject: str) -> "str | None":
+    s = (subject or "").lower()
+    if "call" in s:
+        return "CALL"
+    if "put" in s:
+        return "PUT"
+    return None
+
+
+def _dec_header(s) -> str:
+    from email.header import decode_header
+    if not s:
+        return ""
+    out = []
+    for text, enc in decode_header(s):
+        out.append(text.decode(enc or "utf-8", errors="replace") if isinstance(text, bytes) else text)
+    return "".join(out)
+
+
+def _email_body_text(msg) -> str:
+    if msg.is_multipart():
+        for want in ("text/plain", "text/html"):
+            for part in msg.walk():
+                if part.get_content_type() == want and "attachment" not in str(part.get("Content-Disposition")):
+                    p = part.get_payload(decode=True)
+                    if p:
+                        return p.decode(part.get_content_charset() or "utf-8", errors="replace")
+        return ""
+    p = msg.get_payload(decode=True)
+    return p.decode(msg.get_content_charset() or "utf-8", errors="replace") if p else ""
+
+
+def run_email_mode(args, alerted_today: set) -> "tuple[int, int]":
+    """Read unseen TOS alert emails (tosbullalert@gmail.com), extract the option
+    contracts + side, and fan out through the SAME dispatch as the watchlist path
+    (WhatsApp + /api/options-alert). The email is the signal — no OCR, no chart
+    window, no reversal gate. buy/sl/rev fields are null (email lacks them)."""
+    import imaplib
+    import email as _email
+    if not TOSALERT_IMAP_APP_PASSWORD:
+        print("ERROR: TOSALERT_IMAP_APP_PASSWORD not set — cannot read email alerts", file=sys.stderr)
+        return 0, 0
+
+    M = imaplib.IMAP4_SSL(TOSALERT_IMAP_HOST)
+    M.login(TOSALERT_IMAP_USER, TOSALERT_IMAP_APP_PASSWORD)
+    scanned = fired = 0
+    try:
+        M.select("INBOX")
+        typ, data = M.search(None, "UNSEEN")
+        ids = data[0].split() if data and data[0] else []
+        print(f"Source: TOS email ({TOSALERT_IMAP_USER}) — {len(ids)} unseen message(s)")
+        # Real run: RFC822 fetch marks each \Seen so it isn't reprocessed. Dry-run:
+        # BODY.PEEK leaves messages UNSEEN so a test never consumes real alerts.
+        fetch_spec = "(BODY.PEEK[])" if args.dry_run else "(RFC822)"
+        for num in ids:
+            typ, md = M.fetch(num, fetch_spec)
+            if not md or not md[0]:
+                continue
+            msg = _email.message_from_bytes(md[0][1])
+            subject = _dec_header(msg.get("Subject"))
+            side = _email_side(subject)
+            if not side:
+                continue  # not a calls/puts alert (Google security notices, etc.)
+            syms = parse_email_symbols(_email_body_text(msg))
+            if not syms:
+                print(f"  [{subject}] no contracts parsed", file=sys.stderr)
+                continue
+            counts = {"CALL": len(syms) if side == "CALL" else 0,
+                      "PUT":  len(syms) if side == "PUT" else 0}
+            print(f"  [{subject}] {side} x{len(syms)}: "
+                  f"{', '.join(syms[:8])}{'…' if len(syms) > 8 else ''}")
+            for sym in syms:
+                scanned += 1
+                scored = {"direction": side, "list_dir": side, "alert": True}
+                if dispatch_alert(sym, scored, _email_features(side), counts, args, alerted_today):
+                    fired += 1
+    finally:
+        try:
+            M.logout()
+        except Exception:
+            pass
+    return scanned, fired
+
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -900,20 +1022,19 @@ def main() -> int:
 
     print(f"=== BigDog Scanner — {datetime.now():%Y-%m-%d %H:%M:%S} ===")
 
-    if not HAVE_WIN_AUTOMATION:
-        print("ERROR: pip install pyautogui pywin32 azure-storage-queue python-dotenv")
-        return 1
-    _set_dpi_aware()
-
-    # Calibration is a standalone dry tool — no market gate, no chart window needed.
+    # Calibration is a watchlist-only dry tool (needs the win-automation stack).
     if args.calibrate_watchlist:
+        if not HAVE_WIN_AUTOMATION:
+            print("ERROR: pip install pyautogui pywin32 azure-storage-queue python-dotenv")
+            return 1
+        _set_dpi_aware()
         return run_calibrate_watchlist()
 
     if not args.force and not is_market_hours_pt():
         eff_open = MARKET_OPEN_PT_MIN + WATCHLIST_WARMUP_MIN
         print(f"Outside scan window (PT {eff_open//60:02d}:{eff_open%60:02d}"
               f"–{MARKET_CLOSE_PT_MIN//60:02d}:{MARKET_CLOSE_PT_MIN%60:02d}, weekdays; "
-              f"{WATCHLIST_WARMUP_MIN}-min post-open watchlist warmup). Use --force to bypass.")
+              f"{WATCHLIST_WARMUP_MIN}-min post-open warmup). Use --force to bypass.")
         return 0
 
     state = load_state()
@@ -922,20 +1043,28 @@ def main() -> int:
         state = {"date": today, "alerted_today": [], "scanner_hwnd": state.get("scanner_hwnd")}
     if args.pick_window:
         state["scanner_hwnd"] = None
-    alerted_today = set(state["alerted_today"])   # keys: "SYMBOL:SIDE"
+    alerted_today = set(state["alerted_today"])   # keys: "SYMBOL:SIDE:REVDIR:<rev inst>"
 
-    found = get_or_pick_scanner_window(state)
-    if not found:
-        return 3
-    hwnd, title = found
-    if state.get("scanner_hwnd") != hwnd:
-        state["scanner_hwnd"] = hwnd
-        save_state(state)
-        print(f"Saved scanner window for future runs: hwnd {hwnd}")
-    print(f"Scanner (chart) window: '{title}' (hwnd {hwnd})")
+    if SCANNER_SOURCE == "email":
+        # Email is the live source: no chart window, no OCR, no win-automation.
+        scanned, fired_count = run_email_mode(args, alerted_today)
+    else:
+        if not HAVE_WIN_AUTOMATION:
+            print("ERROR: pip install pyautogui pywin32 azure-storage-queue python-dotenv")
+            return 1
+        _set_dpi_aware()
+        found = get_or_pick_scanner_window(state)
+        if not found:
+            return 3
+        hwnd, title = found
+        if state.get("scanner_hwnd") != hwnd:
+            state["scanner_hwnd"] = hwnd
+            save_state(state)
+            print(f"Saved scanner window for future runs: hwnd {hwnd}")
+        print(f"Scanner (chart) window: '{title}' (hwnd {hwnd})")
+        print("Source: TOS watchlists (Puts + Calls) — row-click load, fresh-REV-up gate")
+        scanned, fired_count = run_watchlist_mode(args, hwnd, alerted_today)
 
-    print("Source: TOS watchlists (Puts + Calls) — row-click load, fresh-REV-up gate")
-    scanned, fired_count = run_watchlist_mode(args, hwnd, alerted_today)
     state["alerted_today"] = sorted(alerted_today)
     save_state(state)
     print(f"\n=== Scan complete: {scanned} rows, {fired_count} new alerts ===")
