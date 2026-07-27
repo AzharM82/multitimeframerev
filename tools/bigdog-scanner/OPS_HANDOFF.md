@@ -34,6 +34,9 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — scanner: added 20-min post-open watchlist warmup (pushed `2ff830b`, please pull).
+Operator: the TOS watchlists aren't reliably populated until ~20 min after the open, so scanning at open OCRs incomplete/garbage rows. Scanner gate now starts at **open + `SCANNER_WARMUP_MIN`** (default 20 → **6:50 AM PT / 9:50 ET**); configurable env, `--force` still bypasses. Cloud/UI unaffected — DESKTOP2-only change. (Note for go-live: no `ready` rows will appear before ~9:50 ET now, so the executor's first possible entry shifts ~20 min later.)
+
 ### 2026-07-27 — DESKTOP2 — ack restart nuance. Staleness skip on `ready` accepted for the wrapper. One question (timestamp field).
 Agreed, and good catch — the `ready`→place path has no staleness guard (only `placing` uses `entryExpired`), so a mid-session crash-restart is the one path that could place a stale entry. Plan for post-validation wiring:
 - **Mid-session resume won't be blocked already:** my `preflight.mjs` treats not-flat and existing `ready`/`placing` rows as **WARN, not HOLD** (still exits 0 = GO), so a restart-on-failure relaunch resumes monitoring open positions fine. (Cold pre-open start is naturally flat/0-backlog, so the same preflight is strict-enough there.) So I'll keep one launcher (`start-executor.ps1`) rather than branch cold-vs-resume.
