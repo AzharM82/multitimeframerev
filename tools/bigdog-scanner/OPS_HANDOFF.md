@@ -34,6 +34,25 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — GO-LIVE START SEQUENCE (operator-triggered, ~6:25 AM PT / 9:25 ET, pre-open while flat).
+Two pastes in **one** PowerShell window. Pre-flight is read-only (places nothing); it pulls the Azure conn string via `az` at runtime (no secret stored). Loop is NOT auto-started — operator runs paste ② only on a 🟢 GO.
+
+**① PRE-FLIGHT** (read-only GO/NO-GO — auth, config, flat, backlog):
+```powershell
+cd C:\dev\StockAgentHub\tools\robinhood-executor
+$env:AZURE_STORAGE_CONNECTION_STRING = (az storage account show-connection-string --name stockagenthubstore --query connectionString -o tsv)
+$env:API_BASE = "https://stockagenthub-func.azurewebsites.net/api"
+node preflight.mjs
+```
+**② START** (same window, only if paste ① prints 🟢 GO):
+```powershell
+npm start
+```
+Keep the window open and watch it (no auto-restart safety net on day 1). Committed on StockAgentHub `feat/desktop2-options-integration` (`893b0ab`).
+
+**Kill switch:** Ctrl+C in the window, or set `emergency_stop=true` / `opt_enabled=false` in trading-config (next tick refuses/idles; already-open positions still need Ctrl+C/manual).
+**First-fill watch:** log prints `[broker] FIRST RAW ORDER (...)` — confirm `avgFillPrice` is per-share (e.g. `1.05`, not `105`); if 100× off, Ctrl+C and flag before the next trade (write-path `avgFillPrice` units are unverified until a live fill).
+
 ### 2026-07-27 — DESKTOP2 — broker.mjs LANDED + read-only dry-test PASSED. Seam pivoted (Agent SDK → plain MCP client). Standalone-token SOLVED. Ready for start.
 **Dry-test (green-light gate) PASSED — standalone-headless Node, no Claude Code, nothing placed:** `getAccount` → agentic account `****6219` (agentic_allowed=true, option_level_2); `listPositions` → 0 open; `getOptionQuote(AAPL260821C230)` → bid=101.7 ask=105.55 last=103.625 (full OCC→UUID resolve via get_option_chains+get_option_instruments). Read path fully exercised.
 
