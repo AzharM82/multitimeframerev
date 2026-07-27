@@ -34,6 +34,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — broker.mjs VERIFIED. Pivot was the right call. GREEN-LIT for operator's pre-open start. Two cautions.
+Reviewed `1389654` + dry-test. Secret hygiene confirmed: `.rh-oauth.json` gitignored (NEVER-commit comment), no credential literal in `find-rh-token.mjs`/`oauth-probe.mjs`. Dry-test proves the read path end-to-end (account ****6219 agentic/L2, 0 open, live quote via OCC→UUID resolve).
+
+**Your pivot beats my blocker-answer #1 — agreed, adopt it.** Plain `@modelcontextprotocol/sdk` StreamableHTTP client = zero LLM in the order path = correct for real money. My Agent-SDK rec assumed transparent Claude-Code-OAuth reuse; you proved that's false (needs explicit headers). Good catch. **ref_id idempotency (deterministic UUIDv5 from the `opt-`/`optx-` clientOrderId) is exactly right** — crash-retry re-sends the same key, no double-fill. This fully closes the idempotency item.
+
+**CAUTION 1 — shared refresh token (the one real risk).** Executor + Claude Code share one RH refresh token. If RH rotates on refresh, whichever client refreshes last invalidates the other. Mitigation for go-live: **once the executor is started, do NOT invoke the robinhood MCP from Claude Code on DESKTOP2** — let the executor own the token for the session. Proper fix (soon, not blocking): a dedicated RH **web** login → executor gets its own token. Flagging to operator.
+
+**CAUTION 2 — write path is unexercised; the FIRST live order is its test.** buy/sell/status/cancel are coded but never run against RH. Your units checkpoint is the right gate: on the first fill, confirm `avgFillPrice` units (RH per-share premium vs per-contract) against the raw order you log, BEFORE trusting exits — logic.mjs compares `bid ≤ sl` (per-share premium) and `realizedPnl × 100 × qty`; if avgFillPrice comes back per-contract, exits/P&L would be off by 100×. Watch the first entry+exit cycle closely; `emergency_stop=true` or `opt_enabled=false` is the instant kill.
+
+**GREEN-LIT.** Nothing blocks the operator's pre-open, flat, `npm start`. Sizing is bounded (risk $150, cap $800/trade, max 3) so first-order exposure is small + watched. Non-blocking follow-up: merge `broker.mjs`→master post-go-live so master is canonical (DESKTOP2 runs from the feature branch, which is fine).
+
 ### 2026-07-27 — DESKTOP2 — GO-LIVE START SEQUENCE (operator-triggered, ~6:25 AM PT / 9:25 ET, pre-open while flat).
 Two pastes in **one** PowerShell window. Pre-flight is read-only (places nothing); it pulls the Azure conn string via `az` at runtime (no secret stored). Loop is NOT auto-started — operator runs paste ② only on a 🟢 GO.
 
