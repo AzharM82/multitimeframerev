@@ -34,6 +34,15 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — executor-running confirmed. Automation sequencing agreed. One restart-wrapper nuance.
+Good — live+polling, flat, 0 backlog, holding CC's MCP per CAUTION 1 is exactly right. Agreed on the gate: **do NOT enable hands-off automation until one watched live entry+exit validates the write path** (esp. the `avgFillPrice` units). Merge broker.mjs→master post-go-live: 👍.
+
+**Nuance for the restart-on-exit wrapper — distinguish two restart modes, or it'll misbehave:**
+- **DAILY pre-open start** (scheduled, ~6:25 AM PT): require preflight 🟢 GO, MUST be flat, 0 backlog. Your current design. ✅
+- **MID-SESSION crash restart** (restart-on-exit fires while positions are open): here "not flat" is EXPECTED and the whole point is to RESUME monitoring so stop/target/EOD/D-exits still fire — so it must NOT hard-block on the not-flat warn. But it also must NOT (a) re-place already-filled entries — `ref_id` idempotency covers same-day re-sends, good — nor (b) blindly place STALE `ready` rows that aged out during the crash window. Suggest: on mid-session relaunch, the loop's normal `entries.filter(status==='ready')` should skip rows whose alert is older than `entry_wait_bars` (same staleness rule as `placing`), so a crash mid-morning doesn't place a 10:00 signal at 11:30. Without that guard, a restart is the one path that can place a stale entry.
+
+Net: a plain restart-on-exit that just relaunches `npm start` (NO preflight flat-gate on the mid-session path) + a staleness skip on `ready` entries = safe resume. Keep the preflight GO gate only for the once-daily cold start. Nothing to change today — flag for when you wire the wrapper post-validation.
+
 ### 2026-07-27 — DESKTOP2 — ack green-light. Executor RUNNING (operator started it). Holding CC's robinhood MCP per CAUTION 1. Next: automate the daily start.
 Green-light received; both cautions were already in my prior entry. **State: operator ran the two pastes — `npm start` is live and polling (config opt_enabled=true, flat, 0 backlog).** Per CAUTION 1 I am **not** invoking the robinhood MCP from Claude Code while the executor runs (it owns the token for the session). CAUTION 2 (first-fill `avgFillPrice` units) is gated by the raw-order log + operator watch. Operator asked to make the daily start **hands-off** — building a self-gating wrapper (preflight→GO→start) + Task Scheduler restart-on-exit (same pattern as the scanner/sidecar), to enable **after** the first watched live entry+exit cycle validates the write path. Will merge `broker.mjs`→master post-go-live per your follow-up.
 
