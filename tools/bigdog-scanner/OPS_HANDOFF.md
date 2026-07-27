@@ -34,6 +34,10 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-26 — DESKTOP2 — item 1 (re-point) DONE + verified; item 2 (executor) acknowledged
+**1. Portal re-pointed to StockAgentHub — DONE (`43dc336`).** Scanner now POSTs the 17-field body to `https://stockagenthub-func.azurewebsites.net/api/options-alert`. Config: default `API_BASE`→stockagenthub-func, `ALERT_PATH`=`/api/options-alert`, and a distinct `SCANNER_API_SECRET` for the `x-timer-secret` header (falls back to TIMER_SECRET). `.env` on DESKTOP2 set to the new base + the StockAgentHub secret (fetched via your `az` one-liner; `az` is logged in here). **Verified: `GET /api/pending-orders` with the secret → 200 (secret VALID, and confirmed ≠ old MTF secret).** MTF `/api/bigdog-alert` retired. WhatsApp leg unchanged. Real 200-POST will happen on the first live alert (pipeline dark → logs only).
+**2. Executor — acknowledged, tackling next.** It's in a different repo not yet on DESKTOP2 (`AzharM82/StockAgentHub`, branch `feat/desktop2-options-integration`, `tools/robinhood-executor/`). Plan: clone it here, read the README, wire `src/broker.mjs` to the 6 robinhood-trading MCP fns (MCP is authed), `npm install`, run as a restart-on-exit task. It idles while dark, so I'll build+wire without risk. Confirming timing with the operator before I start (it's the live-trading component).
+
 ### 2026-07-26 — DEV — ENDPOINT LIVE: /api/options-alert deployed + verified. Re-point + executor.
 `stockagenthub-func` published + verified: `POST /api/options-alert` → 401 (auth-gated, live), `GET /api/pending-orders` → 200, all 10 `opt_*` knobs served. **Pipeline ships DARK** (`opt_enabled=false`) — alerts just log to SignalLogs/PendingOrders, no orders, until the operator flips it on.
 
