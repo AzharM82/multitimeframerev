@@ -23,7 +23,8 @@ callsCount, ts.  riskPct = (buy − sl·(1−slBufferPct/100))/buy·100.
 
 Required env (.env in this dir or process env):
   AZURE_STORAGE_CONNECTION_STRING, WHATSAPP_QUEUE_NAME, WHATSAPP_RECEIVER
-  TIMER_SECRET, SCANNER_API_BASE, TOS_SCANNER_WINDOW (the Charts window)
+  SCANNER_API_SECRET (StockAgentHub x-timer-secret), TOS_SCANNER_WINDOW (Charts window)
+  SCANNER_API_BASE (default StockAgentHub), SCANNER_ALERT_PATH (/api/options-alert)
 Tunable (defaults): ENABLE_PUSHOVER (false), TOS_WATCHLIST_WINDOW (Watchlist),
   WATCHLIST_CALLS_TAG (call), WATCHLIST_PUTS_TAG (put), WATCHLIST_REV_MAX_BARS (1),
   WATCHLIST_STRIP_PCT (0.22), SCANNER_SL_BUFFER_PCT (0.05), WATCHLIST_SCROLL (false),
@@ -102,11 +103,16 @@ MARKET_CLOSE_PT_MIN = 13 * 60       # 1:00 PM PT
 STATE_FILE = Path(__file__).parent / ".state" / "scanner_state.json"
 WORKSPACE  = Path(__file__).parent / ".state" / "captures"
 
-API_BASE = os.environ.get("SCANNER_API_BASE",
-                          "https://salmon-river-0a7a0c30f.1.azurestaticapps.net")
+# Options-alert consumer = StockAgentHub (re-pointed off the retired MTF endpoint
+# 2026-07-26). Full URL = API_BASE + ALERT_PATH.
+API_BASE = os.environ.get("SCANNER_API_BASE", "https://stockagenthub-func.azurewebsites.net")
+ALERT_PATH = os.environ.get("SCANNER_ALERT_PATH", "/api/options-alert")
 QUEUE_NAME = os.environ.get("WHATSAPP_QUEUE_NAME", "whatsapp-alerts")
 RECEIVER = os.environ.get("WHATSAPP_RECEIVER", "")
+# StockAgentHub's x-timer-secret (rg-stockagenthub) — a DIFFERENT secret from the
+# retired MTF one. Falls back to TIMER_SECRET so an unset machine still runs.
 TIMER_SECRET = os.environ.get("TIMER_SECRET", "")
+SCANNER_API_SECRET = os.environ.get("SCANNER_API_SECRET") or TIMER_SECRET
 TOS_SCANNER_WINDOW = os.environ.get("TOS_SCANNER_WINDOW", "")
 PUSHOVER_USER_KEY = os.environ.get("PUSHOVER_USER_KEY", "")
 PUSHOVER_APP_TOKEN = os.environ.get("PUSHOVER_APP_TOKEN", "")
@@ -673,9 +679,10 @@ def enqueue_whatsapp(ticker: str, scored: dict, f: dict, counts: dict | None = N
 
 
 def post_to_portal(ticker: str, scored: dict, f: dict, counts: dict | None = None) -> bool:
-    """POST the LOCKED 17-field options contract (DEV, 2026-07-24). No score."""
-    if not TIMER_SECRET:
-        print("  WARN: TIMER_SECRET missing, skipping portal log", file=sys.stderr)
+    """POST the LOCKED 17-field options contract to StockAgentHub /api/options-alert.
+    No score. Pipeline is dark (opt_enabled) until the operator flips it on."""
+    if not SCANNER_API_SECRET:
+        print("  WARN: SCANNER_API_SECRET missing, skipping portal log", file=sys.stderr)
         return False
     cts = counts or {}
     body = json.dumps({
@@ -698,8 +705,8 @@ def post_to_portal(ticker: str, scored: dict, f: dict, counts: dict | None = Non
         "ts": datetime.now(timezone.utc).isoformat(),
     }).encode()
     req = urllib.request.Request(
-        f"{API_BASE}/api/bigdog-alert", data=body,
-        headers={"Content-Type": "application/json", "x-timer-secret": TIMER_SECRET},
+        f"{API_BASE}{ALERT_PATH}", data=body,
+        headers={"Content-Type": "application/json", "x-timer-secret": SCANNER_API_SECRET},
     )
     try:
         resp = urllib.request.urlopen(req, timeout=30)
