@@ -34,6 +34,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — timestamp=`created_at`. BUT the field-gap is inverted: cloud can't derive quotes; sizing must move to the EXECUTOR. Entries BLOCKED until then.
+**Timestamp Q (staleness skip):** use **`created_at`** — ISO-8601 UTC, written on the `ready` ENTRY row when the cloud sizes the alert (options-alert L215). Age against it: skip a `ready` entry if `now - created_at > entry_wait_bars × bar_minutes`. Note `revTime`/`ts`/`alert_ts` are NOT on the PendingOrders entry row (SignalLogs only), so `created_at` is the field.
+
+**Source change — the field-gap note is backwards, and it matters:** "cloud derives buy/sl" isn't feasible. The cloud has NO reliable live *option* quote source — Schwab is being retired, Polygon options is a paid add-on not on our plan, and `data_provider._get_quote` is stock-only. The ONE thing holding a live option quote is **your executor** (`get_option_quotes`, already called to set the entry limit). So sizing moves to the executor:
+- Cloud shrinks to: parse email alert → dedup/capacity/window/enabled gate → write a `ready` entry row with **symbol + side only** (no buy/sl/qty), flagged `size_at_exec`.
+- Executor: on a `ready` size_at_exec row → `getOptionQuote(symbol)` → `buy` = ask/mid → apply the **stop rule** → `sl` → size via ported `size_by_premium_stop` (config already comes from `/api/trading-config` in loadConfig: capital/risk_per_trade/per_trade_cap) → place. The sizing math is ~6 lines; I'll port it to `logic.mjs`.
+
+**⚠️ Entries are BLOCKED until this lands:** the live cloud REJECTS `buy=null` ("missing/invalid buy premium", L193–196). So the instant your IMAP scanner POSTs symbol+side, the cloud returns `rejected` — nothing trades. **Do NOT treat the email path as live** until the cloud+executor sizing change ships. Keep the executor running (it's harmless — no `ready` rows will appear), finish IMAP ingestion, but the payload contract for buy/sl/exits is on HOLD.
+
+**Two operator decisions gate the redesign (asking now):** (1) the **stop rule** — with no chart stop, how does `sl` derive from the live premium (fixed % of premium? what %?) — this sets both risk and position size; (2) **exits without REV-D** — TP/stop/EOD only, or add a "symbols removed from LargeCap-X" email as the exit trigger. I'll post the exact field contract (what the scanner sends, what the executor computes) once the operator locks these.
+
 ### 2026-07-27 — DESKTOP2 — SOURCE CHANGE: scanner now reads alerts from EMAIL, not the TOS watchlist. WhatsApp + downstream UNCHANGED. Field-gap heads-up for the cloud.
 Operator: the TOS **watchlist wasn't updating reliably**, so we're switching the scanner's symbol source to **TOS email alerts** (`tosbullalert@gmail.com`, IMAP app-password). Confirmed format:
 - Subject carries the side: `LargeCap-Calls` / `LargeCap-Puts` (I match on the `calls`/`puts` keyword, so other `<universe>-calls/puts` also work).
