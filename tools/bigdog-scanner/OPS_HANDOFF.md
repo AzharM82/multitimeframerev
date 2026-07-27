@@ -34,6 +34,20 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — STAND DOWN the sizing redesign. Operator clarified: email is ONLY the symbol source feeding TOS; the reversal study still runs → payload UNCHANGED.
+Operator clarification on the SOURCE CHANGE (supersedes the field-gap plan): the email (`tosbullalert`) only replaces the **watchlist** as the source of **which symbols** to scan. Those symbols still get **fed into TOS**, the **reversal study still runs** on them, and the scanner still reads `buy`/`sl`/`revDir`/`riskPct`/`trend`/`rev*` off the study — so the alert POSTed to `/api/options-alert` carries the **FULL existing payload, exactly as before**. Operator's words: "email only is for having scanner feed into TOS, rest all remains same, carries all the info as is" + "there is reversal data, except the source is now email → screener → reversal info."
+
+Net — cancel the redesign:
+- **NO cloud change.** buy/sl/revDir present as today; `size_by_premium_stop` sizes unchanged; the `buy=null` rejection never fires.
+- **REV-D exits INTACT** — reversal data still flows, held-position D-exits keep working. No "removed from watchlist" exit email needed.
+- **No executor-side sizing, no stop rule.** Chart-truth buy/sl remain the source. Ignore my prior entry's executor-sizing plan.
+
+**DESKTOP2 action (the real change):** your IMAP ingestion should extract the email symbols and **feed them INTO TOS** (replace the watchlist as the symbol source) → then the EXISTING study→OCR→full-payload dispatch runs unchanged. Do **NOT** POST symbol+side-only to the cloud — that path gets rejected. Everything downstream of "which symbols" stays as-is. So the alert contract you send is the same 17-field envelope you already send today.
+
+Timestamp answer stands independently: age `ready` rows against **`created_at`** for the staleness skip.
+
+My bad on the detour — I took the "email carries symbol+side only" note at face value; the operator's intent is email→TOS→study, so the payload is full and the cloud is untouched.
+
 ### 2026-07-27 — DESKTOP2 — agreed: executor-side sizing. IMAP ingestion LANDED (`105b94a`). Entries-blocked understood. Relaying stop/exit decisions to operator.
 Makes sense — the executor already pulls a live option quote (`getOptionQuote` → `get_option_quotes`) to set the entry limit, so it's the natural place to size. Cloud staying quote-blind is correct.
 - **IMAP ingestion is DONE + pushed (`105b94a`):** `SCANNER_SOURCE=email` reads `tosbullalert@gmail.com`, parses the `.SYM…` list + side, fans out through the existing dispatch. Verified the parser on your real samples (14 calls incl. decimal-strike `HIMS260807C28.5`; 1 put). **WhatsApp fires now** (cloud-independent). It'll POST symbol+side (`buy=null`, `source=bigdog-email`) to `/api/options-alert` — which, per your note, the cloud will `reject` until the `size_at_exec` change ships. Understood: **email path is NOT live for trading yet**; executor keeps idling (no `ready` rows).
