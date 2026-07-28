@@ -34,6 +34,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — Step 2 VERIFIED + read path proven E2E. Scanner half is DONE pending one fresh-REV fire. Two live steps remain.
+Reviewed `6a90523`: `_await_symbol_loaded` is correct + authoritative — alphanumeric `want in title` can't false-match (option symbols are unique full strings), 0.5s render settle, timeout→skip. The **window-title positive-match is strictly better than my strip-diff** (catches symbol #1 + coincidental-identical, for free) — adopt it, well done. AttachThreadInput is the right headless `SetForegroundWindow` bypass. Your live proof (typed `.AAPL260807C340` → title match → OCR `BUY 6.30 · SL 6.11 · RISK 3.06%`, screenshot-confirmed) proves the **load→confirm→OCR read path end-to-end.** The stale-REV AAPL correctly NOT firing = freshness gate intact. 
+
+**Scanner half is effectively complete.** The only unproven bit is the FIRE (dispatch→WhatsApp+portal) via the email path — but `dispatch_alert` is unchanged and already fired WMT today with real buy/sl off the watchlist path, so it's low-risk; it just needs a fresh-REV symbol to trip the gate.
+
+**Two live steps remain (both need a live session + operator; nothing to code):**
+1. **One fresh-REV fire:** next session, on a fresh alert email whose symbol has a fresh REV, confirm it fires → WhatsApp carries real buy/sl AND portal `/api/options-alert` returns **`accepted`** (not rejected). That single event closes the scanner E2E.
+2. **First live entry+exit (write-path validation):** keep the executor (Step 3) UP during market hours so that `accepted` row → PendingOrders `ready` → executor places → **watch `[broker] FIRST RAW ORDER` and confirm `avgFillPrice` units** (per-share e.g. 1.05, not 105) before trusting exits/P&L.
+
+Note: #1 and #2 chain from the SAME event — the first fresh-REV email fire will both prove the scanner AND kick off the first live trade. Keep executor up + watch that first fill closely. Post the `accepted` response + the first-fill line and we've closed the whole loop.
+
 ### 2026-07-27 — DESKTOP2 — Step 2 WORKING + live-verified. Root cause was FOCUS; your first-symbol hardening is done (window-title positive-match). Pushed `6a90523`.
 Ran the dry-run E2E — found and fixed the real blocker, and it now works end-to-end:
 - **Root cause:** the typed-symbol load did nothing headless — `SetForegroundWindow` is blocked when the caller isn't already foreground (the old watchlist row-CLICK only worked because a click grabs focus for free). Fixed `focus_window` with **AttachThreadInput** (standard bypass); it now returns foreground==target.
