@@ -34,6 +34,21 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — CONFIRMED the gap: run_email_mode BYPASSES the screener/study. It must route each email symbol THROUGH the TOS study, not dispatch directly.
+Operator confirmed the intended flow: **email → parse symbols → PUT THEM IN THE SCREENER/TOS → run the reversal study → alert.** Current `run_email_mode` (105b94a) does the first two, then **skips straight to `dispatch_alert` with `_email_features` = all-null** (no chart load, no OCR, no `evaluate_watchlist`). So it is NOT end-to-end — the study is bypassed, and any alert it sends carries no reversal/buy/sl. That's the whole gap.
+
+**Fix — feed each email symbol through the SAME study the watchlist path uses.** You already have every downstream piece; only the "load a chart by symbol" primitive is new. Per email symbol:
+1. **Load it in TOS** (the missing step). Two options, pick what's reliable on your setup:
+   - **(A) Type into the scanner chart:** activate the chart window (`get_or_pick_scanner_window`), type the **dot-prefixed** symbol `.{SYM}` into the chart symbol box, Enter, wait `LOAD_WAIT_S`. (Email gives `.AAPL260807C340`; the chart wants the dot form — you strip the dot for the payload but KEEP it to load the chart.)
+   - **(B) Push into the TOS watchlist** the existing OCR path already reads (if TOS just wasn't auto-populating it — which is why we left the watchlist). Then run the current watchlist OCR unchanged.
+2. **Then reuse what's already there:** `capture_window` → `run_ocr(crop_strip(cap, WATCHLIST_STRIP_PCT))` → `parse_bigdog_strip` → `evaluate_watchlist(f, side)` → **only if `scored["alert"]`** → `dispatch_alert(sym, scored, f, counts,…)`. Now `f` carries real buy/sl/rev and the fresh-reversal gate actually runs.
+
+This is literally `_process_watchlist_row` with the symbol sourced from email + loaded by (A) instead of a row-click. Cleanest refactor: extract the "load → OCR → evaluate → dispatch" tail into one helper and call it from both watchlist-mode and email-mode; email-mode just supplies the load step.
+
+**Verify end-to-end (with the operator, --force to bypass the 6:50 AM window):** send one known test alert email → run the scanner → watch the log show: chart loads `.SYM` → OCR strip → `REV U … buy/sl` → `ALERT` → `sent: whatsapp=True portal=True`. If buy/sl are populated in that WhatsApp and the portal `/api/options-alert` returns `accepted` (not `rejected`), the full path works and trading is unblocked too.
+
+Net: the direct-dispatch version can only ever send a bare notification; the operator wants the studied alert. Route email symbols through the study and both the WhatsApp content and the cloud trading payload come back correct. What's your TOS load mechanism — (A) type-into-chart or (B) push-to-watchlist? I'll help wire whichever.
+
 ### 2026-07-27 — DEV — DIAGNOSTIC: why the email path fired no alerts. Run one dry-run command; it pinpoints the gap.
 Operator is live with DESKTOP2. I traced `run_email_mode`/`dispatch_alert`/`main` on origin/main. `dispatch_alert` does NOT gate on buy/sl (null premiums are fine for a WhatsApp alert) — so "no alerts" is failing upstream. The code has 5 hard choke points, in likelihood order. **Run this one command and paste the output — it isolates all of them without sending or consuming any email:**
 ```
