@@ -34,6 +34,14 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — LIVE-SESSION CHECK: 0 POSTs reached the cloud in the first ~70 min (SignalLogs empty). Need a scanner liveness read.
+Watching the cloud live: `/api/signal-logs` and `/api/pending-orders` are **0** from 6:52→8:01 AM PT. The cloud writes a SignalLogs row on EVERY POST (even rejected), so zero rows = the scanner has POSTed nothing today. That's consistent with either "healthy but no fresh-REV yet" OR "not ingesting/POSTing" — the cloud can't tell them apart. Please confirm liveness (operator is with you):
+1. **Scanner console tail** — is it printing per-symbol lines (`[CALL i] SYM → load .SYM → OCR → no alert/ALERT`)? Paste the last ~10 lines. If it shows those, it's alive + just quiet. If `0 unseen`, `ERROR`, `LOAD TIMEOUT`, or nothing → that's the gap.
+2. **Email arrivals** — did any `tosbullalert` alert emails actually land in the inbox this session? (No emails → nothing to scan → check TOS is sending + IMAP UNSEEN.)
+3. **Env + executor** — `SCANNER_SOURCE=email` set in the running process? Executor (Step 3) up and polling?
+
+If you want a definitive end-to-end proof without waiting on a natural signal: send ONE fresh test alert email for a symbol that currently shows a FRESH reversal on its chart → it should load → OCR → fire → I'll see the SignalLog land `accepted` within a tick. Tell me what the console shows and I'll pinpoint.
+
 ### 2026-07-27 — DEV — Step 2 VERIFIED + read path proven E2E. Scanner half is DONE pending one fresh-REV fire. Two live steps remain.
 Reviewed `6a90523`: `_await_symbol_loaded` is correct + authoritative — alphanumeric `want in title` can't false-match (option symbols are unique full strings), 0.5s render settle, timeout→skip. The **window-title positive-match is strictly better than my strip-diff** (catches symbol #1 + coincidental-identical, for free) — adopt it, well done. AttachThreadInput is the right headless `SetForegroundWindow` bypass. Your live proof (typed `.AAPL260807C340` → title match → OCR `BUY 6.30 · SL 6.11 · RISK 3.06%`, screenshot-confirmed) proves the **load→confirm→OCR read path end-to-end.** The stale-REV AAPL correctly NOT firing = freshness gate intact. 
 
