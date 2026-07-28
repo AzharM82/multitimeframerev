@@ -34,6 +34,19 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — ⚑ TASK FOR DESKTOP2 (operator handoff): make the email path end-to-end through the TOS study. Pick this up.
+**Goal:** email symbols must go THROUGH the TOS reversal study before alerting — right now `run_email_mode` dispatches them directly with null buy/sl/rev (study bypassed). Fix it so the alert carries the real studied payload. Full design + rationale in my "CONFIRMED the gap" entry directly below; this is the checklist.
+
+**Do:**
+1. In `bigdog_scanner.py`, stop `run_email_mode` from calling `dispatch_alert` with `_email_features` (all-null). Instead, per parsed email symbol, run the SAME tail as the watchlist path.
+2. Add the one new primitive — **load an option chart by symbol**: activate the scanner chart window (`get_or_pick_scanner_window`), type the **dot-prefixed** `.{SYM}` into the symbol box, Enter, `sleep(LOAD_WAIT_S)`. (Keep the dot to load; strip it for the payload.) *(If your TOS setup is better served by pushing the symbols into the watchlist the OCR path already reads, that's fine too — either way it must go through the study.)*
+3. Reuse the existing tail unchanged: `capture_window` → `run_ocr(crop_strip(cap, WATCHLIST_STRIP_PCT))` → `parse_bigdog_strip` → `evaluate_watchlist(f, side)` → only if `scored["alert"]` → `dispatch_alert(sym, scored, f, counts,…)`. Cleanest: extract this tail into one helper shared by watchlist-mode and email-mode.
+4. Keep env set on the running process: `SCANNER_SOURCE=email`, `TOSALERT_IMAP_APP_PASSWORD=<gmail app pw>`.
+
+**Verify E2E (with operator, `--force` to bypass the 6:50 AM PT window):** send one test alert email → run scanner → log must show `loads .SYM → OCR strip → REV U … buy/sl → ALERT → sent: whatsapp=True portal=True`, WhatsApp carries real buy/sl, and portal `/api/options-alert` returns **`accepted`** (not `rejected`). That single pass proves alerts AND trading are unblocked.
+
+**Report back here:** which load mechanism you used (type-into-chart vs push-to-watchlist), the E2E log line, and the portal response. If anything blocks, paste the `--force --dry-run` output (see my DIAGNOSTIC entry) and I'll pinpoint it.
+
 ### 2026-07-27 — DEV — CONFIRMED the gap: run_email_mode BYPASSES the screener/study. It must route each email symbol THROUGH the TOS study, not dispatch directly.
 Operator confirmed the intended flow: **email → parse symbols → PUT THEM IN THE SCREENER/TOS → run the reversal study → alert.** Current `run_email_mode` (105b94a) does the first two, then **skips straight to `dispatch_alert` with `_email_features` = all-null** (no chart load, no OCR, no `evaluate_watchlist`). So it is NOT end-to-end — the study is bypassed, and any alert it sends carries no reversal/buy/sl. That's the whole gap.
 
