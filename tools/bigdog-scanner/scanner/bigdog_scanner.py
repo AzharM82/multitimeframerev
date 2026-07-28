@@ -69,6 +69,8 @@ try:
     import pyautogui
     import win32gui
     import win32con
+    import win32api
+    import win32process
     HAVE_WIN_AUTOMATION = True
 except ImportError:
     HAVE_WIN_AUTOMATION = False
@@ -386,15 +388,40 @@ def get_or_pick_scanner_window(state: dict) -> tuple[int, str] | None:
     return pick_scanner_window_interactively()
 
 
-def focus_window(hwnd: int) -> None:
+def focus_window(hwnd: int) -> bool:
+    """Bring hwnd to the foreground robustly. Plain SetForegroundWindow is blocked
+    by Windows unless the caller owns the foreground — so attach our input thread
+    to the current foreground thread first (the standard bypass). Returns True if
+    hwnd ends up foreground. This is why the typed-symbol load failed headless
+    while the watchlist row-CLICK worked (a click grabs focus for free)."""
     try:
         if win32gui.IsIconic(hwnd):
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        pyautogui.keyDown("alt")
-        pyautogui.keyUp("alt")
-        win32gui.SetForegroundWindow(hwnd)
+        cur = win32api.GetCurrentThreadId()
+        fg = win32gui.GetForegroundWindow()
+        fg_thread = win32process.GetWindowThreadProcessId(fg)[0] if fg else 0
+        attached = False
+        if fg_thread and fg_thread != cur:
+            try:
+                win32process.AttachThreadInput(fg_thread, cur, True)
+                attached = True
+            except Exception:
+                attached = False
+        try:
+            win32gui.BringWindowToTop(hwnd)
+            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+            win32gui.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                try:
+                    win32process.AttachThreadInput(fg_thread, cur, False)
+                except Exception:
+                    pass
+        time.sleep(0.05)
+        return win32gui.GetForegroundWindow() == hwnd
     except Exception as e:
         print(f"  WARN: focus failed: {e}", file=sys.stderr)
+        return False
 
 
 def load_ticker_in_tos(hwnd: int, ticker: str) -> None:
@@ -951,41 +978,30 @@ def _email_body_text(msg) -> str:
     return p.decode(msg.get_content_charset() or "utf-8", errors="replace") if p else ""
 
 
-def _strip_key(lines) -> str:
-    """Whitespace-insensitive lowercase key for an OCR'd strip (for change-detect)."""
-    joined = " ".join(lines) if isinstance(lines, (list, tuple)) else str(lines or "")
-    return re.sub(r"\s+", "", joined).lower()
-
-
-def _await_strip_loaded(chart_hwnd: int, cap_name: str, prev_key: "str | None",
-                        timeout_s: float):
-    """Guard the TOS type-to-load race: after typing a new .SYM, poll capture→OCR
-    until the study strip has (a) CHANGED from the previous symbol's strip and
-    (b) settled (two consecutive identical reads). Returns the OCR'd lines, or
-    None on timeout — caller SKIPS (never fire on a possibly-stale read). Prevents
-    OCR'ing the previous symbol's buy/sl in a multi-symbol loop. Thresholds may
-    need per-machine tuning during live validation."""
+def _await_symbol_loaded(chart_hwnd: int, sym: str, cap_name: str, timeout_s: float):
+    """Confirm the chart actually loaded `sym` by watching the WINDOW TITLE (TOS
+    titles the chart '.SYM - Charts - …'), then capture+OCR the study strip.
+    Returns the OCR'd lines, or None on timeout (caller SKIPS — never read a stale
+    chart). Title match is alphanumeric-only so dot/format differences don't
+    matter. Authoritative — catches the first symbol too (a strip-diff couldn't)."""
+    want = re.sub(r"[^a-z0-9]", "", sym.lower())
     deadline = time.monotonic() + timeout_s
-    last_key = None
     while time.monotonic() < deadline:
-        cap = WORKSPACE / cap_name
-        if not capture_window(chart_hwnd, cap):
-            time.sleep(0.3)
-            continue
         try:
-            lines = run_ocr(crop_strip(cap, WATCHLIST_STRIP_PCT))
+            title = re.sub(r"[^a-z0-9]", "", win32gui.GetWindowText(chart_hwnd).lower())
         except Exception:
-            time.sleep(0.3)
-            continue
-        key = _strip_key(lines)
-        if prev_key is not None and key == prev_key:
-            last_key = key            # still the previous symbol — keep waiting
-            time.sleep(0.35)
-            continue
-        if key and key == last_key:   # two consecutive identical non-prev reads = settled
-            return lines
-        last_key = key
-        time.sleep(0.35)
+            title = ""
+        if want and want in title:
+            time.sleep(0.5)   # title updates slightly before the study finishes rendering
+            cap = WORKSPACE / cap_name
+            if not capture_window(chart_hwnd, cap):
+                return None
+            try:
+                return run_ocr(crop_strip(cap, WATCHLIST_STRIP_PCT))
+            except Exception as e:
+                print(f"OCR ERROR: {e}")
+                return None
+        time.sleep(0.3)
     return None
 
 
@@ -1013,7 +1029,6 @@ def run_email_mode(args, chart_hwnd: int, alerted_today: set) -> "tuple[int, int
         # Real run: RFC822 fetch marks each \Seen so it isn't reprocessed. Dry-run:
         # BODY.PEEK leaves messages UNSEEN so a test never consumes real alerts.
         fetch_spec = "(BODY.PEEK[])" if args.dry_run else "(RFC822)"
-        prev_key = None   # last-loaded symbol's strip, to detect the next load landed
         for num in ids:
             typ, md = M.fetch(num, fetch_spec)
             if not md or not md[0]:
@@ -1037,15 +1052,13 @@ def run_email_mode(args, chart_hwnd: int, alerted_today: set) -> "tuple[int, int
                 scanned += 1
                 print(f"[{side} {i}] {sym} → load .{sym} …", end=" ", flush=True)
                 load_ticker_in_tos(chart_hwnd, f".{sym}")   # dot-prefixed loads the option chart
-                time.sleep(LOAD_WAIT_S)                       # base settle
-                # Confirm the chart actually shows the NEW symbol before reading —
-                # guards the TOS load-race (never OCR the previous symbol's buy/sl).
-                lines = _await_strip_loaded(chart_hwnd, f"email_{sym}.png",
-                                            prev_key, timeout_s=LOAD_WAIT_S * 4)
+                # Confirm via the window title that the chart shows THIS symbol
+                # before reading its labels (never OCR a stale/other chart).
+                lines = _await_symbol_loaded(chart_hwnd, sym, f"email_{sym}.png",
+                                             timeout_s=max(6.0, LOAD_WAIT_S * 4))
                 if lines is None:
-                    print("LOAD TIMEOUT — skipped (no confident new read)")
+                    print("LOAD FAILED/TIMEOUT — skipped (title never showed this symbol)")
                     continue
-                prev_key = _strip_key(lines)
                 if _study_and_dispatch(side, sym, chart_hwnd, counts, args, alerted_today,
                                        f"email_{sym}.png", source="bigdog-email", lines=lines):
                     fired += 1
