@@ -762,17 +762,24 @@ def dispatch_alert(symbol: str, scored: dict, f: dict,
 # ─── Watchlist scan mode ─────────────────────────────────────────────────────
 def _study_and_dispatch(kind: str, sym: str, chart_hwnd: int, counts: dict,
                         args, alerted_today: set, cap_name: str,
-                        source: "str | None" = None) -> bool:
+                        source: "str | None" = None, lines=None) -> bool:
     """Shared tail for BOTH sources: the symbol is already loaded in chart_hwnd
     (watchlist row-click, or email typed-in). Capture → OCR the study strip →
     parse → run the fresh-reversal gate → dispatch if it fires. Returns True on a
-    NEW alert. `source` (if given) tags the portal payload (e.g. 'bigdog-email')."""
-    cap = WORKSPACE / cap_name
-    if not capture_window(chart_hwnd, cap):
-        print("CAPTURE FAILED")
-        return False
+    NEW alert. `source` (if given) tags the portal payload (e.g. 'bigdog-email').
+    `lines` (if given) reuses an already-captured OCR read (email path passes the
+    readiness-confirmed read so the chart isn't captured twice)."""
+    if lines is None:
+        cap = WORKSPACE / cap_name
+        if not capture_window(chart_hwnd, cap):
+            print("CAPTURE FAILED")
+            return False
+        try:
+            lines = run_ocr(crop_strip(cap, WATCHLIST_STRIP_PCT))
+        except Exception as e:
+            print(f"OCR ERROR: {e}")
+            return False
     try:
-        lines = run_ocr(crop_strip(cap, WATCHLIST_STRIP_PCT))
         f = parse_bigdog_strip(lines)
     except Exception as e:
         print(f"OCR ERROR: {e}")
@@ -944,6 +951,44 @@ def _email_body_text(msg) -> str:
     return p.decode(msg.get_content_charset() or "utf-8", errors="replace") if p else ""
 
 
+def _strip_key(lines) -> str:
+    """Whitespace-insensitive lowercase key for an OCR'd strip (for change-detect)."""
+    joined = " ".join(lines) if isinstance(lines, (list, tuple)) else str(lines or "")
+    return re.sub(r"\s+", "", joined).lower()
+
+
+def _await_strip_loaded(chart_hwnd: int, cap_name: str, prev_key: "str | None",
+                        timeout_s: float):
+    """Guard the TOS type-to-load race: after typing a new .SYM, poll capture→OCR
+    until the study strip has (a) CHANGED from the previous symbol's strip and
+    (b) settled (two consecutive identical reads). Returns the OCR'd lines, or
+    None on timeout — caller SKIPS (never fire on a possibly-stale read). Prevents
+    OCR'ing the previous symbol's buy/sl in a multi-symbol loop. Thresholds may
+    need per-machine tuning during live validation."""
+    deadline = time.monotonic() + timeout_s
+    last_key = None
+    while time.monotonic() < deadline:
+        cap = WORKSPACE / cap_name
+        if not capture_window(chart_hwnd, cap):
+            time.sleep(0.3)
+            continue
+        try:
+            lines = run_ocr(crop_strip(cap, WATCHLIST_STRIP_PCT))
+        except Exception:
+            time.sleep(0.3)
+            continue
+        key = _strip_key(lines)
+        if prev_key is not None and key == prev_key:
+            last_key = key            # still the previous symbol — keep waiting
+            time.sleep(0.35)
+            continue
+        if key and key == last_key:   # two consecutive identical non-prev reads = settled
+            return lines
+        last_key = key
+        time.sleep(0.35)
+    return None
+
+
 def run_email_mode(args, chart_hwnd: int, alerted_today: set) -> "tuple[int, int]":
     """Read unseen TOS alert emails (tosbullalert@gmail.com); for each option
     contract, LOAD it in the TOS chart (type the dot-prefixed .SYM) and run the
@@ -968,6 +1013,7 @@ def run_email_mode(args, chart_hwnd: int, alerted_today: set) -> "tuple[int, int
         # Real run: RFC822 fetch marks each \Seen so it isn't reprocessed. Dry-run:
         # BODY.PEEK leaves messages UNSEEN so a test never consumes real alerts.
         fetch_spec = "(BODY.PEEK[])" if args.dry_run else "(RFC822)"
+        prev_key = None   # last-loaded symbol's strip, to detect the next load landed
         for num in ids:
             typ, md = M.fetch(num, fetch_spec)
             if not md or not md[0]:
@@ -991,9 +1037,17 @@ def run_email_mode(args, chart_hwnd: int, alerted_today: set) -> "tuple[int, int
                 scanned += 1
                 print(f"[{side} {i}] {sym} → load .{sym} …", end=" ", flush=True)
                 load_ticker_in_tos(chart_hwnd, f".{sym}")   # dot-prefixed loads the option chart
-                time.sleep(LOAD_WAIT_S + 0.5)
+                time.sleep(LOAD_WAIT_S)                       # base settle
+                # Confirm the chart actually shows the NEW symbol before reading —
+                # guards the TOS load-race (never OCR the previous symbol's buy/sl).
+                lines = _await_strip_loaded(chart_hwnd, f"email_{sym}.png",
+                                            prev_key, timeout_s=LOAD_WAIT_S * 4)
+                if lines is None:
+                    print("LOAD TIMEOUT — skipped (no confident new read)")
+                    continue
+                prev_key = _strip_key(lines)
                 if _study_and_dispatch(side, sym, chart_hwnd, counts, args, alerted_today,
-                                       f"email_{sym}.png", source="bigdog-email"):
+                                       f"email_{sym}.png", source="bigdog-email", lines=lines):
                     fired += 1
     finally:
         try:
