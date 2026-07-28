@@ -760,16 +760,14 @@ def dispatch_alert(symbol: str, scored: dict, f: dict,
 
 
 # ─── Watchlist scan mode ─────────────────────────────────────────────────────
-def _process_watchlist_row(kind: str, sym: str, x: int, y: int, idx: int,
-                           chart_hwnd: int, counts: dict,
-                           args, alerted_today: set) -> bool:
-    """Click one watchlist row (loads its option chart), OCR the strip, evaluate
-    the fresh-reversal gate, and alert if it fires. Returns True if a NEW alert
-    was sent."""
-    print(f"[{kind} {idx}] {sym} @({x},{y}) …", end=" ", flush=True)
-    pyautogui.click(x, y)                       # row-click loads the linked chart
-    time.sleep(WATCHLIST_CLICK_SETTLE_S + LOAD_WAIT_S)
-    cap = WORKSPACE / f"wl_{sym}.png"
+def _study_and_dispatch(kind: str, sym: str, chart_hwnd: int, counts: dict,
+                        args, alerted_today: set, cap_name: str,
+                        source: "str | None" = None) -> bool:
+    """Shared tail for BOTH sources: the symbol is already loaded in chart_hwnd
+    (watchlist row-click, or email typed-in). Capture → OCR the study strip →
+    parse → run the fresh-reversal gate → dispatch if it fires. Returns True on a
+    NEW alert. `source` (if given) tags the portal payload (e.g. 'bigdog-email')."""
+    cap = WORKSPACE / cap_name
     if not capture_window(chart_hwnd, cap):
         print("CAPTURE FAILED")
         return False
@@ -779,6 +777,8 @@ def _process_watchlist_row(kind: str, sym: str, x: int, y: int, idx: int,
     except Exception as e:
         print(f"OCR ERROR: {e}")
         return False
+    if source:
+        f["source"] = source
     if args.show_text:
         print(f"\n  raw: {lines}\n  feat: {f}")
     scored = evaluate_watchlist(f, kind)
@@ -789,6 +789,17 @@ def _process_watchlist_row(kind: str, sym: str, x: int, y: int, idx: int,
         return False
     print(f"ALERT {tag}")
     return dispatch_alert(sym, scored, f, counts, args, alerted_today)
+
+
+def _process_watchlist_row(kind: str, sym: str, x: int, y: int, idx: int,
+                           chart_hwnd: int, counts: dict,
+                           args, alerted_today: set) -> bool:
+    """Click one watchlist row (loads its option chart) → shared study→dispatch
+    tail. Returns True if a NEW alert was sent."""
+    print(f"[{kind} {idx}] {sym} @({x},{y}) …", end=" ", flush=True)
+    pyautogui.click(x, y)                       # row-click loads the linked chart
+    time.sleep(WATCHLIST_CLICK_SETTLE_S + LOAD_WAIT_S)
+    return _study_and_dispatch(kind, sym, chart_hwnd, counts, args, alerted_today, f"wl_{sym}.png")
 
 
 def run_watchlist_mode(args, chart_hwnd: int, alerted_today: set) -> tuple[int, int]:
@@ -901,18 +912,6 @@ def parse_email_symbols(body: str) -> list:
     return out
 
 
-def _email_features(side: str) -> dict:
-    """Feature dict for an email-sourced alert. The email carries symbol + side
-    ONLY, so every reversal/level field is null; rv_dir is mapped from side just
-    to drive the WhatsApp arrow (CALL→green 'U', PUT→red 'D')."""
-    return {
-        "rv_dir": "U" if side == "CALL" else "D",
-        "rv_bars": None, "rv_price": None, "rv_time": None, "rv_date": None,
-        "trend": None, "last": None, "buy_price": None, "sl": None, "risk_pct": None,
-        "source": "bigdog-email",
-    }
-
-
 def _email_side(subject: str) -> "str | None":
     s = (subject or "").lower()
     if "call" in s:
@@ -945,11 +944,13 @@ def _email_body_text(msg) -> str:
     return p.decode(msg.get_content_charset() or "utf-8", errors="replace") if p else ""
 
 
-def run_email_mode(args, alerted_today: set) -> "tuple[int, int]":
-    """Read unseen TOS alert emails (tosbullalert@gmail.com), extract the option
-    contracts + side, and fan out through the SAME dispatch as the watchlist path
-    (WhatsApp + /api/options-alert). The email is the signal — no OCR, no chart
-    window, no reversal gate. buy/sl/rev fields are null (email lacks them)."""
+def run_email_mode(args, chart_hwnd: int, alerted_today: set) -> "tuple[int, int]":
+    """Read unseen TOS alert emails (tosbullalert@gmail.com); for each option
+    contract, LOAD it in the TOS chart (type the dot-prefixed .SYM) and run the
+    SAME study→dispatch tail as the watchlist path (OCR labels → fresh-reversal
+    gate → full-payload alert). The email only supplies WHICH symbols; buy/sl/rev
+    come off the chart study exactly as before — Step 1's source is the only
+    thing that changed."""
     import imaplib
     import email as _email
     if not TOSALERT_IMAP_APP_PASSWORD:
@@ -963,7 +964,7 @@ def run_email_mode(args, alerted_today: set) -> "tuple[int, int]":
         M.select("INBOX")
         typ, data = M.search(None, "UNSEEN")
         ids = data[0].split() if data and data[0] else []
-        print(f"Source: TOS email ({TOSALERT_IMAP_USER}) — {len(ids)} unseen message(s)")
+        print(f"{len(ids)} unseen message(s) in {TOSALERT_IMAP_USER}")
         # Real run: RFC822 fetch marks each \Seen so it isn't reprocessed. Dry-run:
         # BODY.PEEK leaves messages UNSEEN so a test never consumes real alerts.
         fetch_spec = "(BODY.PEEK[])" if args.dry_run else "(RFC822)"
@@ -984,10 +985,15 @@ def run_email_mode(args, alerted_today: set) -> "tuple[int, int]":
                       "PUT":  len(syms) if side == "PUT" else 0}
             print(f"  [{subject}] {side} x{len(syms)}: "
                   f"{', '.join(syms[:8])}{'…' if len(syms) > 8 else ''}")
-            for sym in syms:
+            for i, sym in enumerate(syms, 1):
+                if args.max and i > args.max:
+                    break
                 scanned += 1
-                scored = {"direction": side, "list_dir": side, "alert": True}
-                if dispatch_alert(sym, scored, _email_features(side), counts, args, alerted_today):
+                print(f"[{side} {i}] {sym} → load .{sym} …", end=" ", flush=True)
+                load_ticker_in_tos(chart_hwnd, f".{sym}")   # dot-prefixed loads the option chart
+                time.sleep(LOAD_WAIT_S + 0.5)
+                if _study_and_dispatch(side, sym, chart_hwnd, counts, args, alerted_today,
+                                       f"email_{sym}.png", source="bigdog-email"):
                     fired += 1
     finally:
         try:
@@ -1045,23 +1051,26 @@ def main() -> int:
         state["scanner_hwnd"] = None
     alerted_today = set(state["alerted_today"])   # keys: "SYMBOL:SIDE:REVDIR:<rev inst>"
 
+    # Both sources feed the SAME TOS chart study — only the per-symbol LOAD differs
+    # (email: type .SYM; watchlist: click the row). So both need the chart window.
+    if not HAVE_WIN_AUTOMATION:
+        print("ERROR: pip install pyautogui pywin32 azure-storage-queue python-dotenv")
+        return 1
+    _set_dpi_aware()
+    found = get_or_pick_scanner_window(state)
+    if not found:
+        return 3
+    hwnd, title = found
+    if state.get("scanner_hwnd") != hwnd:
+        state["scanner_hwnd"] = hwnd
+        save_state(state)
+        print(f"Saved scanner window for future runs: hwnd {hwnd}")
+    print(f"Scanner (chart) window: '{title}' (hwnd {hwnd})")
+
     if SCANNER_SOURCE == "email":
-        # Email is the live source: no chart window, no OCR, no win-automation.
-        scanned, fired_count = run_email_mode(args, alerted_today)
+        print(f"Source: TOS email ({TOSALERT_IMAP_USER}) → type .SYM in chart → study → dispatch")
+        scanned, fired_count = run_email_mode(args, hwnd, alerted_today)
     else:
-        if not HAVE_WIN_AUTOMATION:
-            print("ERROR: pip install pyautogui pywin32 azure-storage-queue python-dotenv")
-            return 1
-        _set_dpi_aware()
-        found = get_or_pick_scanner_window(state)
-        if not found:
-            return 3
-        hwnd, title = found
-        if state.get("scanner_hwnd") != hwnd:
-            state["scanner_hwnd"] = hwnd
-            save_state(state)
-            print(f"Saved scanner window for future runs: hwnd {hwnd}")
-        print(f"Scanner (chart) window: '{title}' (hwnd {hwnd})")
         print("Source: TOS watchlists (Puts + Calls) — row-click load, fresh-REV-up gate")
         scanned, fired_count = run_watchlist_mode(args, hwnd, alerted_today)
 
