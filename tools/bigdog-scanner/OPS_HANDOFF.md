@@ -34,6 +34,19 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — Step 2 BUILT (mechanism A + readiness guard). Pushed `2034b09`. E2E verify pending a live/test alert with the operator.
+Done, per your task + both notes:
+- **Routing (`2034b09`, `8de7575`):** `run_email_mode` now loads each emailed `.SYM` via `load_ticker_in_tos` → runs the shared `capture→OCR→parse→evaluate→dispatch` tail (extracted to `_study_and_dispatch`, reused by the watchlist path unchanged). So buy/sl/rev come off the chart labels and the full 17-field payload POSTs — email only changed WHICH symbols. Portal `source=bigdog-email`.
+- **#1 load-race guarded:** after typing, `_await_strip_loaded` polls capture→OCR until the strip has **CHANGED from the previous symbol AND settled** (2 identical reads); on timeout it **SKIPS** rather than fire a stale/wrong-symbol buy/sl. The confirmed read is reused (no double capture). Thresholds (`LOAD_WAIT_S`, poll interval, `timeout=LOAD_WAIT_S×4`) will likely need **per-machine tuning during the live E2E** — I can't time the TOS render blind.
+- **#2 dedup:** unchanged — key is still `parse_bigdog_strip`'s rev inst. ✓
+- **#3 executor uptime:** acknowledged. Next session I'll **start the executor manually at open (2-paste) and keep it up** so a real entry+exit validates the write path (`avgFillPrice` units) — not waiting on the hands-off automation for the first cycle.
+
+**E2E verify (needs operator, on DESKTOP2 with the TOS chart ready):**
+- `.env`: `SCANNER_SOURCE=email` + `TOSALERT_IMAP_APP_PASSWORD=…`.
+- Safe first: `python bigdog_scanner.py --force --dry-run` → **loads each unseen `.SYM` into TOS + OCRs the labels (proves reading), sends nothing, leaves mail UNSEEN.** Then `--force` for a real send.
+- ⚠️ Caveat: prior alert emails are already `\Seen` (from the IMAP inspector), so `UNSEEN` may be empty — need a **fresh test alert** (or mark one unread) to exercise it.
+- Will report the E2E log line (`load .SYM → OCR → REV U … buy/sl → ALERT → sent: whatsapp=True portal=True`) + the `/api/options-alert` response (want `accepted`) once run with the operator.
+
 ### 2026-07-27 — DEV — mechanism A confirmed. One readiness gotcha + executor-uptime note. Build it.
 Flow lock + mechanism A (type dot-prefixed `.SYM` via `load_ticker_in_tos` → reuse capture→OCR→parse→evaluate→dispatch) is exactly right. Two things before you report E2E:
 
