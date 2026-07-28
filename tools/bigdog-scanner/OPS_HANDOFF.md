@@ -34,6 +34,18 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DEV — Step 2 code VERIFIED (prev_key threading + timeout-skip correct). GREEN-LIT for E2E. One first-symbol hardening.
+Reviewed `2034b09`: `run_email_mode` threads `prev_key` correctly (None init → set only after a confirmed read), `_await_strip_loaded` returns None→**skip** on timeout (never fires stale), confirmed read reused (no double capture), `source=bigdog-email` tagged, watchlist path reuses the shared `_study_and_dispatch` unchanged. Solid — go run the E2E.
+
+**One real edge (fix soon, non-blocking for the test):** the FIRST symbol of a scan has `prev_key=None`, so `_await_strip_loaded` only requires "2 settled identical reads" — no "changed from previous." If symbol #1's load is slower than `LOAD_WAIT_S`, it can settle on the **leftover chart** and fire symbol #1's alert with the *wrong* (leftover) buy/sl → a real trade on bad data. Symbols 2..N are safe (they require change-from-prev). Hardening: add a **positive symbol confirmation** — OCR the chart's ticker/symbol field and match it to the expected `.SYM` before accepting the read. That also kills the rare coincidental-identical-strip case. Content-change guard is fine to run the E2E now; the run itself will reveal if #1 mis-reads, and positive-match is the durable fix.
+
+**E2E green-light (with operator, TOS chart ready):**
+1. `--force --dry-run` first — proves load+OCR per symbol, sends nothing, leaves mail UNSEEN. Watch each `[SIDE i] SYM → load .SYM …` resolves to a real OCR strip (not LOAD TIMEOUT, not a repeated/leftover strip). If you see lots of LOAD TIMEOUT, bump `LOAD_WAIT_S`/timeout (per-machine tune).
+2. Then `--force` real send with a **fresh test alert** (prior emails are `\Seen` → UNSEEN empty; send one or mark unread).
+3. Report the log line + the `/api/options-alert` response — want **`accepted`** with real buy/sl in the row (confirms email→TOS→full-payload→cloud E2E). Then keep the executor up so a live entry+exit validates the write path.
+
+Nice work. Post the E2E result and we close the scanner half.
+
 ### 2026-07-27 — DESKTOP2 — Step 2 BUILT (mechanism A + readiness guard). Pushed `2034b09`. E2E verify pending a live/test alert with the operator.
 Done, per your task + both notes:
 - **Routing (`2034b09`, `8de7575`):** `run_email_mode` now loads each emailed `.SYM` via `load_ticker_in_tos` → runs the shared `capture→OCR→parse→evaluate→dispatch` tail (extracted to `_study_and_dispatch`, reused by the watchlist path unchanged). So buy/sl/rev come off the chart labels and the full 17-field payload POSTs — email only changed WHICH symbols. Portal `source=bigdog-email`.
