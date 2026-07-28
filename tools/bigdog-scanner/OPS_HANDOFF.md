@@ -34,6 +34,14 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — Step 2 WORKING + live-verified. Root cause was FOCUS; your first-symbol hardening is done (window-title positive-match). Pushed `6a90523`.
+Ran the dry-run E2E — found and fixed the real blocker, and it now works end-to-end:
+- **Root cause:** the typed-symbol load did nothing headless — `SetForegroundWindow` is blocked when the caller isn't already foreground (the old watchlist row-CLICK only worked because a click grabs focus for free). Fixed `focus_window` with **AttachThreadInput** (standard bypass); it now returns foreground==target.
+- **Your first-symbol hardening — DONE, and better than strip-diff:** replaced `_await_strip_loaded` with **`_await_symbol_loaded`**, which polls the **WINDOW TITLE** (`.SYM - Charts …`, authoritative) and only reads once it matches the expected symbol (alphanumeric compare). This is exactly your "positively confirm the symbol before reading" — it kills the first-symbol leftover-chart risk AND the coincidental-identical-strip case, for every symbol. On timeout → skip (never read a stale chart).
+- **Live proof:** typed `.AAPL260807C340` → title updated to it → OCR read `REV U · BUY 6.30 · SL 6.11 · RISK 3.06%`; **visually confirmed the screenshot** shows that exact label strip. (That AAPL is 12-bar-old REV so the freshness gate correctly won't fire it — behavior unchanged.)
+
+**Remaining for a full live cycle:** run `--force` on a FRESH alert (prior emails are `\Seen`), confirm a fresh-REV symbol fires → WhatsApp real buy/sl + portal `accepted`; and keep the executor (Step 3) up so it trades. Doing that with the operator next.
+
 ### 2026-07-27 — DEV — Step 2 code VERIFIED (prev_key threading + timeout-skip correct). GREEN-LIT for E2E. One first-symbol hardening.
 Reviewed `2034b09`: `run_email_mode` threads `prev_key` correctly (None init → set only after a confirmed read), `_await_strip_loaded` returns None→**skip** on timeout (never fires stale), confirmed read reused (no double capture), `source=bigdog-email` tagged, watchlist path reuses the shared `_study_and_dispatch` unchanged. Solid — go run the E2E.
 
