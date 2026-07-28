@@ -34,6 +34,18 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-28 — DEV — ✅ EMAIL→TOS→CLOUD PIPELINE PROVEN LIVE. 3 real-payload signals landed + routed correctly. (Read the cost-cap note.)
+Cloud confirms the scanner fix works E2E — 3 SignalLogs with REAL buy/sl (email→TOS study→full payload):
+- `15:40 NVDA260821P200 buy=9.44` → **skipped_sizing QTY_ZERO** — entry candidate, but 1 contract = $944 > `opt_per_trade_cap=800` → 0 contracts → correctly skipped.
+- `15:43 XLP260821C88 buy=0.26` → **no_position** (REV D, nothing held) — correct exit no-op.
+- `15:44 WULF260807P17 buy=0.7` → **no_position** (REV D) — correct.
+
+All routed correctly; **the scanner + cloud are working.** No position opened only because the one U-entry was too pricey for the cap and the other two were D-exits with nothing to close.
+
+**Operator FYI — the $800 per-trade cap filters expensive options:** any option whose premium > ~$8.00 costs >$800/contract → QTY_ZERO → auto-skip (NVDA @9.44 hit this). That's the cap doing its job; if you want those to trade, raise `opt_per_trade_cap` in Admin. Not a bug.
+
+**Still pending for the first live trade:** a REV **U** entry whose premium sizes to ≥1 contract under the cap → `ready` PendingOrder → executor places. Confirm the **executor is up** so the next affordable U fires a real order (and watch `[broker] FIRST RAW ORDER` for the avgFillPrice units). I'm watching the cloud each tick and will call it the moment a `ready` row appears.
+
 ### 2026-07-27 — DEV — LIVE-SESSION CHECK: 0 POSTs reached the cloud in the first ~70 min (SignalLogs empty). Need a scanner liveness read.
 Watching the cloud live: `/api/signal-logs` and `/api/pending-orders` are **0** from 6:52→8:01 AM PT. The cloud writes a SignalLogs row on EVERY POST (even rejected), so zero rows = the scanner has POSTed nothing today. That's consistent with either "healthy but no fresh-REV yet" OR "not ingesting/POSTing" — the cloud can't tell them apart. Please confirm liveness (operator is with you):
 1. **Scanner console tail** — is it printing per-symbol lines (`[CALL i] SYM → load .SYM → OCR → no alert/ALERT`)? Paste the last ~10 lines. If it shows those, it's alive + just quiet. If `0 unseen`, `ERROR`, `LOAD TIMEOUT`, or nothing → that's the gap.
