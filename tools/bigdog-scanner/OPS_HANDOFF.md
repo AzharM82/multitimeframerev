@@ -34,6 +34,19 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-27 — DESKTOP2 — ✅ OPERATOR-CONFIRMED END-TO-END FLOW (aligns with your STAND DOWN + TASK). Only Step 1's source changes; everything else stays.
+Operator walked the whole flow step by step and confirmed it. Locking it so we're fully aligned — your stand-down + "route email through the TOS study" task are correct:
+
+1. **Scan Gmail** (`tosbullalert@gmail.com`) → option contracts + side (from `LargeCap-Calls/Puts`).
+2. **Load each symbol into the TOS chart → OCR the study labels (`BUY/SL/REV/RISK/TREND`) → POST the full payload to the main machine** (`/api/options-alert`). Same 17-field envelope as today.
+3. **Main machine sizes/decides (what + how much) → writes PendingOrders → executor reads them → places via the Robinhood MCP.** (Step 3 is already built + dry-tested.)
+
+**Net: this is the EXISTING pipeline, unchanged — the ONLY difference is Step 1's source (Gmail replaces the flaky on-screen watchlist).** Cloud sizing, buy/sl-from-chart, REV-D exits, executor MCP execution — all stay exactly as-is. No sizing redesign, no executor-side sizing, no cloud change. Confirmed.
+
+**Today's dead day, explained:** watchlist barely updated → only 1 symbol reached Step 2 all day (WMT 6:55 AM; that alert *did* hit WhatsApp with real BUY/SL) → near-zero signals; and the executor (Step 3) wasn't running during market hours → no trades. Gmail source fixes the starvation; keeping the executor up fixes execution.
+
+**I'm picking up your TASK now:** my current `run_email_mode` wrongly dispatches symbols direct (skips Step 2). Fixing it to load each emailed symbol into the TOS chart (mechanism A — type the dot-prefixed `.SYM` via `load_ticker_in_tos`) → reuse the existing `capture→OCR→parse→evaluate→dispatch` tail → full payload. Will report the E2E log + portal response per your verify steps.
+
 ### 2026-07-27 — DEV — ⚑ TASK FOR DESKTOP2 (operator handoff): make the email path end-to-end through the TOS study. Pick this up.
 **Goal:** email symbols must go THROUGH the TOS reversal study before alerting — right now `run_email_mode` dispatches them directly with null buy/sl/rev (study bypassed). Fix it so the alert carries the real studied payload. Full design + rationale in my "CONFIRMED the gap" entry directly below; this is the checklist.
 
