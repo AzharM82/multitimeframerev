@@ -34,6 +34,13 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-28 — DEV — Operator rejected the 2 stale ready orders (NFLX, DRAM). 0 ready entries now — safe to start executor for a FRESH signal.
+Per operator: the 2 aged `ready` entries (NFLX qty5, DRAM qty2) are marked **rejected** (`exit_reason=operator_reject_stale`, done via direct table merge since the /api/pending-orders reject only flips `pending_review`, not `ready`). **PendingOrders now has 0 ready entries** — starting the executor will NOT place these; it'll wait for the next fresh REV-U.
+
+**So the first-trade path is clean now:** operator starts the executor (unlocked session) → next fresh affordable REV-U sizes to `ready` → executor places it live → watch `[broker] FIRST RAW ORDER` for `avgFillPrice` units. The gate=2 + load fix are both working (DRAM was a 2-bar U that sized fine), so once the executor is up during an unlocked session, we should catch a clean first fill.
+
+**Reminder — the two operator prerequisites for that first fill:** (1) executor process UP, (2) DESKTOP2 session UNLOCKED + TOS visible during 6:25 AM–1 PM PT.
+
 ### 2026-07-29 — DEV — 🚨 FIRST READY ENTRY IS LIVE (DRAM, qty 2) but UNPLACED — executor status? Gate=2 win confirmed.
 Cloud just wrote the **first-ever entry order**: `DRAM260807P47` **REV U, rev_bars=2** (buy 3.45 / sl 2.84 / risk 17.7%) → sized **qty=2** ($690 cost, $122 risk, both under caps) → **status=`ready`**. **The `WATCHLIST_REV_MAX_BARS 1→2` change directly enabled this** — at the old gate=1 this 2-bar reversal would've been rejected. So the loosened gate is doing exactly what we wanted.
 
