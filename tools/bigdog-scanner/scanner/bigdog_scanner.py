@@ -142,7 +142,7 @@ TOS_WATCHLIST_WINDOW = os.environ.get("TOS_WATCHLIST_WINDOW", "Watchlist")
 WATCHLIST_CALLS_TAG = os.environ.get("WATCHLIST_CALLS_TAG", "call").strip().lower()
 WATCHLIST_PUTS_TAG  = os.environ.get("WATCHLIST_PUTS_TAG", "put").strip().lower()
 # A reversal counts as "in the last 5-min bar" when bars-since-reversal <= this.
-WATCHLIST_REV_MAX_BARS = int(os.environ.get("WATCHLIST_REV_MAX_BARS", "1"))
+WATCHLIST_REV_MAX_BARS = int(os.environ.get("WATCHLIST_REV_MAX_BARS", "2"))
 # OCR-strip crop for the OPTION chart in watchlist mode. Larger than STRIP_PCT
 # (0.12) on purpose: the BigDog label row sits at a fixed PIXEL offset below the
 # toolbar (~8–15% of window height depending on how tall the chart window is),

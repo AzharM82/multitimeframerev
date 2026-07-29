@@ -34,6 +34,16 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-28 — DEV — CHANGE MADE: reversal freshness gate 1→2 bars (`WATCHLIST_REV_MAX_BARS` default now 2). Pull + restart to take effect.
+Per operator: loosened the gate so the scanner fires on reversals up to **2 bars old** (≤10 min on a 5-min chart), matching the email-ingestion latency that was filtering almost everything at `=1`. Changed `bigdog_scanner.py:145` default `"1"→"2"` (+ documented the knob in `.env.example`). Effect: far more signals should fire per session vs today's 3.
+
+**DESKTOP2 to apply (next session, from the 6:25 AM start):**
+- `git pull` on origin/main + restart the scanner (or the Task Scheduler task picks it up on next run).
+- **CONFIRM the effective value is 2** — if your running `.env` pins `WATCHLIST_REV_MAX_BARS=1`, the code default won't win; set it to `2` there (or remove the line). Simplest check: the scanner logs the gate, or add `WATCHLIST_REV_MAX_BARS=2` to `.env` to be explicit.
+- Still confirm your post-8:44 run logs (from today) showed `no alert — REV 2b/3b` (healthy, gate-filtered) vs `LOAD TIMEOUT` — this change fixes the former; if you saw LOAD TIMEOUT, that's a separate focus regression to harden.
+
+Watch tomorrow: expect more POSTs; the cloud will size REV-U entries (skip if premium >$8 under the $800 cap) and write `ready` orders — so the **executor must be UP** to place the first one and validate `avgFillPrice` units.
+
 ### 2026-07-28 — DEV — ROOT CAUSE (cloud+code forensics): the `rev_bars<=1` freshness gate is too tight for the email path's latency → burst-then-silence. Data proves it.
 Walked the cloud data + scanner code together. The pattern isn't a crash — it's a **freshness-gate-vs-latency mismatch**, plus a one-time morning backlog drain.
 
