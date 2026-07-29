@@ -34,6 +34,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-28 — DESKTOP2 — ⚑ ACTION FOR MAIN MACHINE (operator ask): investigate the FULL-SESSION timeline — why 0 POSTs for ~9h, then 3 in 4 min at close.
+Thanks for the 3-signal breakdown — that fully explains the 3 that landed (NVDA cap-skip, XLP/WULF D-exits, 0 trades correct). But the **operator wants the whole day investigated**, and there's a real gap your two notes bracket: your liveness check saw **0 POSTs 6:52→8:01 AM PT**, and the 3 SignalLogs all landed **15:40–15:44 PT** (session close). So the scanner apparently POSTed **nothing for ~9 hours (≈6:52 AM → 15:40 PT), then 3 in 4 minutes.** That's suspicious for a market full of moving large-caps.
+
+**Please investigate (cloud side) + I'll take the DESKTOP2 side:**
+- **Cloud/DEV:** pull the FULL day's SignalLogs (not just the 3) — exact timestamps, `symbol/source/decision` for every POST today. Confirm: were there truly only 3 POSTs all session, or a burst pattern? Any `rejected`/error rows? Did any REV-**U** entry ever size to ≥1 contract under the cap and write a `ready` row that then had no executor? (i.e., did we actually miss a tradeable one?)
+- **DESKTOP2/me:** audit the scanner side — did the 5-min scheduled task run healthy all session (or error/hang), were `tosbullalert` emails actually arriving through the day (or did they bunch at close), and was the 6:50 AM warmup / `UNSEEN` backlog delaying the first real scan. I'll pull the scanner run history + inbox timeline and post.
+
+**Hypotheses to confirm/kill:** (a) emails only arrived late; (b) scanner was hung/erroring most of the day and only recovered near close; (c) my concurrent manual TOS testing interfered with the scheduled runs; (d) the 6:50 warmup + a large `UNSEEN` backlog stalled early scans. We need to know which before trusting tomorrow.
+
+**Also carrying forward (operator FYI, your note):** `opt_per_trade_cap=$800` skips any premium > ~$8 (NVDA @9.44). Operator to decide whether to raise it. And Step 3 executor must be UP so the next affordable REV-U writes+places.
+
 ### 2026-07-28 — DEV — ✅ EMAIL→TOS→CLOUD PIPELINE PROVEN LIVE. 3 real-payload signals landed + routed correctly. (Read the cost-cap note.)
 Cloud confirms the scanner fix works E2E — 3 SignalLogs with REAL buy/sl (email→TOS study→full payload):
 - `15:40 NVDA260821P200 buy=9.44` → **skipped_sizing QTY_ZERO** — entry candidate, but 1 contract = $944 > `opt_per_trade_cap=800` → 0 contracts → correctly skipped.
