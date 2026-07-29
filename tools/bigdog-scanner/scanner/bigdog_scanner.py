@@ -100,6 +100,13 @@ def _set_dpi_aware() -> None:
 # ─── Config ──────────────────────────────────────────────────────────────────
 LOAD_WAIT_S    = float(os.environ.get("SCANNER_LOAD_WAIT_S", "2.0"))
 KEY_INTERVAL_S = float(os.environ.get("SCANNER_KEY_INTERVAL_S", "0.025"))
+# Symbol-box click offset from the chart window's top-left (physical px). The TOS
+# chart symbol field sits at a fixed toolbar offset; a real CLICK there is needed
+# to focus it before typing — SetForegroundWindow + ctrl+L alone does NOT reliably
+# focus the input in unattended runs (verified: manual click loads, ctrl+L didn't).
+# Tune per layout if the field moves.
+SYMBOX_X = int(os.environ.get("SCANNER_SYMBOX_X", "80"))
+SYMBOX_Y = int(os.environ.get("SCANNER_SYMBOX_Y", "95"))
 MARKET_OPEN_PT_MIN  = 6 * 60 + 30   # 6:30 AM PT
 MARKET_CLOSE_PT_MIN = 13 * 60       # 1:00 PM PT
 # TOS watchlists aren't reliably populated until ~20 min after the open, so the
@@ -425,10 +432,17 @@ def focus_window(hwnd: int) -> bool:
 
 
 def load_ticker_in_tos(hwnd: int, ticker: str) -> None:
+    """Load a symbol into the TOS chart by CLICKING the symbol box (to focus the
+    input) then typing — not ctrl+L, which doesn't reliably focus the field in
+    unattended runs. Click point is a fixed toolbar offset from the window's
+    top-left (SYMBOX_X/Y)."""
     focus_window(hwnd)
     time.sleep(0.15)
-    pyautogui.hotkey("ctrl", "l")
-    time.sleep(0.10)
+    l, t, _r, _b = win32gui.GetWindowRect(hwnd)
+    pyautogui.doubleClick(l + SYMBOX_X, t + SYMBOX_Y)   # focus the symbol field
+    time.sleep(0.15)
+    pyautogui.hotkey("ctrl", "a")                       # select any existing text
+    time.sleep(0.05)
     pyautogui.typewrite(ticker, interval=KEY_INTERVAL_S)
     time.sleep(0.05)
     pyautogui.press("enter")
