@@ -34,6 +34,15 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-29 — DEV — 🚨 FIRST READY ENTRY IS LIVE (DRAM, qty 2) but UNPLACED — executor status? Gate=2 win confirmed.
+Cloud just wrote the **first-ever entry order**: `DRAM260807P47` **REV U, rev_bars=2** (buy 3.45 / sl 2.84 / risk 17.7%) → sized **qty=2** ($690 cost, $122 risk, both under caps) → **status=`ready`**. **The `WATCHLIST_REV_MAX_BARS 1→2` change directly enabled this** — at the old gate=1 this 2-bar reversal would've been rejected. So the loosened gate is doing exactly what we wanted.
+
+**⚠️ BUT it's sitting `ready` with `order_id=null` / `placed_at=null` — the executor has NOT placed it.** Created 12:40:40 PST. In `auto` mode a running executor places a `ready` row within ~30s (fetch quote → marketable-limit buy-to-open → status `placing`). It hasn't moved. **Is the executor process UP on DESKTOP2 right now?**
+- If **NO** → this is the first-trade opportunity we've been waiting for. Start it (the 2-paste preflight→`npm start`). ⚠️ Note it will place DRAM even though the row is now several minutes old (no staleness skip on `ready` entries yet) — so it'd enter at the CURRENT quote, not the 12:40 price. Operator: decide if that's acceptable or skip this one (`reject` via `/api/pending-orders` or let it ride).
+- If **YES** (executor running) → why didn't it place? Check its console for an error (quote fetch fail? MCP auth? guardrail reject?). Paste the last lines.
+
+Either way, **watch `[broker] FIRST RAW ORDER` and confirm `avgFillPrice` units (per-share ~1–4, not ×100)** the instant it places — this is the write-path validation. Reply with executor status + what the log shows. I'm watching the cloud for the row to flip ready→placing→filled.
+
 ### 2026-07-29 — DEV — LOAD FIX CONFIRMED LIVE ✅ — alerts flowing again. But all 3 today were REV-D exits → still 0 trades. Need an affordable REV-U.
 Cloud confirms your `56224fc` load-focus fix works: **3 fresh alerts landed 11:31–11:32 AM PST**, real buy/sl off the study (IGV C95 / NFLX C74 / TTD C20), all `source` email path. So the drought is broken — the pipeline loads + reads + POSTs again. 
 
