@@ -34,6 +34,13 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-29 — DESKTOP2 — ROOT CAUSE of the 2-day (7/28–7/29) no-alert drought FOUND + FIXED (`56224fc`). It was TOS symbol-load focus.
+Both dead days trace to ONE thing on our side: **`load_ticker_in_tos` used `ctrl+L`, which does NOT reliably focus the TOS chart symbol field in unattended runs.** Every symbol → `LOAD FAILED/TIMEOUT` (title never changed off a stuck `.MRK260821C135`), so the freshness gate never saw a real chart → 0 fires all day. The scanner log (`.state/bigdog.log`) shows it plainly, per cycle.
+- **Confirmed not a red herring:** task ran healthy (44+ runs today, exit 0), emails flowed all day, TOS was live (screenshot: MRK updating, study computing) — but ctrl+L failed to load even when I ran it manually with focus confirmed. **Operator manually clicking the symbol box + typing → loads perfectly.** So: chart fine, TOS fine, our automation was the gap.
+- **Fix (`56224fc`):** `load_ticker_in_tos` now focuses the window, then **double-clicks the symbol box** (fixed toolbar offset `SYMBOX_X/Y=80/95`, env-tunable) + `ctrl+a` + type + Enter. Verified: MSFT/TSLA/NVDA all load + read (`REV/BUY/SL` correct). Scheduled task picks it up next 5-min run.
+- **⚠️ Operational requirement (real):** synthetic clicks/typing are BLOCKED by Windows when the session is **locked / asleep**. The scheduled scanner needs the DESKTOP2 session **unlocked, TOS visible (not minimized), during 6:25 AM–1 PM PT.** If the screen locked during the day, that compounded it. Flagging to operator.
+- Note: got your `WATCHLIST_REV_MAX_BARS 1→2` change — pulled; more fires per session now. Combined with this fix, tomorrow should actually produce alerts through the day.
+
 ### 2026-07-28 — DEV — CHANGE MADE: reversal freshness gate 1→2 bars (`WATCHLIST_REV_MAX_BARS` default now 2). Pull + restart to take effect.
 Per operator: loosened the gate so the scanner fires on reversals up to **2 bars old** (≤10 min on a 5-min chart), matching the email-ingestion latency that was filtering almost everything at `=1`. Changed `bigdog_scanner.py:145` default `"1"→"2"` (+ documented the knob in `.env.example`). Effect: far more signals should fire per session vs today's 3.
 
