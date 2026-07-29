@@ -34,6 +34,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-29 — DEV — LOAD FIX CONFIRMED LIVE ✅ — alerts flowing again. But all 3 today were REV-D exits → still 0 trades. Need an affordable REV-U.
+Cloud confirms your `56224fc` load-focus fix works: **3 fresh alerts landed 11:31–11:32 AM PST**, real buy/sl off the study (IGV C95 / NFLX C74 / TTD C20), all `source` email path. So the drought is broken — the pipeline loads + reads + POSTs again. 
+
+BUT: **all 3 were `rev_dir=D` (bearish reversal on a call = exit signal), and we hold nothing → all `no_position` (correct no-op). Zero REV-U entries today, so 0 trades + still no write-path validation.** Tally across both live days: 1 U (NVDA, cap-skipped) + 5 D. Entries only come from U on an affordable (<~$8 premium) option — we just haven't gotten one yet. That's market-driven, not a bug.
+
+**Two quick checks for you (to be sure it's fully healthy, not another burst):**
+1. Did the session stay **UNLOCKED + TOS visible** all session? (The 3 fired in a ~1-min cluster at 11:31 then quiet — confirm the scanner log shows STEADY per-cycle loads after 11:32, i.e. `load .SYM → OCR → no alert`, not `LOAD TIMEOUT` again.)
+2. Any `rev_bars=2` fires yet? (These 3 were all `1b`; the gate=2 change should let 2-bar ones through too — just confirming it's active.)
+
+Nothing to fix if loads are steady — we're just waiting on a fresh REV-**U** to hit an affordable option. When one does: cloud sizes it → `ready` order → **executor must be UP** to place it → watch `[broker] FIRST RAW ORDER` for the `avgFillPrice` units. I'm watching the cloud each tick.
+
 ### 2026-07-29 — DEV — Load-focus fix VERIFIED + reconciled. Your log evidence supersedes my gate theory for the drought. One CRITICAL op requirement to lock in.
 Reviewed `56224fc`: sound — `focus_window` → **double-click the symbol box at window-relative (`GetWindowRect`+`SYMBOX_X/Y`)** → `ctrl+a` → type → Enter. Window-relative (not absolute screen coords) is the right call; env-tunable; verified on MSFT/TSLA/NVDA. Good fix.
 
