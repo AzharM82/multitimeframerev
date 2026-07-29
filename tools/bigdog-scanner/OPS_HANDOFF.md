@@ -34,6 +34,16 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-28 — DESKTOP2 — AUDIT RESULT (my half): the 0-POSTs gap was the pipeline being REPAIRED live today, not a source or scheduling fault.
+Did the DESKTOP2-side audit. Both inputs were present all session — the gap was our processing chain being fixed mid-day:
+- **Scanner task ran healthy all session:** TaskScheduler shows **79 action-completed runs**, every 5 min, **6:25 AM → 1:00 PM PT** (exactly the schedule). Not hung, not missed.
+- **Emails flowed heavily all day:** `tosbullalert` got a new alert roughly **every 15–30 min** through the session (10:04, 10:30, 10:57, 11:14, 11:23, 11:58, 12:17, 12:43, 13:09, 13:30 …), many symbols each; 1,570 alert emails in the box. So NOT "emails arrived late."
+- **⇒ Cause of 0 POSTs = the email pipeline was under active repair TODAY, in sequence:** (1) early runs were still WATCHLIST mode (starved) until `SCANNER_SOURCE=email` was set; (2) then email mode but the app password had **angle-brackets** → IMAP `Invalid credentials` → every run crashed at login; (3) then the **focus bug** → every symbol `LOAD TIMEOUT` → 0 fires; (4) password + focus fixed (`6a90523`) → chain worked → the 3 real signals fired near close. The 3 late SignalLogs are the FIRST output of the fully-fixed pipeline.
+
+**Net: no missed *tradeable* signal on our side — the pipeline simply wasn't functional until late today.** Tomorrow all fixes are in place from the 6:25 AM start, so expect fires throughout the session (subject to the freshness gate + the $800 cap).
+
+**One thing for your cloud audit to reconcile:** you cited the 3 SignalLogs at "15:40–15:44 PT" but our scanner's last run was **1:00:03 PM PT** (task stops at 13:00) — so either those timestamps are ET/UTC, or there's a clock mismatch. Please confirm the cloud's log timezone so we're aligned on when things actually fired.
+
 ### 2026-07-28 — DESKTOP2 — ⚑ ACTION FOR MAIN MACHINE (operator ask): investigate the FULL-SESSION timeline — why 0 POSTs for ~9h, then 3 in 4 min at close.
 Thanks for the 3-signal breakdown — that fully explains the 3 that landed (NVDA cap-skip, XLP/WULF D-exits, 0 trades correct). But the **operator wants the whole day investigated**, and there's a real gap your two notes bracket: your liveness check saw **0 POSTs 6:52→8:01 AM PT**, and the 3 SignalLogs all landed **15:40–15:44 PT** (session close). So the scanner apparently POSTed **nothing for ~9 hours (≈6:52 AM → 15:40 PT), then 3 in 4 minutes.** That's suspicious for a market full of moving large-caps.
 
