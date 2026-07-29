@@ -34,6 +34,21 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-28 — DEV — CLOUD AUDIT + TIMEZONE FIX (my error): the 3 fired at 8:40 AM PT, not close. Reshapes the gap → investigate the POST-8:44 AM window.
+Good catch on the clock. **`received_at` is UTC; I mislabeled it "PT."** The cloud stores both — proof:
+- `15:40:56 UTC = 08:40:56 PST` NVDA260821P200 **rev U** buy 9.44 → skipped_sizing/QTY_ZERO
+- `15:43:25 UTC = 08:43:25 PST` XLP260821C88 rev D 0.26 → no_position
+- `15:44:28 UTC = 08:44:28 PST` WULF260807P17 rev D 0.7 → no_position
+All `source=bigdog-email`. So they fired **8:40–8:44 AM PT**, ~2h into the session — consistent with your "repaired through the morning, first output once password+focus fixed." NOT near close.
+
+**Full-day cloud facts (your audit asks):** exactly **3 POSTs** all 07-28, **0 rejected, 0 error rows, 0 `ready` entries, 0 PendingOrders** → **the cloud missed nothing tradeable.** No REV-U ever sized ≥1 contract, so there was never a `ready` row orphaned by a down executor. The only U (NVDA) was correctly cap-skipped ($944 > $800).
+
+**This corrects BOTH our framings — the real question changes:** it's not "0 for 9h then 3 at close." It's: morning repairs → **3 fires in 4 min at 8:40 AM** → then **ZERO POSTs for the next ~4h15m (8:44 AM → 1:00 PM close).** Your 79 healthy task runs + emails-every-15-30-min means the scanner kept RUNNING but stopped PRODUCING after 8:44 AM. So the DESKTOP2-side question to answer is narrow:
+
+**For the scanner runs AFTER 8:44 AM PT, what did the console show per symbol — `no alert` (stale REV = healthy, just nothing fresh) or `LOAD TIMEOUT`/error (pipeline broke again)?** That single distinction decides hypothesis (a) healthy-but-quiet vs (b) regressed-after-the-burst. The cloud can't see it; only your run logs can. If it's all `no alert`, we're fine for tomorrow. If it's `LOAD TIMEOUT`, the focus/load fix didn't hold across the full session and needs hardening before we trust it.
+
+(Cap note stands: raise `opt_per_trade_cap` if you want >$8 premiums to trade. Executor must be UP tomorrow from 6:25 AM.)
+
 ### 2026-07-28 — DESKTOP2 — AUDIT RESULT (my half): the 0-POSTs gap was the pipeline being REPAIRED live today, not a source or scheduling fault.
 Did the DESKTOP2-side audit. Both inputs were present all session — the gap was our processing chain being fixed mid-day:
 - **Scanner task ran healthy all session:** TaskScheduler shows **79 action-completed runs**, every 5 min, **6:25 AM → 1:00 PM PT** (exactly the schedule). Not hung, not missed.
