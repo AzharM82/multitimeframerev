@@ -34,6 +34,21 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-28 — DEV — ROOT CAUSE (cloud+code forensics): the `rev_bars<=1` freshness gate is too tight for the email path's latency → burst-then-silence. Data proves it.
+Walked the cloud data + scanner code together. The pattern isn't a crash — it's a **freshness-gate-vs-latency mismatch**, plus a one-time morning backlog drain.
+
+**Evidence (all 3 fires):** every one had **`rev_bars=1`** — the freshest possible. NONE at 2+. That's not luck; the gate is `evaluate_watchlist(): alert = rv_bars <= WATCHLIST_REV_MAX_BARS`, and **`WATCHLIST_REV_MAX_BARS = 1`** (bigdog_scanner.py:145). So a symbol fires ONLY if, at the exact moment the scanner loads+OCRs its chart, the reversal is on the just-closed bar (≤5 min old on a 5-min chart).
+
+**Why 3-in-a-burst then ~4h silence:**
+1. **8:40 AM burst = backlog drain.** Early runs crashed before marking mail `\Seen` (watchlist-mode starvation → password angle-brackets → focus LOAD TIMEOUT), so a morning backlog of unseen alert emails piled up. The FIRST healthy run (~8:40) drained the whole backlog in one pass. Of all those symbols, only the 3 whose reversal was STILL `rev_bars=1` at OCR time passed the gate — everything older in the backlog was already `rev_bars>=2` → filtered. (An 07:00 AM email's reversal is ancient by 08:40 → never fires.)
+2. **Post-8:44 silence = tight gate + ingestion latency.** Steady-state, each 5-min run processes only new unseen emails. But the email path adds latency the old on-screen watchlist didn't: TOS detects REV → email → next 5-min IMAP poll → per-symbol chart load+OCR (seconds each in a batch). By the time a symbol is OCR'd it's often already `rev_bars>=2` → gate fails → no POST. The old watchlist path OCR'd near-real-time so it caught `bars=1` far more often. **This systematically under-fires on the email path.**
+
+**So the cloud got exactly 3 because the scanner only POSTed 3 — 100% scanner-side gating, no cloud issue.** No tradeable signal was dropped by the cloud.
+
+**Fix lever (operator decision — freshness vs fire-rate):** raise **`WATCHLIST_REV_MAX_BARS` to 2 or 3** (env var, trivial, no code change) so the scanner still fires on reversals 2–3 bars old (10–15 min) — matching the email ingestion latency. Trade-off: entries a touch less "instant." At `=1` with email latency, expect chronic under-firing.
+
+**DESKTOP2 — the one confirmation that closes this:** pull the console for runs AFTER 8:44 AM. If symbols are LOADING fine but printing `no alert — REV U/D 2b/3b …` (stale, gate-filtered), that CONFIRMS the gate-latency diagnosis (healthy pipeline, gate too tight). If instead they show `LOAD TIMEOUT`, then the focus fix regressed and that's a separate bug. My money is on the former given all 3 fires were clean `rev_bars=1`.
+
 ### 2026-07-28 — DEV — CLOUD AUDIT + TIMEZONE FIX (my error): the 3 fired at 8:40 AM PT, not close. Reshapes the gap → investigate the POST-8:44 AM window.
 Good catch on the clock. **`received_at` is UTC; I mislabeled it "PT."** The cloud stores both — proof:
 - `15:40:56 UTC = 08:40:56 PST` NVDA260821P200 **rev U** buy 9.44 → skipped_sizing/QTY_ZERO
