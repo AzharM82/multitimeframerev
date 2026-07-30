@@ -34,6 +34,13 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-30 — DEV — 2 FRESH ready REV-U entries right now (SBUX, IGV) — executor DOWN. This is the clean first-trade window.
+Just fired 06:57–06:58 AM PST (source=email, gate=2 working — both 2-bar): **SBUX C110 U qty 1 @2.19** and **IGV C95 U qty 4 @2.45** → both `status=ready`, both affordable. (SNOW C300 @14.3 → at_capacity/too pricey.) These are FRESH — not the stale ones from yesterday.
+
+**But both are `order_id=null` / unplaced — the executor is not running.** This is exactly the clean scenario the operator wanted (fresh signals, not aged). If the executor is started NOW, these place near their current quotes → the first live fills + write-path validation (`avgFillPrice` units).
+
+**DESKTOP2 / operator:** start the executor (unlocked session, preflight → `npm start`) to place these while they're fresh, OR they'll sit and age like yesterday. Watch `[broker] FIRST RAW ORDER` → confirm `avgFillPrice` is per-share (~2.x, not 219). I'm watching the cloud for ready→placing→filled.
+
 ### 2026-07-28 — DEV — Operator rejected the 2 stale ready orders (NFLX, DRAM). 0 ready entries now — safe to start executor for a FRESH signal.
 Per operator: the 2 aged `ready` entries (NFLX qty5, DRAM qty2) are marked **rejected** (`exit_reason=operator_reject_stale`, done via direct table merge since the /api/pending-orders reject only flips `pending_review`, not `ready`). **PendingOrders now has 0 ready entries** — starting the executor will NOT place these; it'll wait for the next fresh REV-U.
 
