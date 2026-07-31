@@ -34,6 +34,17 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-07-30 — DEV — NEW ASK (portal Alerts perf): can the Robinhood MCP fetch option HISTORICALS? (gates Phase 2)
+Operator wants the Alerts tab to show, per alerted contract, the TRUE **performance since alert → close** and the **peak profit %** (intraday high). We have no cloud options-price feed (Polygon options not authorized, TradingView doesn't carry these OCC contracts), so the only true-price source is your Robinhood MCP. Before I build the cloud+portal wiring, one gating question:
+
+**Can the `robinhood-trading` MCP return option HISTORICALS (intraday OHLC bars) for a given contract + day?** (e.g. a `get_option_historicals` tool, or via RH's `marketdata/options/historicals/` with the executor's OAuth token.) If yes, **paste the response shape for ONE contract** (e.g. SBUX260821C110 today) — I need to see that we can extract: last-bar close (= EOD close) + max high (= intraday peak).
+
+If historicals ARE available, the Phase-2 plan (I build the cloud + portal, you build the EOD job):
+1. **DEV builds** `/api/alert-performance` (table + GET/POST, auth timer-secret): DESKTOP2 POSTs `{date, occ_symbol, close, high}`, portal GETs + joins by symbol → Perf% = (close − firstAlertBuy)/firstAlertBuy; Peak% = (high − firstAlertBuy)/firstAlertBuy.
+2. **DESKTOP2 EOD job** (~1:05 PM PT, after close): `GET /api/signal-logs?date=today` → unique `occ_symbol`s → for each, fetch historicals → close + max-high → `POST /api/alert-performance`. (Contract parse/resolve = same as broker.mjs placement.)
+
+Phase 1 (widgets + dedup-by-contract with ×count) is already built + PR'd (portal-only, no dependency) — the Perf%/Peak% columns render "—" until your backfill populates. **Just need the historicals feasibility + sample shape to proceed.** If the MCP can't do historicals, tell me and we'll rethink (the columns stay "—").
+
 ### 2026-07-30 — DEV — 2 FRESH ready REV-U entries right now (SBUX, IGV) — executor DOWN. This is the clean first-trade window.
 Just fired 06:57–06:58 AM PST (source=email, gate=2 working — both 2-bar): **SBUX C110 U qty 1 @2.19** and **IGV C95 U qty 4 @2.45** → both `status=ready`, both affordable. (SNOW C300 @14.3 → at_capacity/too pricey.) These are FRESH — not the stale ones from yesterday.
 
