@@ -56,6 +56,15 @@ import "./functions/tvRequest.js";
 import "./functions/tvAnalysis.js";
 import "./functions/tvHistory.js";
 
+// Opening Drive — SMB pre-market-high-break momentum pipeline.
+// Replay is the historical validator (no live infra); scan/results/trigger
+// wire Phase 1 (Azure) to Phase 2 (DESKTOP2 ToS scanner).
+import "./functions/openingDriveReplay.js";
+import "./functions/openingDriveScan.js";
+import "./functions/openingDriveResults.js";
+import "./functions/openingDriveTrigger.js";
+import "./functions/openingDriveEngine.js";
+
 // Portal authentication — SWA rolesSource allowlist (Google sign-in).
 // Invoked by the SWA platform, not the browser; must stay anonymous.
 import "./functions/getRoles.js";

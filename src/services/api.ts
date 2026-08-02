@@ -16,6 +16,7 @@ import type {
   TvAnalysisResponse,
   TvRequestResponse,
   TvHistoryResponse,
+  OpeningDriveResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -71,6 +72,13 @@ export function getTvHistory(ticker: string): Promise<TvHistoryResponse> {
   return request<TvHistoryResponse>(
     `/tv-history?ticker=${encodeURIComponent(ticker.toUpperCase().trim())}`,
   );
+}
+
+// ─── Opening Drive ──────────────────────────────────────────────────────────
+
+/** The day's Opening Drive candidates + regime + live trigger state. */
+export function getOpeningDrive(date?: string): Promise<OpeningDriveResponse> {
+  return request<OpeningDriveResponse>(`/opening-drive-results${date ? `?date=${date}` : ""}`);
 }
 
 // ─── Catalyst Value Eval ────────────────────────────────────────────────────

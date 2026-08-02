@@ -109,4 +109,5 @@ export const TABLES = {
   CVE_EVAL: "CveEval",
   BIGDOG_ALERTS: "BigDogAlerts",
   TV_ANALYSIS: "TvAnalysis",
+  OPENING_DRIVE: "OpeningDrive",
 } as const;

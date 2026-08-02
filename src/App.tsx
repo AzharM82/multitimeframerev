@@ -7,10 +7,11 @@ import { RotationPage } from "./views/RotationPage.js";
 import { GatePage } from "./views/GatePage.js";
 import { MetricsPage } from "./views/MetricsPage.js";
 import { TradingViewPage } from "./views/TradingViewPage.js";
+import { OpeningDrivePage } from "./views/OpeningDrivePage.js";
 import { ErrorBoundary } from "./views/ErrorBoundary.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "gate" | "metrics" | "atr" | "cve" | "rotation" | "chart" | "about";
+type Page = "gate" | "metrics" | "atr" | "cve" | "rotation" | "chart" | "opening" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "gate", label: "Gate" },
@@ -19,6 +20,7 @@ const TABS: { key: Page; label: string }[] = [
   { key: "cve", label: "Catalyst Value Eval" },
   { key: "rotation", label: "Rotation" },
   { key: "chart", label: "Chart Analysis" },
+  { key: "opening", label: "Opening Drive" },
   { key: "about", label: "About" },
 ];
 
@@ -112,6 +114,7 @@ function App() {
           {page === "cve" && <CveEvalPage />}
           {page === "rotation" && <RotationPage />}
           {page === "chart" && <TradingViewPage />}
+          {page === "opening" && <OpeningDrivePage />}
           {page === "about" && <AboutPage />}
         </ErrorBoundary>
       </main>

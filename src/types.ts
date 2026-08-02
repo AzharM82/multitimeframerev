@@ -654,3 +654,49 @@ export interface TvHistoryResponse {
   count: number;
   points: TvHistoryPoint[];
 }
+
+// ─── Opening Drive (SMB pre-market-high break) ──────────────────────────────
+
+export interface OpeningDriveCandidate {
+  ticker: string;
+  gapPct: number;
+  pmHigh: number;
+  pmVolume: number;
+  pmLast: number;
+  ydayHigh: number;
+  priorClose: number;
+  atrPct: number;
+  roomOverheadPct: number | null;
+  ath: boolean;
+  sector: string;
+  sectorEtf: string | null;
+  sectorEtfPct: number | null;
+  marketCap: number | null;
+  catalystType: "NEWS" | "ATH" | "BASE" | "NONE";
+  catalystStrength: "HIGH" | "MEDIUM" | "LOW" | "NONE";
+  catalystHeadline: string | null;
+  catalystSource: string | null;
+  catalystTimeEt: string | null;
+  sectorSympathy: boolean;
+  demoted: boolean;
+  // Live state stamped by the Phase-2 engine (absent until the open).
+  state?: "GATE_PASS" | "GATE_FAIL" | "TRIGGERED" | "STUFFED" | "EXIT";
+  stateAt?: string;
+  entry?: number | null;
+  stop?: number | null;
+  riskPerShare?: number | null;
+  suggestedShares?: number | null;
+  rvol?: number | null;
+  triggerBarEt?: string | null;
+  exitReason?: string | null;
+}
+
+export interface OpeningDriveResponse {
+  date: string;
+  regime: "GREEN" | "YELLOW" | "RED" | null;
+  spyPct: number | null;
+  discovered: number;
+  asOf: string | null;
+  count: number;
+  candidates: OpeningDriveCandidate[];
+}

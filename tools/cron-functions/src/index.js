@@ -83,6 +83,22 @@ app.timer("mmKeyMetricsCron", {
   handler: async (_t, ctx) => fire("mm-timer?panel=key-metrics", ctx),
 });
 
+// Opening Drive — pre-market scan 2 min before the open (9:28 AM ET), weekdays.
+// Produces the candidate list the Phase-2 engine then watches.
+app.timer("openingDrivePremarketCron", {
+  schedule: "0 28 9 * * 1-5",
+  handler: async (_t, ctx) => fire("opening-drive-scan", ctx),
+});
+
+// Opening Drive — Phase-2 engine, every 2 min at ~10s past during the 9 & 10
+// o'clock hours. The handler self-gates to the 9:30–10:30 ET window and no-ops
+// when there are no candidates, so firing across the whole hour is harmless.
+// Cloud-only (Alpaca IEX) — no local machine.
+app.timer("openingDriveEngineCron", {
+  schedule: "10 */2 9,10 * * 1-5",
+  handler: async (_t, ctx) => fire("opening-drive-engine", ctx),
+});
+
 // Day-trade reversal scanning is no longer in this Function App. It moved
 // to a local Python scanner (tools/chart-ocr/finviz_scanner.py) so reversal
 // detection comes off the actual TOS chart instead of a server-side ZigZag.

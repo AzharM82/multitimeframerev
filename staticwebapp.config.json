@@ -85,6 +85,18 @@
       ]
     },
     {
+      "route": "/api/opening-drive-scan",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/opening-drive-engine",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/tv-request",
       "methods": [
         "GET"
@@ -104,6 +116,24 @@
     },
     {
       "route": "/api/tv-history",
+      "methods": [
+        "POST"
+      ],
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/opening-drive-results",
+      "methods": [
+        "GET"
+      ],
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/opening-drive-trigger",
       "methods": [
         "POST"
       ],

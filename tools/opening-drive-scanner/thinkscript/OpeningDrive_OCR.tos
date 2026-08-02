@@ -1,0 +1,98 @@
+# OpeningDrive_OCR — SMB opening-drive pre-market-high break, consolidated OCR strip.
+#
+# Install on a 2-MINUTE chart (Studies > Edit Studies > Create > paste > name
+# "OpeningDrive_OCR" > add to chart). It draws the pre-market-high line and a
+# top-of-pane label strip the DESKTOP2 scanner screenshots and OCRs. Chart-truth:
+# the gate and trigger are computed here, on your feed, exactly as you see them.
+#
+# The strip the scanner reads (one AddLabel each):
+#   OD                         marker (anchors the strip)
+#   GATE F|P|Y                 F=open<=prior close (fail); P=gap over prior close;
+#                              Y=P and also cleared yesterday's high (strength tier)
+#   TRIG F|S|-                 F=fire; S=stuffed (wick over PMH, closed under); -=none
+#   PMH <price>                pre-market high (the breakout level)
+#   ENT <price>                entry = last completed 2-min bar close
+#   STP <price>                stop  = last completed 2-min bar low
+#   RV <int>                   relative volume x10 (34 = 3.4x); scanner divides by 10
+#
+# The trigger is evaluated on the LAST COMPLETED 2-min bar (bar [1]) so a poll
+# mid-formation of the current bar reads a settled value. First-fire dedup and
+# the post-trigger monitor live in the scanner, not here.
+#
+# RVOL here is a recent-elevated-volume proxy (last bar / 20-bar average). The
+# true same-time-of-day 5-day baseline is computed server-side; tune minRvol to
+# taste. Everything is an input so nothing needs a code edit to adjust.
+
+declare upper;
+
+input showLabels = yes;
+input minRvol = 3.0;
+input maxWickRatio = 0.5;
+input strictGate = no;      # no: gap over prior close qualifies. yes: must clear yday high.
+input premarketStart = 0400;
+input rthStart = 0930;
+input rthEnd = 1600;
+
+def newDay = GetYYYYMMDD() != GetYYYYMMDD()[1];
+def preMarket = SecondsFromTime(premarketStart) >= 0 and SecondsTillTime(rthStart) > 0;
+def isRTH = SecondsFromTime(rthStart) >= 0 and SecondsTillTime(rthEnd) > 0;
+
+# ── Pre-market high: reset each day, accumulate through pre-market, freeze into RTH ──
+rec pmHigh = if newDay then (if preMarket then high else Double.NaN)
+             else if preMarket then (if IsNaN(pmHigh[1]) then high else Max(pmHigh[1], high))
+             else pmHigh[1];
+
+# ── Prior-day levels (higher aggregation) ──
+def priorClose = close(period = AggregationPeriod.DAY)[1];
+def ydayHigh = high(period = AggregationPeriod.DAY)[1];
+
+# ── Day open = open of the first RTH bar ──
+def firstRthBar = isRTH and !isRTH[1];
+rec dayOpen = if firstRthBar then open
+              else if newDay then Double.NaN
+              else dayOpen[1];
+
+# ── Gate (loosened by default) ──
+def gatePass = dayOpen > priorClose;
+def clearedYH = dayOpen > ydayHigh;
+def gateOk = gatePass and (!strictGate or clearedYH);
+
+# ── Last completed 2-min bar ──
+def bC = close[1];
+def bO = open[1];
+def bH = high[1];
+def bL = low[1];
+def body = bC - bO;
+def upperWick = bH - Max(bO, bC);
+def avgVol = Average(volume, 20)[1];
+def relVol = if avgVol > 0 then volume[1] / avgVol else 0;
+
+def triggerFire = gateOk and isRTH and bC > pmHigh[1] and bC > bO
+                  and upperWick <= maxWickRatio * body and relVol >= minRvol;
+def stuffed = gateOk and isRTH and bH > pmHigh[1] and bC <= pmHigh[1] and !triggerFire;
+
+def entry = bC;
+def stop = bL;
+
+# ── Pre-market-high line ──
+plot PMHline = if isRTH then pmHigh else Double.NaN;
+PMHline.SetDefaultColor(Color.YELLOW);
+PMHline.SetStyle(Curve.SHORT_DASH);
+PMHline.SetLineWeight(2);
+
+# ── OCR strip ──
+AddLabel(showLabels, "OD", Color.WHITE);
+AddLabel(showLabels,
+    "GATE " + (if !gatePass then "F" else if clearedYH then "Y" else "P"),
+    if !gatePass then Color.GRAY else if clearedYH then Color.GREEN else Color.CYAN);
+AddLabel(showLabels,
+    "TRIG " + (if triggerFire then "F" else if stuffed then "S" else "-"),
+    if triggerFire then Color.GREEN else if stuffed then Color.ORANGE else Color.GRAY);
+AddLabel(showLabels and !IsNaN(pmHigh),
+    "PMH " + AsText(pmHigh, NumberFormat.TWO_DECIMAL_PLACES), Color.YELLOW);
+AddLabel(showLabels and isRTH,
+    "ENT " + AsText(entry, NumberFormat.TWO_DECIMAL_PLACES), Color.LIGHT_GREEN);
+AddLabel(showLabels and isRTH,
+    "STP " + AsText(stop, NumberFormat.TWO_DECIMAL_PLACES), Color.PINK);
+AddLabel(showLabels and isRTH,
+    "RV " + Round(relVol * 10, 0), if relVol >= minRvol then Color.GREEN else Color.GRAY);

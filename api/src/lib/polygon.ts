@@ -63,6 +63,22 @@ async function fetchAggs(
   return toCandles(data.results);
 }
 
+/**
+ * Date-bounded aggregate fetch for callers that need a specific historical
+ * window (e.g. the Opening Drive replay engine reconstructing a past session).
+ * Bars include pre/post-market; filter to RTH at the call site if needed.
+ * `from`/`to` are YYYY-MM-DD.
+ */
+export async function fetchAggsRange(
+  ticker: string,
+  multiplier: number,
+  timespan: string,
+  from: string,
+  to: string,
+): Promise<Candle[]> {
+  return fetchAggs(ticker, multiplier, timespan, from, to);
+}
+
 // ─── Filter to regular market hours (9:30 AM – 4:00 PM ET) ──────────────────
 
 function isRegularHours(timestampMs: number): boolean {
