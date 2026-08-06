@@ -4,6 +4,8 @@ import { computeAllKeyMetrics } from "../lib/mm/keyMetrics.js";
 import { computeBreadthData } from "../lib/mm/stockbee.js";
 import { runScreener } from "../lib/mm/screeners.js";
 import { computeMovers } from "../lib/mm/movers.js";
+import { computeSectorDesk } from "../lib/mm/sectorDesk.js";
+import { computeIndexLeaders } from "../lib/mm/indexLeaders.js";
 
 /**
  * POST /api/mm-timer?panel=<name>
@@ -40,6 +42,10 @@ async function computePanel(panel: PanelName): Promise<unknown> {
         w20pct: await computeMovers("20pct_weekly"),
         d4pct: await computeMovers("4pct_daily"),
       };
+    case "sector-desk":
+      return computeSectorDesk();
+    case "index-leaders":
+      return computeIndexLeaders();
   }
 }
 

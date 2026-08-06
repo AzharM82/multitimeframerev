@@ -536,7 +536,13 @@ export interface GateScoreResponse {
 
 // ─── Metrics (MarketMetrics core panels) ────────────────────────────────────
 
-export type MmPanelName = "key-metrics" | "breadth" | "screeners" | "movers";
+export type MmPanelName =
+  | "key-metrics"
+  | "breadth"
+  | "screeners"
+  | "movers"
+  | "sector-desk"
+  | "index-leaders";
 
 export interface MmPanelResponse<T = unknown> {
   panel: MmPanelName;
@@ -593,6 +599,79 @@ export interface MmMoversData {
   m9m: MmScreenerRow[];
   w20pct: MmScreenerRow[];
   d4pct: MmScreenerRow[];
+}
+
+// ─── Sector Desk + Index Leaders ────────────────────────────────────────────
+// Stock-only rotation board. Direction is LONG/SHORT — the operator picks their
+// own options off it, so NO options fields exist in these payloads.
+
+export type DeskDirection = "LONG" | "SHORT";
+export type DeskRegimeState = "ROTATION" | "ONE_SIDED" | "COMPRESSED" | "UNCONFIRMED";
+export type DeskVehicle = "SECTOR" | "INDEX";
+
+export interface DeskRankedStock {
+  ticker: string;
+  company?: string;
+  chg: number;
+  relVol: number;
+  dollarVol: number;
+  aligned: number;
+  score: number;
+  side: DeskDirection;
+  flags: string[];
+}
+
+export interface DeskGroup {
+  key: string;
+  sector: string;
+  etf: string;
+  etfMove: number;
+  etfRvol: number;
+  breadth: number;
+  memberCount: number;
+  gss: number;
+  conviction: number;
+  bias: DeskDirection | null;
+  tradeable: boolean;
+  blockers: string[];
+  stocks: DeskRankedStock[];
+}
+
+export interface DeskRegime {
+  state: DeskRegimeState;
+  vehicle: DeskVehicle;
+  headline: string;
+  detail: string;
+  dispersion: number;
+  targets: { sector: string; side: DeskDirection }[];
+}
+
+export interface MmSectorDeskData {
+  generatedEt: string;
+  sessionNote: string;
+  regime: DeskRegime;
+  groups: DeskGroup[];
+}
+
+export interface IndexLeader {
+  ticker: string;
+  chg: number;
+  volume: number;
+  relVol: number;
+  close: number;
+  dollarVol: number;
+}
+
+export interface IndexBlock {
+  key: string;
+  label: string;
+  memberCount: number;
+  leaders: IndexLeader[];
+}
+
+export interface MmIndexLeadersData {
+  generatedEt: string;
+  indices: IndexBlock[];
 }
 
 // ─── TradingView chart analysis (desktop sidecar) ───────────────────────────

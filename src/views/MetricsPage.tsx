@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import type {
-  MmPanelName,
   MmKeyMetricsData,
   MmBreadthData,
   MmScreenersData,
@@ -21,7 +20,10 @@ import { getMmPanel } from "../services/api.js";
  * without breaking the others.
  */
 
-const PANELS: { key: MmPanelName; label: string; anchor: string }[] = [
+/** The four panels this board renders — a subset of MmPanelName. */
+type MetricsKey = "key-metrics" | "breadth" | "screeners" | "movers";
+
+const PANELS: { key: MetricsKey; label: string; anchor: string }[] = [
   { key: "key-metrics", label: "Key Metrics", anchor: "mm-key-metrics" },
   { key: "breadth", label: "Breadth", anchor: "mm-breadth" },
   { key: "screeners", label: "Screeners", anchor: "mm-screeners" },
@@ -153,7 +155,7 @@ function status(st: PanelState, label: string): React.ReactNode | null {
 }
 
 export function MetricsPage() {
-  const [panels, setPanels] = useState<Record<MmPanelName, PanelState>>({
+  const [panels, setPanels] = useState<Record<MetricsKey, PanelState>>({
     "key-metrics": initPanel(),
     breadth: initPanel(),
     screeners: initPanel(),
