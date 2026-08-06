@@ -84,12 +84,12 @@ app.timer("mmKeyMetricsCron", {
 });
 
 // ── Sector Desk + Index Leaders ────────────────────────────────────────────
-// Real-time rotation board. Sector Desk warms every 2 min through the session
+// Real-time rotation board. Sector Desk warms every 5 min through the session
 // (~24s compute: 12 paced FinViz exports); Index Leaders every 15 min (index
 // leadership moves slower). Reads are cache-only, so if these stop the tab goes
 // stale rather than computing on demand.
 app.timer("sectorDeskCron", {
-  schedule: "0 */2 9-15 * * 1-5",
+  schedule: "0 */5 9-15 * * 1-5",
   handler: async (_t, ctx) => fire("mm-timer?panel=sector-desk", ctx),
 });
 

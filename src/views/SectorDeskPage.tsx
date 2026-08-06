@@ -435,7 +435,7 @@ export function SectorDeskPage() {
       </div>
 
       <p className="text-[10px] text-dim text-center">
-        Real-time via FinViz Elite, cron-warmed ~1–2 min. Not financial advice.
+        Real-time via FinViz Elite, cron-warmed ~5 min. Not financial advice.
       </p>
     </div>
   );
