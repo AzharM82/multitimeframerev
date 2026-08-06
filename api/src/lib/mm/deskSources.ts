@@ -3,21 +3,27 @@
  * `constants.ts` (which the Metrics panels depend on) to keep this feature's
  * URL surface self-contained and low-risk to change.
  *
- * IMPORTANT — column set: these all use view `v=141` (the "Performance" export),
- * which returns Ticker · Performance(Week..10Y) · Volatility(Week/Month) ·
- * Average Volume · Relative Volume · Price · Change · Volume. That is the ONLY
- * built-in view that carries real-time Volume + Relative Volume together with
- * Change and Price — the `v=152` technical view the plan first assumed has NO
- * volume/rel-vol/sector columns (verified empirically 2026-07-29). Sector and
- * index membership come from the `sec_*` / `idx_*` FILTERS, not a column, so no
- * sector column is needed. `parseGroupIndicatorRows` reads all of these by name.
+ * IMPORTANT — column set: view `v=152` with an EXPLICIT `c=` column list. The
+ * built-in `v=152`/`v=141` defaults don't carry everything at once, but v=152
+ * DOES honor custom column IDs (verified 2026-08-06), so one export delivers:
+ *   c=1  Ticker · 53 SMA50 (dist %) · 54 SMA200 (dist %) · 60 Change from Open
+ *      · 63 Average Volume · 64 Relative Volume · 65 Price · 66 Change · 67 Volume
+ * The SMA columns are the % distance of price from that SMA — exactly the
+ * "how far from the MA" the desk shows. `parseGroupIndicatorRows` reads all of
+ * these by name (Change, Change from Open, Price, Volume, Relative Volume, and
+ * the SMA columns → recovered levels). EMA10/20 and the 5-day (65-bar 30-min
+ * SMA) are NOT FinViz columns — those come from Polygon daily bars + Alpaca IEX
+ * 30-min bars in `maEnrich.ts`.
  *
- * Liquidity floor `sh_avgvol_o1000` (avg vol > 1M) + `sh_price_o1` (price > $1)
- * keeps the universe to tradeable names. `o=-change` sorts by day change desc.
+ * Sector/index membership comes from the `sec_*` / `idx_*` FILTERS. Liquidity
+ * floor `sh_avgvol_o1000` (avg vol > 1M) + `sh_price_o1` (price > $1). `o=-change`
+ * sorts by day change desc.
  */
 
 const ELITE_EXPORT = "https://elite.finviz.com/export.ashx";
-const V141 = "v=141";
+const V152 = "v=152";
+/** Ticker, SMA50 dist, SMA200 dist, ChgFromOpen, AvgVol, RelVol, Price, Change, Volume. */
+const COLS = "c=1,53,54,60,63,64,65,66,67";
 const LIQUID = "sh_avgvol_o1000,sh_price_o1";
 
 export interface SectorDef {
@@ -48,13 +54,13 @@ export const SECTORS: SectorDef[] = [
 
 /** Members of one sector, liquid + sorted by day change. */
 export function sectorExportUrl(slug: string): string {
-  return `${ELITE_EXPORT}?${V141}&f=geo_usa,sec_${slug},${LIQUID}&o=-change`;
+  return `${ELITE_EXPORT}?${V152}&f=geo_usa,sec_${slug},${LIQUID}&o=-change&${COLS}`;
 }
 
 /** One export covering all 11 SPDR sector ETFs (the group anchors). */
 export function sectorEtfExportUrl(): string {
   const tickers = SECTORS.map((s) => s.etf).join(",");
-  return `${ELITE_EXPORT}?${V141}&t=${tickers}`;
+  return `${ELITE_EXPORT}?${V152}&t=${tickers}&${COLS}`;
 }
 
 export interface IndexDef {
@@ -74,5 +80,5 @@ export const INDEXES: IndexDef[] = [
 
 /** Liquid members of one index, sorted by day change desc. */
 export function indexExportUrl(slug: string): string {
-  return `${ELITE_EXPORT}?${V141}&f=geo_usa,idx_${slug},${LIQUID}&o=-change`;
+  return `${ELITE_EXPORT}?${V152}&f=geo_usa,idx_${slug},${LIQUID}&o=-change&${COLS}`;
 }
