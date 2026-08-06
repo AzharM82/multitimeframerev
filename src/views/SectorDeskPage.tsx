@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   MmSectorDeskData,
   MmIndexLeadersData,
@@ -164,29 +164,92 @@ function RotationRail({
 
 // ─── In-group stock table ────────────────────────────────────────────────────
 
+/** % distance from a MA. "–" when null/absent (no history, or an older panel
+ * schema written by a lagging cron during a rollout) or non-finite. */
+const hasNum = (v: number | null | undefined): v is number => typeof v === "number" && Number.isFinite(v);
+const fmtDist = (v: number | null | undefined) => (hasNum(v) ? fmtPct(v) : "–");
+const distTone = (v: number | null | undefined) => (hasNum(v) ? pctTone(v) : "text-text-secondary");
+
+type SortKey =
+  | "ticker" | "chg" | "changeFromOpen" | "relVol" | "dollarVol"
+  | "distEma10" | "distEma20" | "distSma50" | "distSma200" | "dist5day" | "score";
+
+const COLUMNS: { key: SortKey; label: string; num: boolean }[] = [
+  { key: "ticker", label: "Ticker", num: false },
+  { key: "chg", label: "Chg", num: true },
+  { key: "changeFromOpen", label: "Chg Open", num: true },
+  { key: "relVol", label: "RVol", num: true },
+  { key: "dollarVol", label: "$ Vol", num: true },
+  { key: "distEma10", label: "10 EMA", num: true },
+  { key: "distEma20", label: "20 EMA", num: true },
+  { key: "distSma50", label: "50 SMA", num: true },
+  { key: "distSma200", label: "200 SMA", num: true },
+  { key: "dist5day", label: "5-Day", num: true },
+  { key: "score", label: "Score", num: true },
+];
+
+function sortValue(s: DeskRankedStock, key: SortKey): number | string | null {
+  if (key === "ticker") return s.ticker;
+  return s[key] as number | null;
+}
+
 function StockTable({ group }: { group: DeskGroup }) {
+  // Default: score desc (preserves the ranking). Sort sticks across group switches.
+  const [sortKey, setSortKey] = useState<SortKey>("score");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const onSort = (key: SortKey, num: boolean) => {
+    if (key === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir(num ? "desc" : "asc"); }
+  };
+
+  const sorted = useMemo(() => {
+    const rows = [...group.stocks];
+    rows.sort((a, b) => {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      if (typeof av === "string" || typeof bv === "string") {
+        const cmp = String(av).localeCompare(String(bv));
+        return sortDir === "asc" ? cmp : -cmp;
+      }
+      // Nulls always sort to the bottom, regardless of direction.
+      const an = av ?? (sortDir === "asc" ? Infinity : -Infinity);
+      const bn = bv ?? (sortDir === "asc" ? Infinity : -Infinity);
+      return sortDir === "asc" ? an - bn : bn - an;
+    });
+    return rows;
+  }, [group.stocks, sortKey, sortDir]);
+
   if (group.stocks.length === 0) {
     return <p className="text-sm text-text-secondary px-1 py-3">No liquid members running with the group.</p>;
   }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
-            <th className="text-left px-2 py-1.5 font-semibold">Ticker</th>
-            <th className="text-right px-2 py-1.5 font-semibold">Chg</th>
-            <th className="text-right px-2 py-1.5 font-semibold">RVol</th>
-            <th className="text-right px-2 py-1.5 font-semibold">$ Vol</th>
-            <th className="text-right px-2 py-1.5 font-semibold">Aligned</th>
-            <th className="text-left px-2 py-1.5 font-semibold w-40">Score</th>
+            {COLUMNS.map((c) => (
+              <th
+                key={c.key}
+                onClick={() => onSort(c.key, c.num)}
+                className={`px-2 py-1.5 font-semibold cursor-pointer select-none whitespace-nowrap hover:text-text-primary ${
+                  c.key === "ticker" ? "text-left" : "text-right"
+                } ${c.key === sortKey ? "text-text-primary" : ""}`}
+                title={`Sort by ${c.label}`}
+              >
+                {c.label}
+                <span className="inline-block w-2 ml-0.5">{c.key === sortKey ? (sortDir === "asc" ? "▲" : "▼") : ""}</span>
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {group.stocks.map((s: DeskRankedStock) => {
+          {sorted.map((s: DeskRankedStock) => {
             const flagged = s.flags.length > 0;
             return (
               <tr key={s.ticker} className={`border-b border-border/50 ${flagged ? "opacity-60" : ""}`}>
-                <td className="px-2 py-1.5">
+                <td className="px-2 py-1.5 whitespace-nowrap">
                   <a href={TV(s.ticker)} target="_blank" rel="noreferrer" className="font-bold hover:underline">
                     {s.ticker}
                   </a>
@@ -197,11 +260,16 @@ function StockTable({ group }: { group: DeskGroup }) {
                   ))}
                 </td>
                 <td className={`text-right px-2 py-1.5 tabular-nums font-semibold ${pctTone(s.chg)}`}>{fmtPct(s.chg)}</td>
+                <td className={`text-right px-2 py-1.5 tabular-nums ${distTone(s.changeFromOpen)}`}>{fmtDist(s.changeFromOpen)}</td>
                 <td className="text-right px-2 py-1.5 tabular-nums">{s.relVol.toFixed(2)}×</td>
                 <td className="text-right px-2 py-1.5 tabular-nums">{fmtDollar(s.dollarVol)}</td>
-                <td className={`text-right px-2 py-1.5 tabular-nums ${pctTone(s.aligned)}`}>{fmtPct(s.aligned)}</td>
+                <td className={`text-right px-2 py-1.5 tabular-nums ${distTone(s.distEma10)}`}>{fmtDist(s.distEma10)}</td>
+                <td className={`text-right px-2 py-1.5 tabular-nums ${distTone(s.distEma20)}`}>{fmtDist(s.distEma20)}</td>
+                <td className={`text-right px-2 py-1.5 tabular-nums ${distTone(s.distSma50)}`}>{fmtDist(s.distSma50)}</td>
+                <td className={`text-right px-2 py-1.5 tabular-nums ${distTone(s.distSma200)}`}>{fmtDist(s.distSma200)}</td>
+                <td className={`text-right px-2 py-1.5 tabular-nums ${distTone(s.dist5day)}`}>{fmtDist(s.dist5day)}</td>
                 <td className="px-2 py-1.5">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-[7rem]">
                     <div className="flex-1 h-2 rounded-full bg-bg-secondary overflow-hidden">
                       <div
                         className={`h-full ${s.side === "LONG" ? "bg-signal-bull" : "bg-signal-bear"}`}
@@ -299,27 +367,32 @@ export function SectorDeskPage() {
   const [desk, setDesk] = useState<PanelState<MmSectorDeskData>>({ data: null, error: null, loading: true });
   const [idx, setIdx] = useState<PanelState<MmIndexLeadersData>>({ data: null, error: null, loading: true });
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const alive = useRef(true);
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const r = await getMmPanel<MmSectorDeskData>("sector-desk");
+      if (alive.current) setDesk({ data: r.data, error: null, loading: false });
+    } catch (e) {
+      if (alive.current) setDesk((p) => ({ data: p.data, error: (e as Error).message, loading: false }));
+    }
+    try {
+      const r = await getMmPanel<MmIndexLeadersData>("index-leaders");
+      if (alive.current) setIdx({ data: r.data, error: null, loading: false });
+    } catch (e) {
+      if (alive.current) setIdx((p) => ({ data: p.data, error: (e as Error).message, loading: false }));
+    }
+    if (alive.current) setRefreshing(false);
+  }, []);
 
   useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      try {
-        const r = await getMmPanel<MmSectorDeskData>("sector-desk");
-        if (alive) setDesk({ data: r.data, error: null, loading: false });
-      } catch (e) {
-        if (alive) setDesk((p) => ({ data: p.data, error: (e as Error).message, loading: false }));
-      }
-      try {
-        const r = await getMmPanel<MmIndexLeadersData>("index-leaders");
-        if (alive) setIdx({ data: r.data, error: null, loading: false });
-      } catch (e) {
-        if (alive) setIdx((p) => ({ data: p.data, error: (e as Error).message, loading: false }));
-      }
-    };
+    alive.current = true; // reset on (re)mount — StrictMode-safe
     load();
     const t = setInterval(load, POLL_MS);
-    return () => { alive = false; clearInterval(t); };
-  }, []);
+    return () => { alive.current = false; clearInterval(t); };
+  }, [load]);
 
   const groups = desk.data?.groups ?? [];
   const regime = desk.data?.regime;
@@ -340,13 +413,24 @@ export function SectorDeskPage() {
   const active = groups.find((g) => g.key === activeKey) ?? null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-5">
-      <div>
-        <h1 className="font-[var(--font-playfair)] text-2xl font-black">Sector Desk</h1>
-        <p className="text-xs text-text-secondary mt-0.5">
-          Which group is running, and the liquid names running with it. Direction only — you pick the options.
-          {desk.data && <span className="ml-2 text-dim">· as of {desk.data.generatedEt} ET</span>}
-        </p>
+    <div className="max-w-7xl mx-auto space-y-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="font-[var(--font-playfair)] text-2xl font-black">Sector Desk</h1>
+          <p className="text-xs text-text-secondary mt-0.5">
+            Which group is running, and the liquid names running with it. Direction only — you pick the options.
+            {desk.data && <span className="ml-2 text-dim">· as of {desk.data.generatedEt} ET</span>}
+          </p>
+        </div>
+        <button
+          onClick={() => { if (!refreshing) load(); }}
+          disabled={refreshing}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-xs font-semibold text-text-secondary hover:text-text-primary hover:bg-bg-secondary disabled:opacity-50 transition-colors"
+          title="Re-read the latest cron-warmed data"
+        >
+          <span className={refreshing ? "animate-spin" : ""}>↻</span>
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
       </div>
 
       {/* Regime banner */}

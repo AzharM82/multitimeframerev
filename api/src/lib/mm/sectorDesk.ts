@@ -11,8 +11,9 @@
  * comfortably inside the function timeout. Cron-warmed ~1–2 min in-hours.
  */
 
-import { fetchExportFromUrl, parseGroupIndicatorRows, FINVIZ_DELAY_MS } from "./finviz.js";
+import { fetchExportFromUrl, parseGroupIndicatorRows, FINVIZ_DELAY_MS, type IndicatorRow } from "./finviz.js";
 import { SECTORS, sectorExportUrl, sectorEtfExportUrl, type SectorDef } from "./deskSources.js";
+import { getMaLevels, currentEma, distPct } from "./maEnrich.js";
 import {
   groupStrength,
   routeRegime,
@@ -23,6 +24,19 @@ import {
   type RankedStock,
   type RegimeGroupLite,
 } from "../scoring.js";
+
+/** A ranked stock plus its price context: change-from-open and % distance from
+ * each moving average (positive = price above the MA). MA fields are null when
+ * the source lacked enough history. */
+export interface DeskStock extends RankedStock {
+  close: number;
+  changeFromOpen: number | null;
+  distSma50: number | null;
+  distSma200: number | null;
+  distEma10: number | null;
+  distEma20: number | null;
+  dist5day: number | null; // 65-bar 30-min SMA (the "5-day" line)
+}
 
 export interface DeskGroup {
   key: string;
@@ -37,7 +51,7 @@ export interface DeskGroup {
   bias: Direction | null;
   tradeable: boolean;
   blockers: string[];
-  stocks: RankedStock[];
+  stocks: DeskStock[];
 }
 
 export interface MmSectorDeskData {
@@ -97,7 +111,7 @@ async function computeGroup(
 
   const score = groupStrength({ chg: etfMove, etfRvol, breadth });
 
-  const stocks = rankStocks(
+  const ranked = rankStocks(
     members.map((m) => ({
       ticker: m.ticker,
       chg: m.day_chg,
@@ -106,6 +120,25 @@ async function computeGroup(
     })),
     dir,
   );
+
+  // Attach FinViz-derived price context (change-from-open + SMA50/200 distance)
+  // from each ranked name's member row. EMA10/20 + 5-day are filled later in one
+  // batched pass so the whole desk makes a single Polygon/Alpaca round-trip.
+  const byTicker = new Map<string, IndicatorRow>(members.map((m) => [m.ticker, m]));
+  const stocks: DeskStock[] = ranked.map((r) => {
+    const m = byTicker.get(r.ticker);
+    const close = m?.close ?? 0;
+    return {
+      ...r,
+      close,
+      changeFromOpen: m?.open_chg ?? null,
+      distSma50: m ? distPct(close, m.sma50) : null,
+      distSma200: m ? distPct(close, m.sma200) : null,
+      distEma10: null,
+      distEma20: null,
+      dist5day: null,
+    };
+  });
 
   return {
     key: def.key,
@@ -131,6 +164,21 @@ export async function computeSectorDesk(): Promise<MmSectorDeskData> {
   for (const def of SECTORS) {
     await sleep(FINVIZ_DELAY_MS); // courtesy pacing between exports
     groups.push(await computeGroup(def, anchors.get(def.etf)));
+  }
+
+  // One batched MA round-trip for every displayed name across all groups:
+  // EMA10/20 (Polygon daily, folded with the live price) + the 5-day 65-bar
+  // 30-min SMA (Alpaca IEX). Distances use FinViz's real-time close.
+  const allTickers = groups.flatMap((g) => g.stocks.map((s) => s.ticker));
+  const ma = await getMaLevels(allTickers);
+  for (const g of groups) {
+    for (const s of g.stocks) {
+      const lv = ma.get(s.ticker);
+      if (!lv) continue;
+      s.distEma10 = distPct(s.close, currentEma(lv.emaPrev10, s.close, 10));
+      s.distEma20 = distPct(s.close, currentEma(lv.emaPrev20, s.close, 20));
+      s.dist5day = distPct(s.close, lv.fiveDay);
+    }
   }
 
   // Strongest signed strength first for display; router uses its own sort.

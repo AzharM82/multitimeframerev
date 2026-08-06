@@ -619,6 +619,16 @@ export interface DeskRankedStock {
   score: number;
   side: DeskDirection;
   flags: string[];
+  close: number;
+  /** % change from the open. */
+  changeFromOpen: number | null;
+  /** Signed % distance of price from each MA (positive = price above the MA). */
+  distEma10: number | null;
+  distEma20: number | null;
+  distSma50: number | null;
+  distSma200: number | null;
+  /** 65-bar 30-min SMA — the "5-day" line. */
+  dist5day: number | null;
 }
 
 export interface DeskGroup {
