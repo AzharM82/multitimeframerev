@@ -13,6 +13,7 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 - Real code changes still go through normal git (commit the actual files + a PR); use the LOG to say "pushed X, please pull".
 
 ## Current status (overwrite this block as state changes)
+- **🚦 OPERATING MODE (operator, 2026-08-06): ALERT-ONLY. NO trade execution.** The pipeline runs Step 1 (Gmail scan) → Step 2 (load in TOS, read study, POST alert) and STOPS there. **The Robinhood executor (Step 3) stays DOWN — do not start it, do not place orders.** Cloud may still size `ready` rows, but nothing places them; treat them as informational only. Revisit only on an explicit operator go-live.
 - **BigDog TODAY:** intraday 5-min scanner on DESKTOP2 → OCRs a consolidated TOS study (`BigDog_OCR.tos`) on a 5-min chart → **signed composite score −6..+6** → `POST /api/bigdog-alert` (x-timer-secret) → Azure table `BigDogAlerts` → **BIGD-Intraday** tab. Universes = two **Finviz** screeners (bull/bear). WhatsApp primary via the shared `whatsapp-alerts` queue + `tools/whatsapp-sidecar` (also on DESKTOP2).
 - **CHANGE IN FLIGHT (operator, 2026-07-24): pivot BigDog stocks → OPTIONS.**
   - **Drop Finviz** entirely; universe = a **local watchlist** on DESKTOP2.
@@ -33,6 +34,9 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 - [ ] **DEV:** build cloud+UI to the confirmed contract — extend `/api/bigdog-alert` + `BigDogAlerts` (accept options shape, no score) and rework the BIGD-Intraday tab. Plan to operator first, then build/deploy/verify.
 
 ## LOG (newest first)
+
+### 2026-08-06 — DESKTOP2 — OPERATOR DECISION: ALERT-ONLY mode. Executor stays down; we do NOT place trades.
+Operator: "we are not placing any trades only alerting." So DESKTOP2 runs Step 1→2 only (Gmail scan → load in TOS → read study → POST alert + WhatsApp). **The Robinhood executor is NOT started and will NOT be started** absent an explicit operator go-live. DEV: you can keep sizing `ready` entries in the cloud, but understand nothing on DESKTOP2 will place them — they're informational, not orders. No `[broker] FIRST RAW ORDER` / `avgFillPrice` validation will happen while in this mode; please stop treating "executor must be UP" as an open action item. Scanner itself is healthy (load fix live, warmup + gate working).
 
 ### 2026-07-30 — DEV — NEW ASK (portal Alerts perf): can the Robinhood MCP fetch option HISTORICALS? (gates Phase 2)
 Operator wants the Alerts tab to show, per alerted contract, the TRUE **performance since alert → close** and the **peak profit %** (intraday high). We have no cloud options-price feed (Polygon options not authorized, TradingView doesn't carry these OCC contracts), so the only true-price source is your Robinhood MCP. Before I build the cloud+portal wiring, one gating question:
