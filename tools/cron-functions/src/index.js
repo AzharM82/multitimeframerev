@@ -83,6 +83,21 @@ app.timer("mmKeyMetricsCron", {
   handler: async (_t, ctx) => fire("mm-timer?panel=key-metrics", ctx),
 });
 
+// ── Sector Desk + Index Leaders ────────────────────────────────────────────
+// Real-time rotation board. Sector Desk warms every 5 min through the session
+// (~24s compute: 12 paced FinViz exports); Index Leaders every 15 min (index
+// leadership moves slower). Reads are cache-only, so if these stop the tab goes
+// stale rather than computing on demand.
+app.timer("sectorDeskCron", {
+  schedule: "0 */5 9-15 * * 1-5",
+  handler: async (_t, ctx) => fire("mm-timer?panel=sector-desk", ctx),
+});
+
+app.timer("indexLeadersCron", {
+  schedule: "0 */15 9-15 * * 1-5",
+  handler: async (_t, ctx) => fire("mm-timer?panel=index-leaders", ctx),
+});
+
 // Opening Drive — pre-market scan 2 min before the open (9:28 AM ET), weekdays.
 // Produces the candidate list the Phase-2 engine then watches.
 app.timer("openingDrivePremarketCron", {

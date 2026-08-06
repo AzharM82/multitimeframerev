@@ -24,13 +24,17 @@ export type PanelName =
   | "key-metrics"
   | "breadth"
   | "screeners"
-  | "movers";
+  | "movers"
+  | "sector-desk"
+  | "index-leaders";
 
 export const PANELS: PanelName[] = [
   "key-metrics",
   "breadth",
   "screeners",
   "movers",
+  "sector-desk",
+  "index-leaders",
 ];
 
 interface PanelRow {
