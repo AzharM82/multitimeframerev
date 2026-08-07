@@ -3,10 +3,17 @@ import type {
   RotQuotesResponse,
   RotPerformanceResponse,
   RotWeeklyHistoryResponse,
+  RotationEnrichMap,
 } from "../types.js";
-import { getRotQuotes, getRotPerformance, getRotWeeklyHistory } from "../services/api.js";
-import { buildTree, buildIndustryTrends, type Metric } from "./rotation/rotationData.js";
+import {
+  getRotQuotes,
+  getRotPerformance,
+  getRotWeeklyHistory,
+  getRotationStocks,
+} from "../services/api.js";
+import { buildTree, buildIndustryTrends, type Metric, type StockNode } from "./rotation/rotationData.js";
 import { useMarketHours } from "../hooks/useMarketHours.js";
+import { useTableSort, SortHeaderRow, type SortColumn } from "./shared/tableSort.js";
 
 /**
  * Rotation — sector / industry rotation across the 878-symbol universe.
@@ -35,6 +42,145 @@ const METRICS: { key: Metric; label: string }[] = [
 const pct = (v: number | null, dp = 2) => (v === null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(dp)}%`);
 const tone = (v: number | null) =>
   v === null ? "text-dim" : v > 0 ? "text-signal-bull" : v < 0 ? "text-signal-bear" : "text-text-secondary";
+
+// ─── Industry drill-down: the Sector Desk column set ─────────────────────────
+
+/** A tree stock joined to its FinViz price context. */
+interface EnrichedStock extends StockNode {
+  chg: number | null;
+  changeFromOpen: number | null;
+  relVol: number | null;
+  dollarVol: number | null;
+  distEma10: number | null;
+  distEma20: number | null;
+  distSma50: number | null;
+  distSma200: number | null;
+}
+
+type StockSortKey =
+  | "ticker" | "chg" | "changeFromOpen" | "relVol" | "dollarVol"
+  | "distEma10" | "distEma20" | "distSma50" | "distSma200";
+
+const STOCK_COLUMNS: SortColumn<StockSortKey>[] = [
+  { key: "ticker", label: "Ticker", num: false },
+  { key: "chg", label: "Chg", num: true },
+  { key: "changeFromOpen", label: "Chg Open", num: true },
+  { key: "relVol", label: "RVol", num: true },
+  { key: "dollarVol", label: "$ Vol", num: true },
+  { key: "distEma10", label: "10 EMA", num: true },
+  { key: "distEma20", label: "20 EMA", num: true },
+  { key: "distSma50", label: "50 SMA", num: true },
+  { key: "distSma200", label: "200 SMA", num: true },
+];
+
+const stockSortValue = (s: EnrichedStock, key: StockSortKey): number | string | null =>
+  key === "ticker" ? s.ticker : s[key];
+
+const hasNum = (v: number | null | undefined): v is number => typeof v === "number" && Number.isFinite(v);
+const fmtDist = (v: number | null | undefined) => (hasNum(v) ? pct(v, 1) : "–");
+const fmtX = (v: number | null | undefined) => (hasNum(v) ? `${v.toFixed(2)}×` : "–");
+const fmtUsd = (v: number | null | undefined) =>
+  !hasNum(v) || v <= 0 ? "–" : v >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : `$${Math.round(v / 1e6)}M`;
+
+function IndustryStocks({
+  industry,
+  sector,
+  stocks,
+  enrich,
+  enrichError,
+}: {
+  industry: string;
+  sector: string;
+  stocks: StockNode[];
+  enrich: RotationEnrichMap | null;
+  enrichError: string | null;
+}) {
+  const joined = useMemo<EnrichedStock[]>(
+    () =>
+      stocks.map((s) => {
+        const e = enrich?.[s.ticker];
+        return {
+          ...s,
+          chg: e?.chg ?? null,
+          changeFromOpen: e?.changeFromOpen ?? null,
+          relVol: e?.relVol ?? null,
+          dollarVol: e?.dollarVol ?? null,
+          distEma10: e?.distEma10 ?? null,
+          distEma20: e?.distEma20 ?? null,
+          distSma50: e?.distSma50 ?? null,
+          distSma200: e?.distSma200 ?? null,
+        };
+      }),
+    [stocks, enrich],
+  );
+
+  // Default: change-from-open desc — same question as the Sector Desk, same answer.
+  const { rows, sortKey, sortDir, onSort } = useTableSort<EnrichedStock, StockSortKey>(
+    joined,
+    stockSortValue,
+    "changeFromOpen",
+  );
+
+  const covered = joined.filter((s) => s.changeFromOpen !== null).length;
+
+  return (
+    <div className="bg-bg-card border border-border rounded overflow-x-auto">
+      <div className="card-header px-3 pt-2.5 pb-1.5 border-b-2 border-text-primary">
+        {industry}
+        <span className="font-normal normal-case text-text-secondary"> · {sector} · {stocks.length} names</span>
+      </div>
+
+      {/* Two clocks in one tab: the tree above is Polygon (~15 min delayed), these
+          rows are FinViz real-time. Say so rather than let the numbers disagree
+          silently. */}
+      <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
+        FinViz real-time · {covered}/{joined.length} covered
+        {enrichError && <span className="text-signal-bear"> · {enrichError}</span>}
+      </div>
+
+      <table className="w-full text-xs">
+        <thead>
+          <SortHeaderRow
+            columns={STOCK_COLUMNS}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={onSort}
+            cellClass="px-2 py-1.5 whitespace-nowrap"
+          />
+        </thead>
+        <tbody>
+          {rows.map((s) => (
+            <tr key={s.ticker} className="border-b border-border/50 last:border-b-0 hover:bg-bg-secondary">
+              <td className="px-2 py-1">
+                <a href={TV(s.ticker)} target="_blank" rel="noreferrer" className="font-bold hover:underline">
+                  {s.ticker}
+                </a>
+              </td>
+              <td className={`text-right px-2 py-1 tabular-nums ${tone(s.chg)}`}>{fmtDist(s.chg)}</td>
+              <td className={`text-right px-2 py-1 tabular-nums font-semibold ${tone(s.changeFromOpen)}`}>
+                {fmtDist(s.changeFromOpen)}
+              </td>
+              <td className="text-right px-2 py-1 tabular-nums text-text-secondary">{fmtX(s.relVol)}</td>
+              <td className="text-right px-2 py-1 tabular-nums text-text-secondary">{fmtUsd(s.dollarVol)}</td>
+              <td className={`text-right px-2 py-1 tabular-nums ${tone(s.distEma10)}`}>{fmtDist(s.distEma10)}</td>
+              <td className={`text-right px-2 py-1 tabular-nums ${tone(s.distEma20)}`}>{fmtDist(s.distEma20)}</td>
+              <td className={`text-right px-2 py-1 tabular-nums ${tone(s.distSma50)}`}>{fmtDist(s.distSma50)}</td>
+              <td className={`text-right px-2 py-1 tabular-nums ${tone(s.distSma200)}`}>{fmtDist(s.distSma200)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {covered < joined.length && (
+        <div className="px-3 py-2 text-[10px] text-text-secondary border-t border-border">
+          "–" means the name isn't in the Sector Desk's FinViz export, so it has no real-time context here
+          (~94% of the universe is covered; the same gap applies to the Desk itself). The 5-day line is
+          omitted on this tab — it needs Alpaca 30-min bars, which don't scale to ~880 names.
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Horizontal green/red split bar — breadth at a glance. */
 function BreadthBar({ green, red }: { green: number; red: number }) {
@@ -67,6 +213,11 @@ export function RotationPage() {
   const [period, setPeriod] = useState<"weekly" | "monthly">("weekly");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showTrends, setShowTrends] = useState(false);
+
+  // Per-stock FinViz context for the industry drill-down.
+  const [enrich, setEnrich] = useState<RotationEnrichMap | null>(null);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [openIndustry, setOpenIndustry] = useState<{ sector: string; industry: string } | null>(null);
 
   // Quotes drive the tree; load them first and render as soon as they land.
   // Re-runs whenever `tick` advances (auto-refresh or manual).
@@ -106,6 +257,31 @@ export function RotationPage() {
     const id = setInterval(() => setTick((t) => t + 1), 60_000);
     return () => clearInterval(id);
   }, [marketOpen]);
+
+  /**
+   * Per-stock enrichment. Optional by design: it rides the sector-desk cron, so
+   * it 503s until that warm lands, and the tree must render regardless. Refreshed
+   * on the same tick as the quotes.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    getRotationStocks()
+      .then((r) => {
+        if (cancelled) return;
+        setEnrich(r.data);
+        setEnrichError(null);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setEnrich(null);
+        setEnrichError(
+          /no_panel_data|503/.test(e.message) ? "waiting for the first Sector Desk warm" : e.message,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tick]);
 
   // Period performance is slower; fetch separately so it never blocks the tree.
   useEffect(() => {
@@ -312,8 +488,27 @@ export function RotationPage() {
                 </tr>
                 {expanded === s.name &&
                   s.industries.map((ind) => (
-                    <tr key={`${s.name}-${ind.name}`} className="border-b border-border bg-bg-primary">
-                      <td className="px-3 py-1 pl-8 text-[11px]">{ind.name}</td>
+                    <tr
+                      key={`${s.name}-${ind.name}`}
+                      onClick={() =>
+                        setOpenIndustry((cur) =>
+                          cur && cur.industry === ind.name && cur.sector === s.name
+                            ? null
+                            : { sector: s.name, industry: ind.name },
+                        )
+                      }
+                      className={`border-b border-border bg-bg-primary cursor-pointer hover:bg-bg-secondary transition-colors ${
+                        openIndustry?.industry === ind.name && openIndustry?.sector === s.name
+                          ? "text-text-primary"
+                          : ""
+                      }`}
+                    >
+                      <td className="px-3 py-1 pl-8 text-[11px]">
+                        <span className="text-dim mr-1.5">
+                          {openIndustry?.industry === ind.name && openIndustry?.sector === s.name ? "▾" : "▸"}
+                        </span>
+                        {ind.name}
+                      </td>
                       <td className={`text-right px-2 py-1 tabular-nums ${tone(ind.avg)}`}>{pct(ind.avg)}</td>
                       <td className="px-2 py-1">
                         <BreadthBar green={ind.greenCount} red={ind.redCount} />
@@ -330,6 +525,23 @@ export function RotationPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Industry drill-down — the Sector Desk column set for the picked industry */}
+      {openIndustry &&
+        (() => {
+          const sec = tree.sectors.find((s) => s.name === openIndustry.sector);
+          const ind = sec?.industries.find((i) => i.name === openIndustry.industry);
+          if (!ind) return null;
+          return (
+            <IndustryStocks
+              industry={ind.name}
+              sector={ind.sector}
+              stocks={ind.stocks}
+              enrich={enrich}
+              enrichError={enrichError}
+            />
+          );
+        })()}
 
       {/* 4-week industry trend */}
       {showTrends && (

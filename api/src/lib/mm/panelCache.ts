@@ -26,8 +26,10 @@ export type PanelName =
   | "screeners"
   | "movers"
   | "sector-desk"
-  | "index-leaders";
+  | "index-leaders"
+  | "rotation-stocks";
 
+/** Panels mm-timer can be asked to compute. */
 export const PANELS: PanelName[] = [
   "key-metrics",
   "breadth",
@@ -36,6 +38,17 @@ export const PANELS: PanelName[] = [
   "sector-desk",
   "index-leaders",
 ];
+
+/**
+ * Panels produced as a by-product of another panel's compute, so they are
+ * readable but NOT independently computable — asking mm-timer for one is a 400
+ * rather than a silent no-op. `rotation-stocks` falls out of the `sector-desk`
+ * warm, which already fetches the member rows it needs.
+ */
+export const DERIVED_PANELS: PanelName[] = ["rotation-stocks"];
+
+/** Everything mm-panel will serve. */
+export const READABLE_PANELS: PanelName[] = [...PANELS, ...DERIVED_PANELS];
 
 interface PanelRow {
   generated: string;

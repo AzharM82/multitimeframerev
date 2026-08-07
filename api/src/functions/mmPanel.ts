@@ -1,5 +1,5 @@
 import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } from "@azure/functions";
-import { getPanel, PANELS, type PanelName } from "../lib/mm/panelCache.js";
+import { getPanel, READABLE_PANELS, type PanelName } from "../lib/mm/panelCache.js";
 
 /**
  * GET /api/mm-panel?panel=key-metrics|breadth|industries|screeners|movers
@@ -18,10 +18,10 @@ async function mmPanel(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
     const panel = req.query.get("panel") as PanelName | null;
 
     if (!panel) {
-      return { status: 400, jsonBody: { error: "panel parameter required", panels: PANELS } };
+      return { status: 400, jsonBody: { error: "panel parameter required", panels: READABLE_PANELS } };
     }
-    if (!PANELS.includes(panel)) {
-      return { status: 400, jsonBody: { error: `unknown panel '${panel}'`, panels: PANELS } };
+    if (!READABLE_PANELS.includes(panel)) {
+      return { status: 400, jsonBody: { error: `unknown panel '${panel}'`, panels: READABLE_PANELS } };
     }
 
     const hit = await getPanel<unknown>(panel);
