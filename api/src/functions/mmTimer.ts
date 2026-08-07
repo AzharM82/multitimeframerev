@@ -68,10 +68,23 @@ async function mmTimer(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
     const started = Date.now();
     try {
       const data = await computePanel(panel);
-      await putPanel(panel, data);
+
+      // The sector-desk warm also yields Rotation's per-stock enrichment (the
+      // member rows the desk's top-12 cut discards). Split it into its own panel
+      // so the Desk tab doesn't download ~800 rows it never renders.
+      let toStore: unknown = data;
+      if (panel === "sector-desk") {
+        const { rotationEnrich, ...desk } = data as MmSectorDeskData;
+        toStore = desk;
+        if (rotationEnrich) {
+          await putPanel("rotation-stocks", rotationEnrich);
+        }
+      }
+
+      await putPanel(panel, toStore);
       // Append today's Sector Desk snapshot to the 30-day history (best-effort).
       if (panel === "sector-desk") {
-        await writeSectorDeskSnapshot(data as MmSectorDeskData);
+        await writeSectorDeskSnapshot(toStore as MmSectorDeskData);
       }
       refreshed[panel] = `ok in ${Math.round((Date.now() - started) / 1000)}s`;
       ctx.log(`mm-timer: ${panel} refreshed in ${Date.now() - started}ms`);

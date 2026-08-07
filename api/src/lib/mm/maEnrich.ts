@@ -250,6 +250,35 @@ export async function getMaLevels(tickers: string[]): Promise<Map<string, MaLeve
   return result;
 }
 
+/**
+ * EMA levels ONLY — deliberately skips the Alpaca 5-day build.
+ *
+ * `getMaLevels` builds both families, and the 5-day one is the expensive half:
+ * Alpaca returns only a handful of symbols per page regardless of `limit`, so a
+ * 90-symbol batch costs ~25 sequential pages. That is affordable for the Sector
+ * Desk (~132 names) but not for the Rotation universe (~878 names → ~250 calls,
+ * well past the Static Web Apps function timeout).
+ *
+ * The EMA half, by contrast, is free at any scale: it comes from a whole-market
+ * Polygon grouped-daily map that is built once per ET day and shared. So callers
+ * that want MA context over a large universe use this and accept no 5-day line.
+ */
+export async function getEmaLevels(tickers: string[]): Promise<Map<string, MaLevels>> {
+  const polyKey = (process.env.POLYGON_API_KEY ?? "").trim();
+  const today = etToday();
+  if (polyKey && (!emaCache || emaCache.date !== today)) {
+    try { emaCache = { date: today, map: await buildEmaMap(polyKey) }; }
+    catch { emaCache = emaCache ?? { date: today, map: new Map() }; }
+  }
+
+  const result = new Map<string, MaLevels>();
+  for (const t of [...new Set(tickers.map((x) => x.toUpperCase()))]) {
+    const e = emaCache?.map.get(t);
+    result.set(t, { emaPrev10: e?.ema10 ?? null, emaPrev20: e?.ema20 ?? null, fiveDay: null });
+  }
+  return result;
+}
+
 /** Fold today's live price into an EMA-through-yesterday to get the current EMA. */
 export function currentEma(emaPrev: number | null, livePrice: number, period: number): number | null {
   if (emaPrev === null || livePrice <= 0) return null;

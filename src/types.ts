@@ -542,7 +542,8 @@ export type MmPanelName =
   | "screeners"
   | "movers"
   | "sector-desk"
-  | "index-leaders";
+  | "index-leaders"
+  | "rotation-stocks";
 
 export interface MmPanelResponse<T = unknown> {
   panel: MmPanelName;
@@ -664,6 +665,28 @@ export interface MmSectorDeskData {
   regime: DeskRegime;
   groups: DeskGroup[];
 }
+
+/**
+ * Rotation per-stock price context, keyed by ticker (`rotation-stocks` panel).
+ *
+ * Same columns the Sector Desk shows, minus the 5-day line — that one needs
+ * Alpaca 30-min bars, which don't scale to Rotation's ~880-name universe inside
+ * a function timeout. Sourced from FinViz's real-time tier, unlike Rotation's
+ * sector/industry aggregates which come from Polygon ~15 min delayed.
+ */
+export interface RotationStockRow {
+  close: number;
+  chg: number;
+  changeFromOpen: number | null;
+  relVol: number | null;
+  dollarVol: number;
+  distSma50: number | null;
+  distSma200: number | null;
+  distEma10: number | null;
+  distEma20: number | null;
+}
+
+export type RotationEnrichMap = Record<string, RotationStockRow>;
 
 export interface SectorHistPoint {
   date: string; // YYYY-MM-DD

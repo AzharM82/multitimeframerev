@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTableSort, SortHeaderRow, type SortColumn } from "./shared/tableSort.js";
 import type {
   MmSectorDeskData,
   MmIndexLeadersData,
@@ -176,7 +177,7 @@ type SortKey =
   | "ticker" | "chg" | "changeFromOpen" | "relVol" | "dollarVol"
   | "distEma10" | "distEma20" | "distSma50" | "distSma200" | "dist5day" | "score";
 
-const COLUMNS: { key: SortKey; label: string; num: boolean }[] = [
+const COLUMNS: SortColumn<SortKey>[] = [
   { key: "ticker", label: "Ticker", num: false },
   { key: "chg", label: "Chg", num: true },
   { key: "changeFromOpen", label: "Chg Open", num: true },
@@ -201,30 +202,11 @@ function StockTable({ group }: { group: DeskGroup }) {
   // driving off the open right now, so lead with that. `score` folds in $-volume
   // and rel-vol, which rank *tradeability*, not current momentum; it's still one
   // click away. Sort sticks across group switches.
-  const [sortKey, setSortKey] = useState<SortKey>("changeFromOpen");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-
-  const onSort = (key: SortKey, num: boolean) => {
-    if (key === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(key); setSortDir(num ? "desc" : "asc"); }
-  };
-
-  const sorted = useMemo(() => {
-    const rows = [...group.stocks];
-    rows.sort((a, b) => {
-      const av = sortValue(a, sortKey);
-      const bv = sortValue(b, sortKey);
-      if (typeof av === "string" || typeof bv === "string") {
-        const cmp = String(av).localeCompare(String(bv));
-        return sortDir === "asc" ? cmp : -cmp;
-      }
-      // Nulls always sort to the bottom, regardless of direction.
-      const an = av ?? (sortDir === "asc" ? Infinity : -Infinity);
-      const bn = bv ?? (sortDir === "asc" ? Infinity : -Infinity);
-      return sortDir === "asc" ? an - bn : bn - an;
-    });
-    return rows;
-  }, [group.stocks, sortKey, sortDir]);
+  const { rows: sorted, sortKey, sortDir, onSort } = useTableSort<DeskRankedStock, SortKey>(
+    group.stocks,
+    sortValue,
+    "changeFromOpen",
+  );
 
   if (group.stocks.length === 0) {
     return <p className="text-sm text-text-secondary px-1 py-3">No liquid members running with the group.</p>;
@@ -234,21 +216,14 @@ function StockTable({ group }: { group: DeskGroup }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
-            {COLUMNS.map((c) => (
-              <th
-                key={c.key}
-                onClick={() => onSort(c.key, c.num)}
-                className={`px-2 py-1.5 font-semibold cursor-pointer select-none whitespace-nowrap hover:text-text-primary ${
-                  c.key === "ticker" ? "text-left" : "text-right"
-                } ${c.key === sortKey ? "text-text-primary" : ""}`}
-                title={`Sort by ${c.label}`}
-              >
-                {c.label}
-                <span className="inline-block w-2 ml-0.5">{c.key === sortKey ? (sortDir === "asc" ? "▲" : "▼") : ""}</span>
-              </th>
-            ))}
-          </tr>
+          <SortHeaderRow
+            columns={COLUMNS}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={onSort}
+            rowClass="text-[10px] uppercase tracking-wider text-text-secondary border-b border-border"
+            cellClass="px-2 py-1.5 font-semibold whitespace-nowrap"
+          />
         </thead>
         <tbody>
           {sorted.map((s: DeskRankedStock) => {

@@ -1,6 +1,7 @@
 import type {
   MmPanelName,
   MmPanelResponse,
+  RotationEnrichMap,
   SectorDeskHistoryResponse,
   GateScoreResponse,
   RotQuotesResponse,
@@ -132,6 +133,17 @@ export function getGateScore(mode: "day" | "swing" = "day"): Promise<GateScoreRe
 
 export function getMmPanel<T>(panel: MmPanelName): Promise<MmPanelResponse<T>> {
   return request<MmPanelResponse<T>>(`/mm-panel?panel=${panel}`);
+}
+
+/**
+ * Rotation per-stock price context (FinViz real-time), keyed by ticker.
+ *
+ * A by-product of the sector-desk warm, so it is only as fresh as that cron and
+ * returns 503 until the first warm of the day lands. Rotation treats it as
+ * optional enrichment — the tree renders without it.
+ */
+export function getRotationStocks(): Promise<MmPanelResponse<RotationEnrichMap>> {
+  return request<MmPanelResponse<RotationEnrichMap>>(`/mm-panel?panel=rotation-stocks`);
 }
 
 export function getSectorDeskHistory(days = 30): Promise<SectorDeskHistoryResponse> {

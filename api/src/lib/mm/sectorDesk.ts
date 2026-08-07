@@ -13,7 +13,8 @@
 
 import { fetchExportFromUrl, parseGroupIndicatorRows, FINVIZ_DELAY_MS, type IndicatorRow } from "./finviz.js";
 import { SECTORS, sectorExportUrl, sectorEtfExportUrl, type SectorDef } from "./deskSources.js";
-import { getMaLevels, currentEma, distPct } from "./maEnrich.js";
+import { getMaLevels, getEmaLevels, currentEma, distPct } from "./maEnrich.js";
+import { ALL_TICKERS as ROTATION_TICKERS } from "../rotationUniverse.js";
 import {
   groupStrength,
   routeRegime,
@@ -56,11 +57,42 @@ export interface DeskGroup {
   stocks: DeskStock[];
 }
 
+/**
+ * Per-stock price context for the Rotation tab, keyed by ticker.
+ *
+ * A by-product of this warm, not a second data pull: the sector exports below
+ * already return EVERY liquid member with all of these fields, and `rankStocks`
+ * throws all but the top 12 away. Rotation wants the same columns across its
+ * whole universe, so we keep the discarded rows instead of re-fetching them.
+ *
+ * No `dist5day` — that line needs Alpaca 30-min bars, which don't scale to this
+ * many tickets inside a function timeout (see `getEmaLevels`).
+ */
+export interface RotationStockRow {
+  close: number;
+  chg: number; // full-day change %
+  changeFromOpen: number | null;
+  relVol: number | null;
+  dollarVol: number;
+  distSma50: number | null;
+  distSma200: number | null;
+  distEma10: number | null;
+  distEma20: number | null;
+}
+
+export type RotationEnrichMap = Record<string, RotationStockRow>;
+
 export interface MmSectorDeskData {
   generatedEt: string;
   sessionNote: string;
   regime: Regime;
   groups: DeskGroup[];
+  /**
+   * Split out of the stored `sector-desk` payload by mm-timer and written to its
+   * own `rotation-stocks` panel — the Desk tab shouldn't download ~800 rows it
+   * never renders.
+   */
+  rotationEnrich?: RotationEnrichMap;
 }
 
 const SESSION_NOTE =
@@ -92,7 +124,10 @@ async function fetchEtfAnchors(): Promise<Map<string, Anchor>> {
   return map;
 }
 
-async function computeGroup(def: SectorDef, anchor: Anchor | undefined): Promise<DeskGroup> {
+async function computeGroup(
+  def: SectorDef,
+  anchor: Anchor | undefined,
+): Promise<{ group: DeskGroup; members: IndicatorRow[] }> {
   const data = await fetchExportFromUrl(sectorExportUrl(def.slug), `sector-desk/${def.slug}`);
   const members = parseGroupIndicatorRows(data, null);
 
@@ -156,31 +191,70 @@ async function computeGroup(def: SectorDef, anchor: Anchor | undefined): Promise
   });
 
   return {
-    key: def.key,
-    sector: def.label,
-    etf: def.etf,
-    etfMove,
-    etfFromOpen,
-    etfRvol,
-    volParticipation,
-    breadth,
-    memberCount: members.length,
-    gss: score.gss,
-    conviction: score.conviction,
-    bias: score.bias,
-    tradeable: score.tradeable,
-    blockers: score.blockers,
-    stocks,
+    group: {
+      key: def.key,
+      sector: def.label,
+      etf: def.etf,
+      etfMove,
+      etfFromOpen,
+      etfRvol,
+      volParticipation,
+      breadth,
+      memberCount: members.length,
+      gss: score.gss,
+      conviction: score.conviction,
+      bias: score.bias,
+      tradeable: score.tradeable,
+      blockers: score.blockers,
+      stocks,
+    },
+    members,
   };
+}
+
+/**
+ * Build the Rotation per-stock enrichment from the sector-export members.
+ *
+ * Restricted to the Rotation universe: the sector exports return every liquid US
+ * stock (thousands), and Rotation only ever renders its own ~880 classified
+ * names. Anything Rotation shows that isn't here — a name below FinViz's 1M
+ * avg-volume floor, say — simply renders "–" for these columns.
+ */
+async function buildRotationEnrich(members: IndicatorRow[]): Promise<RotationEnrichMap> {
+  const wanted = new Set(ROTATION_TICKERS);
+  const rows = members.filter((m) => wanted.has(m.ticker));
+
+  const ema = await getEmaLevels(rows.map((m) => m.ticker));
+
+  const out: RotationEnrichMap = {};
+  for (const m of rows) {
+    const close = m.close ?? 0;
+    const lv = ema.get(m.ticker);
+    out[m.ticker] = {
+      close,
+      chg: m.day_chg,
+      changeFromOpen: Number.isFinite(m.open_chg) ? m.open_chg : null,
+      relVol: m.rel_volume,
+      dollarVol: (m.volume ?? 0) * close,
+      distSma50: distPct(close, m.sma50),
+      distSma200: distPct(close, m.sma200),
+      distEma10: distPct(close, currentEma(lv?.emaPrev10 ?? null, close, 10)),
+      distEma20: distPct(close, currentEma(lv?.emaPrev20 ?? null, close, 20)),
+    };
+  }
+  return out;
 }
 
 export async function computeSectorDesk(): Promise<MmSectorDeskData> {
   const anchors = await fetchEtfAnchors();
 
   const groups: DeskGroup[] = [];
+  const allMembers: IndicatorRow[] = [];
   for (const def of SECTORS) {
     await sleep(FINVIZ_DELAY_MS); // courtesy pacing between exports
-    groups.push(await computeGroup(def, anchors.get(def.etf)));
+    const { group, members } = await computeGroup(def, anchors.get(def.etf));
+    groups.push(group);
+    allMembers.push(...members);
   }
 
   // One batched MA round-trip for every displayed name across all groups:
@@ -198,6 +272,11 @@ export async function computeSectorDesk(): Promise<MmSectorDeskData> {
     }
   }
 
+  // Rotation enrichment — the members the desk's top-12 cut discarded, narrowed
+  // to the Rotation universe so the panel stays ~800 rows instead of every
+  // liquid US stock. EMA-only (no Alpaca) so this scales; see getEmaLevels.
+  const rotationEnrich = await buildRotationEnrich(allMembers);
+
   // Strongest signed strength first for display; router uses its own sort.
   groups.sort((a, b) => b.gss - a.gss);
 
@@ -209,6 +288,7 @@ export async function computeSectorDesk(): Promise<MmSectorDeskData> {
   }));
 
   return {
+    rotationEnrich,
     generatedEt: etStamp(),
     sessionNote: SESSION_NOTE,
     regime: routeRegime(lites),
