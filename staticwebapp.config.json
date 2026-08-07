@@ -85,6 +85,12 @@
       ]
     },
     {
+      "route": "/api/purge-history",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/opening-drive-scan",
       "allowedRoles": [
         "anonymous"
