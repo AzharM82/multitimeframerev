@@ -196,8 +196,12 @@ function sortValue(s: DeskRankedStock, key: SortKey): number | string | null {
 }
 
 function StockTable({ group }: { group: DeskGroup }) {
-  // Default: score desc (preserves the ranking). Sort sticks across group switches.
-  const [sortKey, setSortKey] = useState<SortKey>("score");
+  // Default: change-from-open desc (user decision 2026-08-07) — when you're
+  // looking at the names inside a running group, the question is which ones are
+  // driving off the open right now, so lead with that. `score` folds in $-volume
+  // and rel-vol, which rank *tradeability*, not current momentum; it's still one
+  // click away. Sort sticks across group switches.
+  const [sortKey, setSortKey] = useState<SortKey>("changeFromOpen");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const onSort = (key: SortKey, num: boolean) => {
