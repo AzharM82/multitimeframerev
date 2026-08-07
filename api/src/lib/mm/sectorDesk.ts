@@ -42,7 +42,8 @@ export interface DeskGroup {
   key: string;
   sector: string; // display label
   etf: string;
-  etfMove: number; // ETF day change %
+  etfMove: number; // ETF full-day change % (reference)
+  etfFromOpen: number; // ETF change-from-open % — the signal that drives the desk
   etfRvol: number; // ETF relative volume × (reference only — no longer gates)
   volParticipation: number; // 0..1 share of members trading ≥ their avg volume (gates)
   breadth: number; // 0..1 share of members agreeing with the ETF direction
@@ -78,35 +79,35 @@ function etStamp(): string {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** ETF ticker → { chg%, rvol× } from the single sector-ETF export. */
-async function fetchEtfAnchors(): Promise<Map<string, { chg: number; rvol: number }>> {
+interface Anchor { chg: number; fromOpen: number; rvol: number }
+
+/** ETF ticker → { day chg%, change-from-open%, rvol× } from the sector-ETF export. */
+async function fetchEtfAnchors(): Promise<Map<string, Anchor>> {
   const data = await fetchExportFromUrl(sectorEtfExportUrl(), "sector-desk/etfs");
   const rows = parseGroupIndicatorRows(data, null);
-  const map = new Map<string, { chg: number; rvol: number }>();
+  const map = new Map<string, Anchor>();
   for (const r of rows) {
-    map.set(r.ticker, { chg: r.day_chg, rvol: r.rel_volume ?? 1 });
+    map.set(r.ticker, { chg: r.day_chg, fromOpen: r.open_chg, rvol: r.rel_volume ?? 1 });
   }
   return map;
 }
 
-async function computeGroup(
-  def: SectorDef,
-  anchor: { chg: number; rvol: number } | undefined,
-): Promise<DeskGroup> {
+async function computeGroup(def: SectorDef, anchor: Anchor | undefined): Promise<DeskGroup> {
   const data = await fetchExportFromUrl(sectorExportUrl(def.slug), `sector-desk/${def.slug}`);
   const members = parseGroupIndicatorRows(data, null);
 
-  const etfMove = anchor?.chg ?? 0;
+  const etfMove = anchor?.chg ?? 0; // full-day change (reference)
+  const etfFromOpen = anchor?.fromOpen ?? 0; // change-from-open — the day-trade signal that drives the desk
   const etfRvol = anchor?.rvol ?? 1;
-  const dir: 1 | -1 = etfMove >= 0 ? 1 : -1;
+  const dir: 1 | -1 = etfFromOpen >= 0 ? 1 : -1;
 
-  // Breadth = share of members whose day move agrees with the ETF direction.
+  // Breadth = share of members whose CHANGE-FROM-OPEN agrees with the ETF's.
   let agree = 0;
   let counted = 0;
   for (const m of members) {
-    if (m.day_chg === 0) continue;
+    if (m.open_chg === 0) continue;
     counted += 1;
-    if (Math.sign(m.day_chg) === dir) agree += 1;
+    if (Math.sign(m.open_chg) === dir) agree += 1;
   }
   const breadth = counted > 0 ? agree / counted : 0;
 
@@ -122,12 +123,13 @@ async function computeGroup(
   }
   const volParticipation = volCounted > 0 ? participating / volCounted : 0;
 
-  const score = groupStrength({ chg: etfMove, volPart: volParticipation, breadth });
+  const score = groupStrength({ chg: etfFromOpen, volPart: volParticipation, breadth });
 
   const ranked = rankStocks(
     members.map((m) => ({
       ticker: m.ticker,
-      chg: m.day_chg,
+      chg: m.day_chg, // display only
+      moveForRank: m.open_chg, // rank/align on change-from-open
       relVol: m.rel_volume ?? 0,
       dollarVol: (m.volume ?? 0) * m.close,
     })),
@@ -158,6 +160,7 @@ async function computeGroup(
     sector: def.label,
     etf: def.etf,
     etfMove,
+    etfFromOpen,
     etfRvol,
     volParticipation,
     breadth,
@@ -200,7 +203,7 @@ export async function computeSectorDesk(): Promise<MmSectorDeskData> {
 
   const lites: RegimeGroupLite[] = groups.map((g) => ({
     sector: g.sector,
-    chg: g.etfMove,
+    chg: g.etfFromOpen, // regime dispersion/direction on change-from-open
     tradeable: g.tradeable,
     bias: g.bias,
   }));

@@ -215,7 +215,8 @@ export function routeRegime(groups: RegimeGroupLite[]): Regime {
 export interface StockRankInput {
   ticker: string;
   company?: string;
-  chg: number; // day change %
+  chg: number; // day change % (display only)
+  moveForRank: number; // the move to rank/align on — change-from-open for day-trade momentum
   relVol: number; // relative volume ×
   dollarVol: number; // close × volume, $
 }
@@ -236,13 +237,17 @@ export interface RankedStock {
  * Rank a group's members by how hard they're running WITH the group, weighted by
  * $-liquidity and relative volume. `groupDir` is +1 for a LONG group, −1 for a
  * SHORT group; a stock moving against that direction is penalized and flagged.
+ *
+ * "Running with the group" is measured on `moveForRank` (change-from-open, the
+ * day-trade momentum signal), not the full-day change — so a name that gapped up
+ * but is fading from the open ranks below one that's driving off the open.
  */
 export function rankStocks(rows: StockRankInput[], groupDir: 1 | -1): RankedStock[] {
   if (rows.length === 0) return [];
 
   const dvPct = percentileRank(rows.map((r) => r.dollarVol));
   const rvPct = percentileRank(rows.map((r) => r.relVol));
-  const aligned = rows.map((r) => r.chg * groupDir);
+  const aligned = rows.map((r) => r.moveForRank * groupDir);
   const amPct = percentileRank(aligned);
   const w = TUNING.rankWeights;
 

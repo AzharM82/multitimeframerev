@@ -63,7 +63,7 @@ export function RotationPage() {
   const [tick, setTick] = useState(0);
   const marketOpen = useMarketHours();
 
-  const [metric, setMetric] = useState<Metric>("day");
+  const [metric, setMetric] = useState<Metric>("fromOpen");
   const [period, setPeriod] = useState<"weekly" | "monthly">("weekly");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showTrends, setShowTrends] = useState(false);
