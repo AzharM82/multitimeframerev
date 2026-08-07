@@ -665,6 +665,26 @@ export interface MmSectorDeskData {
   groups: DeskGroup[];
 }
 
+export interface SectorHistPoint {
+  date: string; // YYYY-MM-DD
+  gss: number; // signed strength −100..+100
+  fromOpen: number;
+  tradeable: boolean;
+  bias: string; // "LONG" | "SHORT" | ""
+}
+
+export interface SectorHistorySeries {
+  key: string;
+  sector: string;
+  etf: string;
+  points: SectorHistPoint[]; // ascending by date
+}
+
+export interface SectorDeskHistoryResponse {
+  days: number;
+  sectors: SectorHistorySeries[];
+}
+
 export interface IndexLeader {
   ticker: string;
   chg: number;

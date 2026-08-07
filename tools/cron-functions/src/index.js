@@ -98,6 +98,13 @@ app.timer("indexLeadersCron", {
   handler: async (_t, ctx) => fire("mm-timer?panel=index-leaders", ctx),
 });
 
+// History retention — trim SectorDeskHistory + OpeningDrive to 30 days.
+// Daily at 6:10 PM ET, after all same-day writes have settled.
+app.timer("purgeHistoryCron", {
+  schedule: "0 10 18 * * *",
+  handler: async (_t, ctx) => fire("purge-history", ctx),
+});
+
 // Opening Drive — pre-market scan 2 min before the open (9:28 AM ET), weekdays.
 // Produces the candidate list the Phase-2 engine then watches.
 app.timer("openingDrivePremarketCron", {

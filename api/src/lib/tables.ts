@@ -110,4 +110,5 @@ export const TABLES = {
   BIGDOG_ALERTS: "BigDogAlerts",
   TV_ANALYSIS: "TvAnalysis",
   OPENING_DRIVE: "OpeningDrive",
+  SECTOR_DESK_HISTORY: "SectorDeskHistory",
 } as const;
