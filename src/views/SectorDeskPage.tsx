@@ -77,7 +77,7 @@ function RotationRail({
   const MARGIN = 24;
   const LABEL_W = 52; // min horizontal gap between label centers (declutter)
 
-  const maxAbs = Math.max(3, ...groups.map((g) => Math.abs(g.etfMove))) * 1.15;
+  const maxAbs = Math.max(3, ...groups.map((g) => Math.abs(g.etfFromOpen))) * 1.15;
   const xOf = (move: number) => {
     const frac = 0.5 + (move / maxAbs) * 0.5;
     return Math.max(0.03, Math.min(0.97, frac)) * W;
@@ -88,7 +88,7 @@ function RotationRail({
   // nudged) label down to the true pin, so nothing ever overlaps regardless of
   // how tightly the pins cluster on a flat day.
   const sorted = [...groups]
-    .map((g) => ({ g, x: xOf(g.etfMove) }))
+    .map((g) => ({ g, x: xOf(g.etfFromOpen) }))
     .sort((a, b) => a.x - b.x);
   let cursor = -Infinity;
   const placed = sorted.map(({ g, x }) => {
@@ -143,8 +143,8 @@ function RotationRail({
 
       {/* pins + labels */}
       {placed.map(({ g, x, labelX }) => {
-        const inDead = Math.abs(g.etfMove) < DEAD_BAND;
-        const color = inDead ? "text-amber-500" : g.etfMove >= 0 ? "text-signal-bull" : "text-signal-bear";
+        const inDead = Math.abs(g.etfFromOpen) < DEAD_BAND;
+        const color = inDead ? "text-amber-500" : g.etfFromOpen >= 0 ? "text-signal-bull" : "text-signal-bear";
         const selected = g.key === selectedKey;
         return (
           <g key={g.key} className="cursor-pointer" onClick={() => onSelect(g.key)}>
@@ -153,7 +153,7 @@ function RotationRail({
               {g.etf}
             </text>
             <text x={labelX} y={labelTop + 11} textAnchor="middle" className="fill-text-secondary text-[9px] tabular-nums">
-              {fmtPct(g.etfMove)}
+              {fmtPct(g.etfFromOpen)}
             </text>
           </g>
         );
@@ -314,7 +314,7 @@ function GroupRow({
         <DirBadge dir={g.tradeable ? g.bias : null} />
       </div>
       <div className="flex items-center gap-3 mt-1 text-[11px] tabular-nums text-text-secondary flex-wrap">
-        <span className={pctTone(g.etfMove)}>{fmtPct(g.etfMove)}</span>
+        <span className={pctTone(g.etfFromOpen)}>{fmtPct(g.etfFromOpen)}</span>
         <span title="share of members trading ≥ their average volume">{Math.round(g.volParticipation * 100)}% vol</span>
         <span>{Math.round(g.breadth * 100)}% breadth</span>
         <span>{g.memberCount} names</span>
@@ -465,7 +465,7 @@ export function SectorDeskPage() {
       {/* Rotation rail */}
       {groups.length > 0 && (
         <div className="bg-bg-card border border-border rounded p-3">
-          <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-1">Rotation rail — SPDR sector ETFs</h2>
+          <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-1">Rotation rail — SPDR sector ETFs · change from open</h2>
           <RotationRail groups={groups} selectedKey={activeKey} onSelect={setSelectedKey} />
         </div>
       )}
@@ -485,7 +485,7 @@ export function SectorDeskPage() {
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <h2 className="font-semibold">{active.sector}</h2>
                   <DirBadge dir={active.tradeable ? active.bias : null} dim={!active.tradeable} />
-                  <span className={`text-sm tabular-nums ${pctTone(active.etfMove)}`}>{fmtPct(active.etfMove)}</span>
+                  <span className={`text-sm tabular-nums ${pctTone(active.etfFromOpen)}`} title="ETF change from open">{fmtPct(active.etfFromOpen)}</span>
                   <span className="text-xs text-text-secondary tabular-nums">{Math.round(active.volParticipation * 100)}% vol · {Math.round(active.breadth * 100)}% breadth</span>
                 </div>
                 {!active.tradeable && (
