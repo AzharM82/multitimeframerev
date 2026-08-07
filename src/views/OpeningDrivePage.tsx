@@ -13,6 +13,19 @@ import type { OpeningDriveResponse, OpeningDriveCandidate } from "../types.js";
 
 const REFRESH_MS = 15_000;
 
+/** Today's date in ET as YYYY-MM-DD — matches the scan's partition scheme. */
+function etToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+/** Shift a YYYY-MM-DD string by n calendar days (UTC-anchored, DST-safe). */
+function addDays(ymd: string, n: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+
 function regimeTone(r: string | null): string {
   if (r === "GREEN") return "bg-signal-bull text-bg-primary";
   if (r === "RED") return "bg-signal-bear text-bg-primary";
@@ -114,31 +127,83 @@ export function OpeningDrivePage() {
   const [data, setData] = useState<OpeningDriveResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // "" = today (live). A YYYY-MM-DD string reviews that day's saved history.
+  const [viewDate, setViewDate] = useState("");
   const stopRef = useRef(false);
+
+  const todayEt = etToday();
+  const shownDate = viewDate || todayEt;
+  const isLive = viewDate === "" || viewDate === todayEt;
+  /** Pick a day; anything >= today snaps back to the live (today) view. */
+  const selectDate = (d: string) => setViewDate(d && d < todayEt ? d : "");
 
   const load = useCallback(async () => {
     try {
-      const res = await getOpeningDrive();
+      const res = await getOpeningDrive(viewDate || undefined);
       if (!stopRef.current) { setData(res); setError(null); }
     } catch (e) {
       if (!stopRef.current) setError(e instanceof Error ? e.message : "Could not load Opening Drive");
     } finally {
       if (!stopRef.current) setLoading(false);
     }
-  }, []);
+  }, [viewDate]);
 
   useEffect(() => {
     stopRef.current = false;
+    setLoading(true);
     void load();
-    const id = setInterval(load, REFRESH_MS);
-    return () => { stopRef.current = true; clearInterval(id); };
-  }, [load]);
+    // Only poll the live (today) view — historical days are static.
+    const id = isLive ? setInterval(load, REFRESH_MS) : null;
+    return () => { stopRef.current = true; if (id) clearInterval(id); };
+  }, [load, isLive]);
 
   const candidates = data?.candidates ?? [];
   const triggered = candidates.filter((c) => c.state === "TRIGGERED").length;
 
   return (
     <div className="space-y-3">
+      {/* Date navigator — browse saved history (each ET day is kept) */}
+      <div className="flex items-center gap-2 flex-wrap text-xs">
+        <button
+          onClick={() => selectDate(addDays(shownDate, -1))}
+          className="px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
+          title="Previous day"
+        >
+          ◀
+        </button>
+        <input
+          type="date"
+          value={shownDate}
+          max={todayEt}
+          onChange={(e) => selectDate(e.target.value)}
+          className="px-2 py-1 rounded border border-border bg-bg-card text-text-primary tabular-nums"
+        />
+        <button
+          onClick={() => selectDate(addDays(shownDate, 1))}
+          disabled={isLive}
+          className="px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary hover:bg-bg-secondary disabled:opacity-40"
+          title="Next day"
+        >
+          ▶
+        </button>
+        {isLive ? (
+          <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-signal-bull font-semibold">
+            <span className="w-2 h-2 rounded-full bg-signal-bull animate-pulse" />
+            Live · today
+          </span>
+        ) : (
+          <>
+            <button
+              onClick={() => setViewDate("")}
+              className="px-2.5 py-1 rounded bg-text-primary text-bg-primary text-[10px] font-semibold uppercase tracking-wider"
+            >
+              Back to live
+            </button>
+            <span className="text-[10px] uppercase tracking-wider text-amber-600">Reviewing history</span>
+          </>
+        )}
+      </div>
+
       {/* Regime banner */}
       <div className="flex flex-wrap items-center gap-3 bg-bg-card border border-border rounded px-3 py-2.5">
         <span className={`px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider ${regimeTone(data?.regime ?? null)}`}>
@@ -162,8 +227,9 @@ export function OpeningDrivePage() {
 
       {data && candidates.length === 0 && (
         <p className="text-xs text-text-secondary">
-          No candidates yet. The pre-market scan runs at 9:28 ET on trading days; the engine
-          watches survivors for a pre-market-high break through 10:30 ET.
+          {isLive
+            ? "No candidates yet. The pre-market scan runs at 9:28 ET on trading days; the engine watches survivors for a pre-market-high break through 10:30 ET."
+            : `No candidates were recorded for ${shownDate} — a weekend/holiday, or nothing cleared the gates that day.`}
         </p>
       )}
 
