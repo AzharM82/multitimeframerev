@@ -315,7 +315,7 @@ function GroupRow({
       </div>
       <div className="flex items-center gap-3 mt-1 text-[11px] tabular-nums text-text-secondary flex-wrap">
         <span className={pctTone(g.etfMove)}>{fmtPct(g.etfMove)}</span>
-        <span>{g.etfRvol.toFixed(2)}× rvol</span>
+        <span title="share of members trading ≥ their average volume">{Math.round(g.volParticipation * 100)}% vol</span>
         <span>{Math.round(g.breadth * 100)}% breadth</span>
         <span>{g.memberCount} names</span>
       </div>
@@ -486,7 +486,7 @@ export function SectorDeskPage() {
                   <h2 className="font-semibold">{active.sector}</h2>
                   <DirBadge dir={active.tradeable ? active.bias : null} dim={!active.tradeable} />
                   <span className={`text-sm tabular-nums ${pctTone(active.etfMove)}`}>{fmtPct(active.etfMove)}</span>
-                  <span className="text-xs text-text-secondary tabular-nums">{active.etfRvol.toFixed(2)}× rvol · {Math.round(active.breadth * 100)}% breadth</span>
+                  <span className="text-xs text-text-secondary tabular-nums">{Math.round(active.volParticipation * 100)}% vol · {Math.round(active.breadth * 100)}% breadth</span>
                 </div>
                 {!active.tradeable && (
                   <p className="text-[11px] text-amber-600 mb-2">

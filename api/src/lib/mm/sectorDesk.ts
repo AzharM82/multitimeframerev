@@ -43,7 +43,8 @@ export interface DeskGroup {
   sector: string; // display label
   etf: string;
   etfMove: number; // ETF day change %
-  etfRvol: number; // ETF relative volume ×
+  etfRvol: number; // ETF relative volume × (reference only — no longer gates)
+  volParticipation: number; // 0..1 share of members trading ≥ their avg volume (gates)
   breadth: number; // 0..1 share of members agreeing with the ETF direction
   memberCount: number;
   gss: number; // signed strength ±100
@@ -109,7 +110,19 @@ async function computeGroup(
   }
   const breadth = counted > 0 ? agree / counted : 0;
 
-  const score = groupStrength({ chg: etfMove, etfRvol, breadth });
+  // Volume participation = share of members trading at/above their own average
+  // volume (rel-vol ≥ floor). This is the real "is the sector active" signal —
+  // the ETF's own volume misfires when the wrapper is quiet but names run hot.
+  let participating = 0;
+  let volCounted = 0;
+  for (const m of members) {
+    if (m.rel_volume === null || m.rel_volume === undefined) continue;
+    volCounted += 1;
+    if (m.rel_volume >= TUNING.volParticipationFloor) participating += 1;
+  }
+  const volParticipation = volCounted > 0 ? participating / volCounted : 0;
+
+  const score = groupStrength({ chg: etfMove, volPart: volParticipation, breadth });
 
   const ranked = rankStocks(
     members.map((m) => ({
@@ -146,6 +159,7 @@ async function computeGroup(
     etf: def.etf,
     etfMove,
     etfRvol,
+    volParticipation,
     breadth,
     memberCount: members.length,
     gss: score.gss,
