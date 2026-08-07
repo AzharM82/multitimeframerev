@@ -637,6 +637,7 @@ export interface DeskGroup {
   etf: string;
   etfMove: number;
   etfRvol: number;
+  volParticipation: number;
   breadth: number;
   memberCount: number;
   gss: number;

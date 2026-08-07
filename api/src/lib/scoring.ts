@@ -19,13 +19,20 @@ export type Direction = "LONG" | "SHORT";
 export const TUNING = {
   /** Group gates — a group must clear all three to be tradeable. */
   minGroupMove: 0.55, // % — ETF absolute day change
-  minGroupRvol: 1.05, // × — ETF relative volume
+  /**
+   * Volume conviction is measured from the MEMBERS, not the ETF wrapper — an ETF
+   * can trade light while its constituents run hot (Energy, 2026-08-06: XLE was
+   * 0.76× but OXY/KNTK/HP were 1.6–2.1×). A member "participates" when its
+   * rel-volume ≥ `volParticipationFloor`; the group passes when the share of
+   * participating members ≥ `minVolParticipation`. Relaxed vs the old 1.05× bar.
+   */
+  volParticipationFloor: 1.0, // × — a member counts as participating at/above its own avg volume
+  minVolParticipation: 0.4, // fraction of members that must participate (relaxed)
   minBreadth: 0.6, // fraction of members agreeing with the ETF's direction
 
   /** Group-strength weights (spec's flow weight 0.15 dropped, renormalized). */
   groupWeights: { move: 0.47, rvol: 0.23, breadth: 0.3 },
   moveSaturation: 2.5, // % — move term maxes out here
-  rvolSaturation: 2.0, // × — rvol term maxes out here
 
   /** Regime router: min best−worst sector spread (pts) to call a rotation. */
   dispersionPts: 1.2,
@@ -43,10 +50,10 @@ export const TUNING = {
 // ---------------------------------------------------------------------------
 
 export interface GroupGateInput {
-  /** ETF day change %, signed. */
+  /** ETF day change %, signed — the direction anchor. */
   chg: number;
-  /** ETF relative volume, ×. */
-  etfRvol: number;
+  /** Share of members trading ≥ their own average volume, 0..1. */
+  volPart: number;
   /** Share of members whose day_chg sign agrees with the ETF, 0..1. */
   breadth: number;
 }
@@ -73,8 +80,8 @@ export function groupStrength(g: GroupGateInput): GroupScore {
   if (absMove < TUNING.minGroupMove) {
     blockers.push(`move ${absMove.toFixed(2)}% < ${TUNING.minGroupMove}%`);
   }
-  if (g.etfRvol < TUNING.minGroupRvol) {
-    blockers.push(`rvol ${g.etfRvol.toFixed(2)}× < ${TUNING.minGroupRvol}×`);
+  if (g.volPart < TUNING.minVolParticipation) {
+    blockers.push(`vol ${Math.floor(g.volPart * 100)}% < ${Math.round(TUNING.minVolParticipation * 100)}%`);
   }
   if (g.breadth < TUNING.minBreadth) {
     blockers.push(`breadth ${Math.floor(g.breadth * 100)}% < ${Math.round(TUNING.minBreadth * 100)}%`);
@@ -82,7 +89,7 @@ export function groupStrength(g: GroupGateInput): GroupScore {
 
   const w = TUNING.groupWeights;
   const moveTerm = Math.min(absMove, TUNING.moveSaturation) / TUNING.moveSaturation;
-  const rvolTerm = Math.min(g.etfRvol, TUNING.rvolSaturation) / TUNING.rvolSaturation;
+  const rvolTerm = clamp01(g.volPart); // participation is already 0..1
   const breadthTerm = clamp01(g.breadth);
   const conviction = Math.round(
     100 * (w.move * moveTerm + w.rvol * rvolTerm + w.breadth * breadthTerm),
