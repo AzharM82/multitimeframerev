@@ -54,9 +54,37 @@ function parseHuman(raw: string | undefined): number | null {
   return Number.isFinite(n) ? n * mult : null;
 }
 
+/**
+ * Market cap in DOLLARS from a Finviz export cell.
+ *
+ * The `v=152` export returns market cap as a bare number in MILLIONS
+ * ("37471.37" = $37.47B), not the suffixed form ("37.47B") `parseHuman` expects.
+ * Reading it raw made every name look sub-$500M, so the market-cap prefilter
+ * silently emptied the universe and the scan produced 0 candidates for two
+ * sessions (2026-08-06/07) while still reporting a healthy `discovered` count.
+ *
+ * Accept both shapes so a future Finviz flip can't re-break it: an explicit
+ * K/M/B/T suffix is already absolute, a bare number is millions.
+ */
+function parseMarketCap(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const s = raw.trim().replace(/[$,%]/g, "");
+  if (/[KMBT]$/i.test(s)) return parseHuman(s);
+  const n = Number(s);
+  return Number.isFinite(n) ? n * 1e6 : null;
+}
+
 // ─── Finviz gap-up universe (one call: Ticker + Sector + MktCap + Price + …) ─
 
-const FV_COLS = "0,1,2,3,4,6,25,26,30,63,65,66,67,68"; // named columns incl Sector, Market Cap, Price, Change, Volume, Gap, Avg Volume, ATR, News
+// Finviz column INDICES (verified against the live v=152 export 2026-08-07):
+//   0 No. · 1 Ticker · 2 Company · 3 Sector · 4 Industry · 6 Market Cap
+//   60 Change from Open · 61 Gap · 63 Average Volume · 64 Relative Volume
+//   65 Price · 66 Change · 67 Volume · 135 News Time · 136 News URL · 137 News Title
+// The previous list asked for 25/26/30 (Shares Float, Insider Own, Short Float)
+// while its comment claimed Gap/ATR/News — so `Gap` and the news headline were
+// never actually returned, and the catalyst classifier ran without a headline.
+// There is no ATR column in this view; ATR is computed from Polygon dailies.
+const FV_COLS = "0,1,2,3,4,6,60,61,63,64,65,66,67,135,136,137";
 function finvizGapUrl(cfg: OpeningDriveConfig): string {
   const gapTok = `ta_gap_u${Math.max(1, Math.round(cfg.minGapPct))}`; // e.g. ta_gap_u2
   // sh_price_o50 mirrors the $50 config floor; sh_avgvol_o500 keeps liquid names.
@@ -84,10 +112,10 @@ async function fetchGapUniverse(cfg: OpeningDriveConfig): Promise<FinvizRow[]> {
     out.push({
       ticker,
       sector: (r["Sector"] ?? "").trim(),
-      marketCap: parseHuman(r["Market Cap"]),
+      marketCap: parseMarketCap(r["Market Cap"]),
       price: parseHuman(r["Price"]),
       gapPct: parseHuman(r["Gap"]),
-      headline: (r["News"] ?? "").trim() || null,
+      headline: (r["News Title"] ?? "").trim() || null,
     });
   }
   return out;
@@ -147,6 +175,48 @@ export interface ScanResult {
   spyPct: number | null;
   discovered: number;
   candidates: OpeningDriveCandidate[];
+  /**
+   * Why the scan produced what it did. Without this a broken upstream feed is
+   * indistinguishable from a genuinely quiet market — the Finviz market-cap
+   * format change on 2026-08-06 emptied the universe for two sessions and the
+   * only visible symptom was `candidates: []` next to a healthy `discovered`.
+   */
+  rejections: {
+    /** Dropped by the cheap Finviz prefilter, before any enrichment. */
+    prefilterMarketCap: number;
+    prefilterPrice: number;
+    enriched: number;
+    /** gate key → how many enriched names that gate rejected. */
+    byGate: Record<string, number>;
+    /** Per-ticker detail, for the tab and for research. */
+    detail: { ticker: string; fails: string[] }[];
+  };
+}
+
+/** Enrichment outcome: a candidate, or the gates it failed. */
+type Enriched =
+  | { ok: true; candidate: OpeningDriveCandidate }
+  | { ok: false; ticker: string; fails: string[] };
+
+// ─── Daily bars must end on the last COMPLETED session ──────────────────────
+
+/**
+ * Drop any daily bar dated on/after `scanDate` (ET).
+ *
+ * `fetchDailyBarsExtended` fetches through `new Date()`, so once Polygon opens
+ * the current session's daily aggregate (shortly after 09:30 ET) the last bar
+ * is TODAY's in-progress bar. `computeLevels` then reads `priorClose`/`ydayHigh`
+ * off today itself: gaps compute as ~0 or negative, and `pm_last > yday_high`
+ * can never pass because today's high already contains the pre-market high.
+ *
+ * The live 09:28 cron ran before that bar existed, so it was unaffected — but
+ * any manual re-trigger or replay after the open silently produced garbage.
+ * levels.ts is documented to operate on the last completed session; enforce it.
+ */
+function completedSessionsOnly(daily: Candle[], scanDate: string): Candle[] {
+  return daily.filter(
+    (b) => new Date(b.timestamp).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) < scanDate,
+  );
 }
 
 // ─── SPY regime ─────────────────────────────────────────────────────────────
@@ -159,7 +229,7 @@ function sma(vals: number[], n: number): number | null {
 
 async function computeRegime(scanDate: string): Promise<{ regime: Regime; spyPct: number | null }> {
   try {
-    const daily = await fetchDailyBarsExtended("SPY", 1);
+    const daily = completedSessionsOnly(await fetchDailyBarsExtended("SPY", 1), scanDate);
     const closes = daily.map((c) => c.close);
     const lastClose = closes[closes.length - 1];
     const s10 = sma(closes, 10);
@@ -202,25 +272,29 @@ export async function runScan(
   ]);
 
   // Cheap pre-filter on the Finviz columns, then cap for the expensive enrichment.
-  const prefiltered = universe
-    .filter((r) => (r.marketCap ?? 0) >= cfg.minMarketCap && (r.price ?? 0) >= cfg.minPrice)
-    .slice(0, 30);
+  const capOk = universe.filter((r) => (r.marketCap ?? 0) >= cfg.minMarketCap);
+  const prefilterMarketCap = universe.length - capOk.length;
+  const priceOk = capOk.filter((r) => (r.price ?? 0) >= cfg.minPrice);
+  const prefilterPrice = capOk.length - priceOk.length;
+  const prefiltered = priceOk.slice(0, 30);
 
   // Sector-ETF pre-market changes (one snapshot call for the ETFs in play).
   const etfs = [...new Set(prefiltered.map((r) => SECTOR_ETF[r.sector]).filter(Boolean))] as string[];
   const etfQuotes = etfs.length ? await fetchQuotes(etfs) : new Map();
 
-  const built = await mapLimit(prefiltered, 6, async (row): Promise<OpeningDriveCandidate | null> => {
+  const built = await mapLimit(prefiltered, 6, async (row): Promise<Enriched> => {
     const reasons: string[] = [];
+    const reject = (fails: string[]): Enriched => ({ ok: false, ticker: row.ticker, fails });
     try {
-      const [oneMin, daily] = await Promise.all([
+      const [oneMin, dailyRaw] = await Promise.all([
         fetchAggsRange(row.ticker, 1, "minute", scanDate, scanDate),
         fetchDailyBarsExtended(row.ticker, 2),
       ]);
-      if (daily.length < 20) { return null; }
+      const daily = completedSessionsOnly(dailyRaw, scanDate);
+      if (daily.length < 20) { return reject(["history insufficient daily bars"]); }
 
       const pm = premarketStats(oneMin);
-      if (pm.pmLast <= 0) return null;
+      if (pm.pmLast <= 0) return reject(["premarket no trades 04:00–09:28 ET"]);
 
       const levels = computeLevels(daily, pm.pmLast);
       const gapPct = levels.priorClose ? ((pm.pmLast - levels.priorClose) / levels.priorClose) * 100 : (row.gapPct ?? 0);
@@ -231,24 +305,26 @@ export async function runScan(
       // Candidate criteria (spec §CANDIDATE CRITERIA + liquidity/price floors).
       const pmVolOk = pm.pmVolume >= cfg.minPmVolume || pm.pmVolume >= cfg.minPmVolRatio * levels.avgDailyVol30d;
       const roomOk = levels.ath || (levels.distToResistancePct !== null && levels.distToResistancePct >= cfg.minRoomOverheadPct);
-      const checks: [boolean, string][] = [
-        [pm.pmLast >= cfg.minPrice, `price ${pm.pmLast} >= ${cfg.minPrice}`],
-        [avgDollarVol >= cfg.minAvgDollarVol, `avg$vol ${(avgDollarVol / 1e6).toFixed(1)}M >= ${(cfg.minAvgDollarVol / 1e6)}M`],
-        [gapPct >= cfg.minGapPct, `gap ${gapPct.toFixed(1)}% >= ${cfg.minGapPct}%`],
-        [pm.pmLast > levels.ydayHigh, `pm_last ${pm.pmLast} > yday_high ${levels.ydayHigh}`],
-        [pm.pmLast > levels.priorClose, `pm_last > prior_close ${levels.priorClose}`],
-        [pmVolOk, `pm_volume ${Math.round(pm.pmVolume)}`],
-        [atrPct >= cfg.minAtrRatio * 100, `atr% ${atrPct.toFixed(2)} >= ${(cfg.minAtrRatio * 100).toFixed(1)}`],
-        [roomOk, `room ${levels.ath ? "ATH" : levels.distToResistancePct?.toFixed(1) + "%"}`],
+      // [passed, gate-key, human detail] — the gate key is the tally dimension,
+      // so keep it stable: it is what /api/opening-drive-results reports back.
+      const checks: [boolean, string, string][] = [
+        [pm.pmLast >= cfg.minPrice, "price", `${pm.pmLast} >= ${cfg.minPrice}`],
+        [avgDollarVol >= cfg.minAvgDollarVol, "avg$vol", `${(avgDollarVol / 1e6).toFixed(1)}M >= ${(cfg.minAvgDollarVol / 1e6)}M`],
+        [gapPct >= cfg.minGapPct, "gap", `${gapPct.toFixed(1)}% >= ${cfg.minGapPct}%`],
+        [pm.pmLast > levels.ydayHigh, "yday_high", `pm_last ${pm.pmLast} > ${levels.ydayHigh}`],
+        [pm.pmLast > levels.priorClose, "prior_close", `pm_last ${pm.pmLast} > ${levels.priorClose}`],
+        [pmVolOk, "pm_volume", `${Math.round(pm.pmVolume)} (need ${cfg.minPmVolume} or ${cfg.minPmVolRatio * 100}% of ${Math.round(levels.avgDailyVol30d)})`],
+        [atrPct >= cfg.minAtrRatio * 100, "atr%", `${atrPct.toFixed(2)} >= ${(cfg.minAtrRatio * 100).toFixed(1)}`],
+        [roomOk, "room", `${levels.ath ? "ATH" : levels.distToResistancePct?.toFixed(1) + "%"} >= ${cfg.minRoomOverheadPct}%`],
       ];
-      for (const [ok, msg] of checks) if (!ok) reasons.push("FAIL " + msg);
-      if (reasons.length) return null; // fails a hard criterion — not a candidate
+      for (const [ok, gate, detail] of checks) if (!ok) reasons.push(`${gate} ${detail}`);
+      if (reasons.length) return reject(reasons); // fails a hard criterion — not a candidate
 
       const catalyst = await classifyCatalyst(row.ticker, scanTime, levels.ath, nearBaseHigh, cfg, row.headline ?? undefined);
       const etf = SECTOR_ETF[row.sector] ?? null;
       const etfQ = etf ? etfQuotes.get(etf) : null;
 
-      return {
+      return { ok: true, candidate: {
         ticker: row.ticker,
         gapPct,
         pmHigh: pm.pmHigh,
@@ -271,13 +347,23 @@ export async function runScan(
         sectorSympathy: false,
         demoted: false,
         reasons: [],
-      };
-    } catch {
-      return null;
+      } };
+    } catch (err) {
+      return reject([`error ${err instanceof Error ? err.message : "unknown"}`]);
     }
   });
 
-  const candidates = built.filter((c): c is OpeningDriveCandidate => c !== null);
+  const candidates = built.filter((r): r is Extract<Enriched, { ok: true }> => r.ok).map((r) => r.candidate);
+
+  // Rejection telemetry — see ScanResult.rejections.
+  const rejectedRows = built.filter((r): r is Extract<Enriched, { ok: false }> => !r.ok);
+  const byGate: Record<string, number> = {};
+  for (const r of rejectedRows) {
+    for (const f of r.fails) {
+      const gate = f.split(" ")[0];
+      byGate[gate] = (byGate[gate] ?? 0) + 1;
+    }
+  }
 
   // Sector-sympathy: 3+ candidates share a sector ETF and ≥1 is NEWS/HIGH.
   const bySector = new Map<string, OpeningDriveCandidate[]>();
@@ -308,5 +394,12 @@ export async function runScan(
     spyPct: regimeInfo.spyPct,
     discovered: universe.length,
     candidates: final,
+    rejections: {
+      prefilterMarketCap,
+      prefilterPrice,
+      enriched: prefiltered.length,
+      byGate,
+      detail: rejectedRows.map((r) => ({ ticker: r.ticker, fails: r.fails })),
+    },
   };
 }

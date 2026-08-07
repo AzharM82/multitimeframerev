@@ -68,7 +68,11 @@ export function loadConfig(): OpeningDriveConfig {
     minPmVolume: envNum("OD_MIN_PM_VOLUME", 500_000),
     minPmVolRatio: envNum("OD_MIN_PM_VOL_RATIO", 0.05),
     minAtrRatio: envNum("OD_MIN_ATR_RATIO", 0.02),
-    minRoomOverheadPct: envNum("OD_MIN_ROOM_OVERHEAD_PCT", 3.0),
+    // 3.0 → 1.5 (user decision 2026-08-07): with the Finviz market-cap parse
+    // fixed, `room` was the tightest gate by far — it alone rejected 21 of the
+    // 30 enriched names that session, including COHR (1.8%), CRWV (1.9%) and
+    // MSTR (0.8%). Overhead room is a quality tier, not a hard kill.
+    minRoomOverheadPct: envNum("OD_MIN_ROOM_OVERHEAD_PCT", 1.5),
 
     noCatalystAction: envStr("OD_NO_CATALYST_ACTION", "demote") as NoCatalystAction,
     catalystFreshHours: envNum("OD_CATALYST_FRESH_HOURS", 24),

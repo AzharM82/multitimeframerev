@@ -33,6 +33,9 @@ async function openingDriveScanHandler(req: HttpRequest): Promise<HttpResponseIn
       discovered: result.discovered,
       candidateCount: result.candidates.length,
       asOf: result.asOf,
+      // Rejection telemetry: makes "0 candidates" self-explaining. Table Storage
+      // has no nested types, so the breakdown rides as JSON.
+      rejectionsJson: JSON.stringify(result.rejections),
     });
 
     for (const c of result.candidates) {

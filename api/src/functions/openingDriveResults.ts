@@ -23,6 +23,15 @@ interface Row {
   asOf?: string;
   payloadJson?: string;
   demoted?: boolean;
+  rejectionsJson?: string;
+}
+
+function safeParse(json: string): unknown {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
 }
 
 async function openingDriveResultsHandler(req: HttpRequest): Promise<HttpResponseInit> {
@@ -61,6 +70,8 @@ async function openingDriveResultsHandler(req: HttpRequest): Promise<HttpRespons
         asOf: meta?.asOf ?? null,
         count: candidates.length,
         candidates,
+        // Why the list is the size it is — present for scans run after 2026-08-07.
+        rejections: meta?.rejectionsJson ? safeParse(meta.rejectionsJson) : null,
       },
     };
   } catch (err) {
