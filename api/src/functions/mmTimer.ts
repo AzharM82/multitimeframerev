@@ -4,8 +4,9 @@ import { computeAllKeyMetrics } from "../lib/mm/keyMetrics.js";
 import { computeBreadthData } from "../lib/mm/stockbee.js";
 import { runScreener } from "../lib/mm/screeners.js";
 import { computeMovers } from "../lib/mm/movers.js";
-import { computeSectorDesk } from "../lib/mm/sectorDesk.js";
+import { computeSectorDesk, type MmSectorDeskData } from "../lib/mm/sectorDesk.js";
 import { computeIndexLeaders } from "../lib/mm/indexLeaders.js";
+import { writeSectorDeskSnapshot } from "../lib/mm/sectorDeskHistory.js";
 
 /**
  * POST /api/mm-timer?panel=<name>
@@ -68,6 +69,10 @@ async function mmTimer(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
     try {
       const data = await computePanel(panel);
       await putPanel(panel, data);
+      // Append today's Sector Desk snapshot to the 30-day history (best-effort).
+      if (panel === "sector-desk") {
+        await writeSectorDeskSnapshot(data as MmSectorDeskData);
+      }
       refreshed[panel] = `ok in ${Math.round((Date.now() - started) / 1000)}s`;
       ctx.log(`mm-timer: ${panel} refreshed in ${Date.now() - started}ms`);
     } catch (err) {

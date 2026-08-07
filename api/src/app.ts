@@ -41,6 +41,8 @@ import "./functions/uoaSignals.js";
 // Metrics — MarketMetrics core panels (cron-warmed cache + read proxy)
 import "./functions/mmPanel.js";
 import "./functions/mmTimer.js";
+import "./functions/sectorDeskHistory.js";
+import "./functions/purgeHistory.js";
 
 // Gate — "should I be trading today?" (ported from ShouldIBeTrading)
 import "./functions/gateScore.js";

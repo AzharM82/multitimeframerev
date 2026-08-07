@@ -6,8 +6,10 @@ import type {
   DeskRankedStock,
   DeskDirection,
   IndexBlock,
+  SectorDeskHistoryResponse,
+  SectorHistPoint,
 } from "../types.js";
-import { getMmPanel } from "../services/api.js";
+import { getMmPanel, getSectorDeskHistory } from "../services/api.js";
 
 /**
  * Sector Desk — which sector group is running today, and which liquid stocks
@@ -359,6 +361,66 @@ function IndexCard({ block }: { block: IndexBlock }) {
   );
 }
 
+// ─── 30-day strength oscillator ──────────────────────────────────────────────
+
+/** A sector's signed strength (−100..+100) over the last ~30 sessions. Above the
+ * zero midline = long-favorable, below = short-favorable. Segments are colored
+ * by sign, so you can see a sector rotating from short to long over the month. */
+function StrengthOscillator({ points }: { points: SectorHistPoint[] }) {
+  if (points.length < 2) {
+    return (
+      <p className="text-[11px] text-text-secondary px-1 py-2">
+        30-day strength fills in daily — not enough history yet.
+      </p>
+    );
+  }
+  const W = 640;
+  const H = 96;
+  const padX = 6;
+  const padY = 10;
+  const n = points.length;
+  const xOf = (i: number) => padX + (i / (n - 1)) * (W - padX * 2);
+  const yOf = (gss: number) => padY + (1 - (gss + 100) / 200) * (H - padY * 2);
+  const zeroY = yOf(0);
+  const last = points[n - 1];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] uppercase tracking-wider text-text-secondary">30-day strength</span>
+        <span className={`text-[11px] tabular-nums font-semibold ${last.gss >= 0 ? "text-signal-bull" : "text-signal-bear"}`}>
+          {last.gss >= 0 ? "+" : ""}{last.gss} {last.bias || "flat"}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: "auto" }} preserveAspectRatio="none">
+        {/* zero midline + ±100 guides */}
+        <line x1={0} y1={zeroY} x2={W} y2={zeroY} className="stroke-border" strokeDasharray="3 3" />
+        <line x1={0} y1={yOf(100)} x2={W} y2={yOf(100)} className="stroke-border/50" strokeWidth={0.5} />
+        <line x1={0} y1={yOf(-100)} x2={W} y2={yOf(-100)} className="stroke-border/50" strokeWidth={0.5} />
+        {/* strength line, colored per segment by sign */}
+        {points.slice(1).map((p, i) => {
+          const a = points[i];
+          const up = (a.gss + p.gss) / 2 >= 0;
+          return (
+            <line
+              key={p.date}
+              x1={xOf(i)} y1={yOf(a.gss)} x2={xOf(i + 1)} y2={yOf(p.gss)}
+              className={up ? "stroke-signal-bull" : "stroke-signal-bear"}
+              strokeWidth={1.75}
+            />
+          );
+        })}
+        <circle cx={xOf(n - 1)} cy={yOf(last.gss)} r={3} className={last.gss >= 0 ? "fill-signal-bull" : "fill-signal-bear"} />
+      </svg>
+      <div className="flex justify-between text-[9px] text-dim tabular-nums mt-0.5">
+        <span>{points[0].date}</span>
+        <span className="text-text-secondary">long ▲ / short ▼</span>
+        <span>{last.date}</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 type PanelState<T> = { data: T | null; error: string | null; loading: boolean };
@@ -368,6 +430,7 @@ export function SectorDeskPage() {
   const [idx, setIdx] = useState<PanelState<MmIndexLeadersData>>({ data: null, error: null, loading: true });
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [history, setHistory] = useState<SectorDeskHistoryResponse | null>(null);
   const alive = useRef(true);
 
   const load = useCallback(async () => {
@@ -384,6 +447,11 @@ export function SectorDeskPage() {
     } catch (e) {
       if (alive.current) setIdx((p) => ({ data: p.data, error: (e as Error).message, loading: false }));
     }
+    // 30-day history for the strength oscillator — best-effort, never blocks the desk.
+    try {
+      const h = await getSectorDeskHistory(30);
+      if (alive.current) setHistory(h);
+    } catch { /* leave prior history */ }
     if (alive.current) setRefreshing(false);
   }, []);
 
@@ -493,6 +561,9 @@ export function SectorDeskPage() {
                     Not a clean group edge — showing the names anyway: {active.blockers.join(" · ")}
                   </p>
                 )}
+                <div className="mb-3 pb-3 border-b border-border">
+                  <StrengthOscillator points={history?.sectors.find((s) => s.key === active.key)?.points ?? []} />
+                </div>
                 <StockTable group={active} />
               </>
             ) : (

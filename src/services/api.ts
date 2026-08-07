@@ -1,6 +1,7 @@
 import type {
   MmPanelName,
   MmPanelResponse,
+  SectorDeskHistoryResponse,
   GateScoreResponse,
   RotQuotesResponse,
   RotPerformanceResponse,
@@ -131,4 +132,8 @@ export function getGateScore(mode: "day" | "swing" = "day"): Promise<GateScoreRe
 
 export function getMmPanel<T>(panel: MmPanelName): Promise<MmPanelResponse<T>> {
   return request<MmPanelResponse<T>>(`/mm-panel?panel=${panel}`);
+}
+
+export function getSectorDeskHistory(days = 30): Promise<SectorDeskHistoryResponse> {
+  return request<SectorDeskHistoryResponse>(`/sector-desk-history?days=${days}`);
 }
