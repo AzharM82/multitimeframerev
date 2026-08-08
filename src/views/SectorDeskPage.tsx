@@ -521,7 +521,7 @@ export function SectorDeskPage() {
       {groups.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,20rem)_1fr] gap-4">
           <div className="space-y-1.5">
-            <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-1">Groups (by strength)</h2>
+            <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-1">Groups (by change from open)</h2>
             {groups.map((g) => (
               <GroupRow key={g.key} g={g} selected={g.key === activeKey} onSelect={() => setSelectedKey(g.key)} />
             ))}
