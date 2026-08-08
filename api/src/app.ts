@@ -67,6 +67,13 @@ import "./functions/openingDriveResults.js";
 import "./functions/openingDriveTrigger.js";
 import "./functions/openingDriveEngine.js";
 
+// Trade Journal — Robinhood fills pushed up by tools/journal-sync on the
+// trading desktop, dictated notes per (day, underlying), and the rolling
+// 10-point lessons list. No broker or model credentials live in Azure.
+import "./functions/journalTrades.js";
+import "./functions/journalNotes.js";
+import "./functions/journalSummary.js";
+
 // Portal authentication — SWA rolesSource allowlist (Google sign-in).
 // Invoked by the SWA platform, not the browser; must stay anonymous.
 import "./functions/getRoles.js";

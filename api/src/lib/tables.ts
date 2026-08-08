@@ -111,4 +111,10 @@ export const TABLES = {
   TV_ANALYSIS: "TvAnalysis",
   OPENING_DRIVE: "OpeningDrive",
   SECTOR_DESK_HISTORY: "SectorDeskHistory",
+  /** Robinhood fills pushed up by the local journal-sync job. */
+  JOURNAL_FILLS: "JournalFills",
+  /** One dictated note per (trade date, underlying). */
+  JOURNAL_NOTES: "JournalNotes",
+  /** The rolling 10-point lessons list, one row per version. */
+  JOURNAL_SUMMARY: "JournalSummary",
 } as const;

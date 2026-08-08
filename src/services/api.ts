@@ -2,6 +2,9 @@ import type {
   MmPanelName,
   MmPanelResponse,
   RotationEnrichMap,
+  JournalTradesResponse,
+  JournalNotesResponse,
+  JournalSummaryResponse,
   SectorDeskHistoryResponse,
   GateScoreResponse,
   RotQuotesResponse,
@@ -144,6 +147,34 @@ export function getMmPanel<T>(panel: MmPanelName): Promise<MmPanelResponse<T>> {
  */
 export function getRotationStocks(): Promise<MmPanelResponse<RotationEnrichMap>> {
   return request<MmPanelResponse<RotationEnrichMap>>(`/mm-panel?panel=rotation-stocks`);
+}
+
+// ─── Trade Journal ───────────────────────────────────────────────────────────
+
+export function getJournalTrades(from: string, to?: string): Promise<JournalTradesResponse> {
+  const q = new URLSearchParams({ from, ...(to ? { to } : {}) });
+  return request<JournalTradesResponse>(`/journal-trades?${q}`);
+}
+
+export function getJournalNotes(from: string, to?: string): Promise<JournalNotesResponse> {
+  const q = new URLSearchParams({ from, ...(to ? { to } : {}) });
+  return request<JournalNotesResponse>(`/journal-notes?${q}`);
+}
+
+export function saveJournalNote(
+  date: string,
+  underlying: string,
+  text: string,
+): Promise<{ status: string; updatedAt: string }> {
+  return request<{ status: string; updatedAt: string }>(`/journal-notes`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ date, underlying, text }),
+  });
+}
+
+export function getJournalSummary(): Promise<JournalSummaryResponse> {
+  return request<JournalSummaryResponse>(`/journal-summary`);
 }
 
 export function getSectorDeskHistory(days = 30): Promise<SectorDeskHistoryResponse> {

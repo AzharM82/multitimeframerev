@@ -688,6 +688,54 @@ export interface RotationStockRow {
 
 export type RotationEnrichMap = Record<string, RotationStockRow>;
 
+// ─── Trade Journal ───────────────────────────────────────────────────────────
+// Robinhood fills pushed up by tools/journal-sync on the dev machine. Only
+// closing fills carry `realizedPnl`; opens are legitimately null.
+
+export interface JournalFill {
+  id: string;
+  tradeDate: string; // YYYY-MM-DD ET
+  ticker: string; // OCC-style for options: "AAPL  260807C00315000"
+  underlying: string;
+  assetType: string; // OPTION | EQUITY
+  side: string; // BUY | SELL
+  quantity: number;
+  price: number;
+  fees: number;
+  realizedPnl: number | null;
+  filledAt: string;
+  broker: string;
+}
+
+export interface JournalTradesResponse {
+  from: string;
+  to: string;
+  epoch: string;
+  count: number;
+  fills: JournalFill[];
+}
+
+export interface JournalNote {
+  date: string;
+  underlying: string;
+  text: string;
+  updatedAt: string;
+}
+
+export interface JournalNotesResponse {
+  from: string;
+  to: string;
+  count: number;
+  notes: JournalNote[];
+}
+
+export interface JournalSummaryResponse {
+  points: string[]; // at most 10, ever
+  noteCount: number;
+  generatedAt: string | null;
+  versions: number;
+}
+
 export interface SectorHistPoint {
   date: string; // YYYY-MM-DD
   gss: number; // signed strength −100..+100
