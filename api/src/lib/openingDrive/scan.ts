@@ -100,6 +100,8 @@ interface FinvizRow {
   price: number | null;
   gapPct: number | null;
   headline: string | null;
+  /** Finviz `News Time`, "YYYY-MM-DD HH:MM:SS" in ET. Drives the freshness test. */
+  newsTime: string | null;
 }
 
 async function fetchGapUniverse(cfg: OpeningDriveConfig): Promise<FinvizRow[]> {
@@ -116,6 +118,7 @@ async function fetchGapUniverse(cfg: OpeningDriveConfig): Promise<FinvizRow[]> {
       price: parseHuman(r["Price"]),
       gapPct: parseHuman(r["Gap"]),
       headline: (r["News Title"] ?? "").trim() || null,
+      newsTime: (r["News Time"] ?? "").trim() || null,
     });
   }
   return out;
@@ -320,7 +323,10 @@ export async function runScan(
       for (const [ok, gate, detail] of checks) if (!ok) reasons.push(`${gate} ${detail}`);
       if (reasons.length) return reject(reasons); // fails a hard criterion — not a candidate
 
-      const catalyst = await classifyCatalyst(row.ticker, scanTime, levels.ath, nearBaseHigh, cfg, row.headline ?? undefined);
+      const catalyst = await classifyCatalyst(
+        row.ticker, scanTime, levels.ath, nearBaseHigh, cfg,
+        row.headline ?? undefined, row.newsTime ?? undefined,
+      );
       const etf = SECTOR_ETF[row.sector] ?? null;
       const etfQ = etf ? etfQuotes.get(etf) : null;
 

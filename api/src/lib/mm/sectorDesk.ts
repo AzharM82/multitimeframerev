@@ -12,7 +12,7 @@
  */
 
 import { fetchExportFromUrl, parseGroupIndicatorRows, FINVIZ_DELAY_MS, type IndicatorRow } from "./finviz.js";
-import { SECTORS, sectorExportUrl, sectorEtfExportUrl, type SectorDef } from "./deskSources.js";
+import { SECTORS, sectorExportUrl, sectorEtfExportUrl, tickerListExportUrl, type SectorDef } from "./deskSources.js";
 import { getMaLevels, getEmaLevels, currentEma, distPct } from "./maEnrich.js";
 import { ALL_TICKERS as ROTATION_TICKERS } from "../rotationUniverse.js";
 import {
@@ -110,6 +110,18 @@ function etStamp(): string {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Tickers per gap-fill export — keeps the URL well inside any length limit. */
+const ROTATION_GAP_CHUNK = 200;
+
+/**
+ * Elapsed-time budget after which the Rotation gap fill gives up.
+ *
+ * The Static Web Apps function timeout is 45s and the sector sweep alone has
+ * been observed at 30–38s. The gap fill is optional enrichment; the sector-desk
+ * panel it rides on is not, so it yields rather than risk the whole warm.
+ */
+const ROTATION_GAP_DEADLINE_MS = 34_000;
 
 interface Anchor { chg: number; fromOpen: number; rvol: number }
 
@@ -220,9 +232,32 @@ async function computeGroup(
  * names. Anything Rotation shows that isn't here — a name below FinViz's 1M
  * avg-volume floor, say — simply renders "–" for these columns.
  */
-async function buildRotationEnrich(members: IndicatorRow[]): Promise<RotationEnrichMap> {
+async function buildRotationEnrich(members: IndicatorRow[], startedAt: number): Promise<RotationEnrichMap> {
   const wanted = new Set(ROTATION_TICKERS);
   const rows = members.filter((m) => wanted.has(m.ticker));
+
+  // Fill the gap the sector sweep leaves. The sector exports are filtered by
+  // `geo_usa` + a 1M average-SHARE-volume floor, which drops ~54 of the 878 —
+  // see tickerListExportUrl for the full breakdown. One unfiltered ticker-list
+  // export recovers everything except the genuinely dead tickers, and costs one
+  // FinViz call on a warm that already makes twelve.
+  const covered = new Set(rows.map((m) => m.ticker));
+  const gap = ROTATION_TICKERS.filter((t) => !covered.has(t));
+  for (let i = 0; i < gap.length; i += ROTATION_GAP_CHUNK) {
+    // Strictly optional work guarding a load-bearing panel: if the warm has
+    // already spent most of its function-timeout budget, stop. A stale Sector
+    // Desk is a far worse outcome than a few Rotation rows showing "–", and
+    // the sector sweep ahead of this has been observed as slow as 38s.
+    if (Date.now() - startedAt > ROTATION_GAP_DEADLINE_MS) break;
+    const chunk = gap.slice(i, i + ROTATION_GAP_CHUNK);
+    try {
+      await sleep(FINVIZ_DELAY_MS);
+      const data = await fetchExportFromUrl(tickerListExportUrl(chunk), "sector-desk/rotation-gap");
+      rows.push(...parseGroupIndicatorRows(data, null).filter((m) => wanted.has(m.ticker)));
+    } catch {
+      // Best-effort: the gap names simply stay uncovered and render "–".
+    }
+  }
 
   const ema = await getEmaLevels(rows.map((m) => m.ticker));
 
@@ -246,6 +281,7 @@ async function buildRotationEnrich(members: IndicatorRow[]): Promise<RotationEnr
 }
 
 export async function computeSectorDesk(): Promise<MmSectorDeskData> {
+  const startedAt = Date.now();
   const anchors = await fetchEtfAnchors();
 
   const groups: DeskGroup[] = [];
@@ -275,7 +311,7 @@ export async function computeSectorDesk(): Promise<MmSectorDeskData> {
   // Rotation enrichment — the members the desk's top-12 cut discarded, narrowed
   // to the Rotation universe so the panel stays ~800 rows instead of every
   // liquid US stock. EMA-only (no Alpaca) so this scales; see getEmaLevels.
-  const rotationEnrich = await buildRotationEnrich(allMembers);
+  const rotationEnrich = await buildRotationEnrich(allMembers, startedAt);
 
   // Order the group list by CHANGE-FROM-OPEN, descending (user decision
   // 2026-08-07) so it reads in the same order as the rotation rail above it.

@@ -2,11 +2,24 @@
  * Opening Drive — catalyst classification (spec §PHASE 1 CATALYST FILTER).
  *
  * Uses BOTH sources per the user's decision:
- *   • Polygon /v2/reference/news `published_utc` is the timestamp authority for
- *     the freshness test (Finviz export carries no timestamp) and supplies
- *     per-ticker sentiment for the strength heuristic. Reuses `fetchTickerNews`
- *     from cveData.ts.
- *   • A Finviz headline (when present) is merged in as extra coverage.
+ *   • Polygon /v2/reference/news `published_utc` supplies per-ticker sentiment
+ *     for the strength heuristic. Reuses `fetchTickerNews` from cveData.ts.
+ *   • The Finviz headline, with its own `News Time` timestamp.
+ *
+ * The Finviz headline used to be attached for DISPLAY only and never actually
+ * classified — the old docstring claimed it was "merged in as extra coverage",
+ * but every return path below `fresh.length` set `type` from price levels alone
+ * and just hung the headline off the result. So a name whose only catalyst was
+ * a Finviz story graded NONE while carrying the story in its payload: on
+ * 2026-08-07 TEAM read `NONE/NONE` next to "Atlassian Stock Soars 30% on
+ * Blowout Earnings", and only escaped demotion because the sector-sympathy rule
+ * happened to rescue it. It is now a first-class source, ranked with Polygon's
+ * by recency.
+ *
+ * That was only possible once the scan actually requested Finviz's `News Time`
+ * (column 137/135 — the old column list returned neither). The original comment
+ * "Finviz export carries no timestamp" was true of the broken column list, not
+ * of Finviz.
  *
  * Classification (spec):
  *   NEWS — a headline dated after the prior session's 16:00 ET close
@@ -58,6 +71,29 @@ export function priorCloseBoundary(scanTime: Date): number {
   return Date.UTC(y, mo - 1, da, 20, 0, 0); // fallback: 16:00 EDT
 }
 
+/**
+ * Parse Finviz's `News Time` ("2026-08-07 15:22:33", Eastern) to epoch ms.
+ *
+ * Finviz states the wall clock with no offset, so the offset is derived by
+ * probing EDT/EST and keeping whichever renders back to the same ET hour —
+ * the same trick `priorCloseBoundary` uses. Returns null on anything
+ * unparseable, which keeps the headline out of the freshness test rather than
+ * letting an unknown timestamp masquerade as fresh.
+ */
+export function parseFinvizNewsTime(raw: string | undefined): number | null {
+  const m = (raw ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const [y, mo, d, hh, mi] = [m[1], m[2], m[3], m[4], m[5]].map(Number);
+  const ss = m[6] ? Number(m[6]) : 0;
+  for (const off of [4, 5]) {
+    const ts = Date.UTC(y, mo - 1, d, hh + off, mi, ss);
+    const back = new Date(ts).toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" });
+    // `hour12:false` renders midnight as "24" in some ICU builds — normalise.
+    if (Number(back) % 24 === hh) return ts;
+  }
+  return null;
+}
+
 function etClock(iso: string): string {
   return new Date(iso).toLocaleString("en-US", {
     timeZone: "America/New_York",
@@ -92,6 +128,7 @@ export async function classifyCatalyst(
   nearBaseHigh: boolean,
   cfg: OpeningDriveConfig,
   finvizHeadline?: string,
+  finvizNewsTime?: string,
 ): Promise<CatalystResult> {
   const boundary = priorCloseBoundary(scanTime);
   let news: NewsItem[] = [];
@@ -101,23 +138,35 @@ export async function classifyCatalyst(
     news = [];
   }
 
-  const fresh = news
-    .filter((n) => {
-      if (!n.publishedUtc) return false;
-      const t = new Date(n.publishedUtc).getTime();
-      return t > boundary && t <= scanTime.getTime();
-    })
-    .sort((a, b) => new Date(b.publishedUtc).getTime() - new Date(a.publishedUtc).getTime());
+  /** Both sources, normalised, so recency can rank them against each other. */
+  interface Story { title: string; at: number; source: string | null; sentiment: string | null }
+  const isFresh = (t: number) => t > boundary && t <= scanTime.getTime();
 
-  if (fresh.length) {
-    const top = fresh[0];
+  const stories: Story[] = news
+    .filter((n) => n.publishedUtc && isFresh(new Date(n.publishedUtc).getTime()))
+    .map((n) => ({
+      title: n.title,
+      at: new Date(n.publishedUtc).getTime(),
+      source: n.publisher ?? null,
+      sentiment: n.sentiment ?? null,
+    }));
+
+  // Finviz carries only the LATEST headline per ticker, so it adds at most one
+  // story — but it is often the one Polygon is missing.
+  const fvAt = parseFinvizNewsTime(finvizNewsTime);
+  if (finvizHeadline && fvAt !== null && isFresh(fvAt)) {
+    stories.push({ title: finvizHeadline, at: fvAt, source: "finviz", sentiment: null });
+  }
+
+  if (stories.length) {
+    const top = stories.sort((a, b) => b.at - a.at)[0];
     return {
       type: "NEWS",
-      strength: scoreStrength(top.title, top.sentiment ?? null, cfg),
+      strength: scoreStrength(top.title, top.sentiment, cfg),
       headline: top.title,
-      source: top.publisher ?? null,
-      publishedEt: etClock(top.publishedUtc),
-      sentiment: top.sentiment ?? null,
+      source: top.source,
+      publishedEt: etClock(new Date(top.at).toISOString()),
+      sentiment: top.sentiment,
     };
   }
 

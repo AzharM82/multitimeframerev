@@ -173,9 +173,9 @@ function IndustryStocks({
 
       {covered < joined.length && (
         <div className="px-3 py-2 text-[10px] text-text-secondary border-t border-border">
-          "–" means the name isn't in the Sector Desk's FinViz export, so it has no real-time context here
-          (~94% of the universe is covered; the same gap applies to the Desk itself). The 5-day line is
-          omitted on this tab — it needs Alpaca 30-min bars, which don't scale to ~880 names.
+          "–" means FinViz returns no row for the ticker at all — it has been delisted or renamed since the
+          universe was curated (13 of 878; everything else is covered). The 5-day line is omitted on this
+          tab — it needs Alpaca 30-min bars, which don't scale to ~880 names.
         </div>
       )}
     </div>
