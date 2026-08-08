@@ -57,6 +57,32 @@ export function sectorExportUrl(slug: string): string {
   return `${ELITE_EXPORT}?${V152}&f=geo_usa,sec_${slug},${LIQUID}&o=-change&${COLS}`;
 }
 
+/**
+ * The same columns, selected BY TICKER LIST with no screen filters.
+ *
+ * Used to fill the gap the sector sweep leaves in Rotation's enrichment. Three
+ * distinct things exclude a name from `sectorExportUrl` (all verified live
+ * 2026-08-08 against the 54 uncovered names):
+ *
+ *   • `sh_avgvol_o1000` — 40 of them are genuinely under 1M average SHARE
+ *     volume. Note FinViz reports Average Volume in THOUSANDS, so RGLD reads
+ *     "728.28" = 728K: liquid in dollars ($167M/day at $230) but under the
+ *     share floor.
+ *   • `geo_usa` — excludes US-LISTED but foreign-DOMICILED companies. STX
+ *     (Seagate, Irish-domiciled) has 4.66M average volume and still never
+ *     appears in the technology export.
+ *   • the ticker no longer exists at FinViz — 13 of the 54 return zero rows
+ *     even queried alone, i.e. delisted or renamed since the rotation universe
+ *     was curated. Those stay uncovered, correctly.
+ *
+ * The desk's own filters are deliberately NOT relaxed to fix this: `members`
+ * is the denominator for breadth and volume participation, so widening it
+ * would silently move the gate math.
+ */
+export function tickerListExportUrl(tickers: string[]): string {
+  return `${ELITE_EXPORT}?${V152}&t=${tickers.join(",")}&${COLS}`;
+}
+
 /** One export covering all 11 SPDR sector ETFs (the group anchors). */
 export function sectorEtfExportUrl(): string {
   const tickers = SECTORS.map((s) => s.etf).join(",");
