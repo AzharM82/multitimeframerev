@@ -8,10 +8,11 @@ import { GatePage } from "./views/GatePage.js";
 import { SectorDeskPage } from "./views/SectorDeskPage.js";
 import { TradingViewPage } from "./views/TradingViewPage.js";
 import { OpeningDrivePage } from "./views/OpeningDrivePage.js";
+import { JournalPage } from "./views/JournalPage.js";
 import { ErrorBoundary } from "./views/ErrorBoundary.js";
 import { AboutPage } from "./views/AboutPage.js";
 
-type Page = "gate" | "desk" | "atr" | "cve" | "rotation" | "chart" | "opening" | "about";
+type Page = "gate" | "desk" | "atr" | "cve" | "rotation" | "chart" | "opening" | "journal" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "gate", label: "Gate" },
@@ -21,6 +22,7 @@ const TABS: { key: Page; label: string }[] = [
   { key: "rotation", label: "Rotation" },
   { key: "chart", label: "Chart Analysis" },
   { key: "opening", label: "Opening Drive" },
+  { key: "journal", label: "Journal" },
   { key: "about", label: "About" },
 ];
 
@@ -115,6 +117,7 @@ function App() {
           {page === "rotation" && <RotationPage />}
           {page === "chart" && <TradingViewPage />}
           {page === "opening" && <OpeningDrivePage />}
+          {page === "journal" && <JournalPage />}
           {page === "about" && <AboutPage />}
         </ErrorBoundary>
       </main>
