@@ -277,8 +277,21 @@ export async function computeSectorDesk(): Promise<MmSectorDeskData> {
   // liquid US stock. EMA-only (no Alpaca) so this scales; see getEmaLevels.
   const rotationEnrich = await buildRotationEnrich(allMembers);
 
-  // Strongest signed strength first for display; router uses its own sort.
-  groups.sort((a, b) => b.gss - a.gss);
+  // Order the group list by CHANGE-FROM-OPEN, descending (user decision
+  // 2026-08-07) so it reads in the same order as the rotation rail above it.
+  //
+  // It used to sort on `gss`, the signed group strength — a weighted blend of
+  // move (0.47, saturating at 2.5%), volume participation (0.23) and breadth
+  // (0.30). That let a lower-moving group outrank a higher-moving one on
+  // breadth alone: Utilities at +0.88%/82% breadth scored 44 and led the list
+  // while Communication Services at +1.06%/58% breadth scored 42 and sat
+  // second — so the top of the list disagreed with the leftmost end of the
+  // rail, which is the same board read two different ways.
+  //
+  // Strength is still computed and shown per group (gate, conviction, blockers,
+  // the 30-day oscillator); it just no longer decides the reading order. Ties
+  // fall back to gss. The regime router sorts its own `lites` independently.
+  groups.sort((a, b) => (b.etfFromOpen - a.etfFromOpen) || (b.gss - a.gss));
 
   const lites: RegimeGroupLite[] = groups.map((g) => ({
     sector: g.sector,
