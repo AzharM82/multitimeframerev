@@ -444,7 +444,21 @@ export function SectorDeskPage() {
   const groups = desk.data?.groups ?? [];
   const regime = desk.data?.regime;
 
-  // Auto-select: first regime target, else strongest tradeable group, else top.
+  /**
+   * Auto-select: the regime's first target, else the highest-conviction
+   * tradeable group, else the highest-conviction group.
+   *
+   * Conviction is read explicitly rather than taken from array position. This
+   * used to be `groups.find(g => g.tradeable)`, which only meant "strongest"
+   * because the payload happened to be sorted by `gss`; once the list was
+   * reordered by change-from-open it silently started opening the biggest
+   * MOVER instead. Reading order and which group to open are two different
+   * questions, so they no longer share a mechanism.
+   *
+   * `conviction` (unsigned 0–100), not `gss` (signed): the desk is two-sided,
+   * and picking the max signed score would always favour a weak LONG over a
+   * strong SHORT.
+   */
   const autoKey = useMemo(() => {
     if (groups.length === 0) return null;
     const targetSector = regime?.targets[0]?.sector;
@@ -452,8 +466,10 @@ export function SectorDeskPage() {
       const m = groups.find((g) => g.sector === targetSector);
       if (m) return m.key;
     }
-    const tradeable = groups.find((g) => g.tradeable);
-    return (tradeable ?? groups[0]).key;
+    const mostConvicted = (pool: DeskGroup[]) =>
+      pool.reduce((best, g) => (g.conviction > best.conviction ? g : best));
+    const tradeable = groups.filter((g) => g.tradeable);
+    return mostConvicted(tradeable.length > 0 ? tradeable : groups).key;
   }, [groups, regime]);
 
   const activeKey = selectedKey ?? autoKey;
