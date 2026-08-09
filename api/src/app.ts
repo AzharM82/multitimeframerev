@@ -74,6 +74,13 @@ import "./functions/journalTrades.js";
 import "./functions/journalNotes.js";
 import "./functions/journalSummary.js";
 
+// SPY 5-min breadth-streak system — TradingView "4-Chart Majority Trend"
+// webhook (the trigger) qualified against the Gate's SPY regime (the filter),
+// refreshed onto a single row by the cron so the webhook stays inside
+// TradingView's 3-second cancel.
+import "./functions/tvTrendWebhook.js";
+import "./functions/tvRegimeTimer.js";
+
 // Portal authentication — SWA rolesSource allowlist (Google sign-in).
 // Invoked by the SWA platform, not the browser; must stay anonymous.
 import "./functions/getRoles.js";

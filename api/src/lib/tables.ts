@@ -117,4 +117,9 @@ export const TABLES = {
   JOURNAL_NOTES: "JournalNotes",
   /** The rolling 10-point lessons list, one row per version. */
   JOURNAL_SUMMARY: "JournalSummary",
+  /**
+   * SPY 5-min breadth-streak system: TradingView webhook hits (audit + dedup)
+   * and the cached Gate regime snapshot the webhook qualifies them against.
+   */
+  TV_TREND: "TvTrendAlerts",
 } as const;

@@ -175,6 +175,24 @@
       ]
     },
     {
+      "route": "/api/tv-trend-webhook",
+      "methods": [
+        "POST"
+      ],
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/tv-regime-timer",
+      "methods": [
+        "POST"
+      ],
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/*",
       "allowedRoles": [
         "portal"
