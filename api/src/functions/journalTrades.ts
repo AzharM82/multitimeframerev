@@ -30,6 +30,9 @@ interface FillRow {
   price?: number;
   fees?: number;
   realizedPnl?: number | null;
+  carriedQty?: number;
+  openedOn?: string | null;
+  groupOpenQty?: number;
   filledAt?: string;
   broker?: string;
 }
@@ -45,6 +48,12 @@ interface IncomingFill {
   price: number;
   fees?: number;
   realized_pnl?: number | null;
+  /** Of a closing fill, how many contracts came from a lot opened earlier. */
+  carried_qty?: number;
+  /** The earliest day those carried contracts were opened. */
+  opened_on?: string | null;
+  /** This (day, symbol) group's qty still open at that day's close. */
+  group_open_qty?: number;
   filled_at?: string;
   broker: string;
 }
@@ -96,6 +105,9 @@ async function push(req: HttpRequest): Promise<HttpResponseInit> {
       fees: f.fees ?? 0,
       // Only closing fills carry realized P&L; opens are legitimately null.
       realizedPnl: f.realized_pnl ?? null,
+      carriedQty: f.carried_qty ?? 0,
+      openedOn: f.opened_on ?? null,
+      groupOpenQty: f.group_open_qty ?? 0,
       filledAt: f.filled_at ?? "",
       broker: f.broker,
     });
@@ -127,6 +139,11 @@ async function read(req: HttpRequest): Promise<HttpResponseInit> {
         price: r.price,
         fees: r.fees,
         realizedPnl: r.realizedPnl ?? null,
+        // Rows written before these existed read back as the neutral case:
+        // nothing carried, nothing left open.
+        carriedQty: r.carriedQty ?? 0,
+        openedOn: r.openedOn ?? null,
+        groupOpenQty: r.groupOpenQty ?? 0,
         filledAt: r.filledAt,
         broker: r.broker,
       });

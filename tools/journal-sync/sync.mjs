@@ -130,6 +130,9 @@ async function fetchFreshWindow(cfg) {
   }
 }
 
+/** A position is one contract in one account — the unit FIFO matches within. */
+const lotKey = (f) => `${f.account}:${f.asset_type}:${f.ticker}:${f.occ_symbol ?? ""}`;
+
 /**
  * FIFO matcher, ported from the standalone app's api/src/fifo.ts so the numbers
  * agree with what that app shows. Buys open lots; a sell consumes the oldest
@@ -137,30 +140,44 @@ async function fetchFreshWindow(cfg) {
  *
  * Runs over the FULL history on purpose: a position opened before the journal
  * epoch and closed after it can only be priced if its opening lot is in scope.
+ *
+ * Beyond the P&L it records WHERE a close came from. Realized P&L is dated by
+ * the closing fill, so an overnight loss books on the exit day — MSFT's −$42k
+ * landed on Wed 8/5 for a position bought Tue 8/4, which reads as a Wednesday
+ * mistake when it was Tuesday's. `carried_qty` / `opened_on` let the page say
+ * so out loud.
  */
 function fifoMatch(fills) {
   const sorted = [...fills].sort((a, b) =>
     String(a.filled_at) < String(b.filled_at) ? -1 : String(a.filled_at) > String(b.filled_at) ? 1 : 0,
   );
   const lotsByKey = new Map();
-  const key = (f) => `${f.account}:${f.asset_type}:${f.ticker}:${f.occ_symbol ?? ""}`;
 
   for (const f of sorted) {
-    const k = key(f);
+    const k = lotKey(f);
     if (!lotsByKey.has(k)) lotsByKey.set(k, []);
     const lots = lotsByKey.get(k);
     const mult = f.asset_type === "OPTION" ? 100 : 1;
+    const day = String(f.trade_date ?? "");
 
     if (f.side === "BUY") {
-      lots.push({ id: f.id, remaining: f.quantity, price: f.price });
+      lots.push({ id: f.id, remaining: f.quantity, price: f.price, day });
       f.realized_pnl = null;
+      f.carried_qty = 0;
+      f.opened_on = null;
     } else {
       let qtyRemaining = f.quantity;
       let pnl = 0;
+      let carried = 0;
+      let openedOn = null;
       while (qtyRemaining > 0 && lots.length > 0) {
         const lot = lots[0];
         const used = Math.min(qtyRemaining, lot.remaining);
         pnl += (f.price - lot.price) * used * mult;
+        if (lot.day && lot.day < day) {
+          carried += used;
+          if (openedOn === null || lot.day < openedOn) openedOn = lot.day;
+        }
         lot.remaining -= used;
         qtyRemaining -= used;
         if (lot.remaining <= 0) lots.shift();
@@ -169,8 +186,57 @@ function fifoMatch(fills) {
       // A sell with no opening lot in scope is a mystery, not a $0 win: leaving
       // it null keeps it out of the P&L rather than inventing a cost basis.
       f.realized_pnl = qtyRemaining === f.quantity ? null : Math.round(pnl * 100) / 100;
+      f.carried_qty = carried;
+      f.opened_on = openedOn;
     }
   }
+  return sorted;
+}
+
+/**
+ * How much of each (day, symbol) group was still open when that day closed.
+ *
+ * Computed HERE, over full history, and stamped onto every fill in the group —
+ * the same number repeated, deliberately. The page only ever sees fills from
+ * the epoch forward, so it cannot work this out for itself: a position opened
+ * before 2026-08-03 is invisible to it. Denormalising costs a few bytes a row
+ * and removes a whole class of wrong answer.
+ *
+ * A group's tail is summed over the contracts that group traded, so "MSFT, 4
+ * still open" means four contracts across whatever MSFT strikes were touched.
+ */
+function stampOpenTails(sorted) {
+  const position = new Map(); // lot key -> net open qty
+  let day = null;
+  let groups = new Map(); // underlying -> { fills, contracts }
+
+  const closeDay = () => {
+    for (const g of groups.values()) {
+      let open = 0;
+      for (const c of g.contracts) open += Math.max(0, position.get(c) ?? 0);
+      for (const f of g.fills) f.group_open_qty = open;
+    }
+    groups = new Map();
+  };
+
+  for (const f of sorted) {
+    const d = String(f.trade_date ?? "");
+    if (day !== null && d !== day) closeDay();
+    day = d;
+
+    const c = lotKey(f);
+    position.set(c, (position.get(c) ?? 0) + (f.side === "BUY" ? f.quantity : -f.quantity));
+
+    const u = underlyingOf(f.ticker);
+    let g = groups.get(u);
+    if (!g) {
+      g = { fills: [], contracts: new Set() };
+      groups.set(u, g);
+    }
+    g.fills.push(f);
+    g.contracts.add(c);
+  }
+  closeDay();
   return sorted;
 }
 
@@ -187,7 +253,7 @@ async function collectFills(cfg) {
   }
   log(`fills: ${stored.length} stored + ${added} new from the live pull`);
 
-  const priced = fifoMatch([...byId.values()]);
+  const priced = stampOpenTails(fifoMatch([...byId.values()]));
   const kept = priced.filter(
     (f) =>
       f.broker === BROKER &&
@@ -207,6 +273,9 @@ async function collectFills(cfg) {
     price: f.price,
     fees: f.fees ?? 0,
     realized_pnl: f.realized_pnl ?? null,
+    carried_qty: f.carried_qty ?? 0,
+    opened_on: f.opened_on ?? null,
+    group_open_qty: f.group_open_qty ?? 0,
     filled_at: f.filled_at ?? "",
     broker: f.broker,
   }));

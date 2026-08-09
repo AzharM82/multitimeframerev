@@ -703,6 +703,20 @@ export interface JournalFill {
   price: number;
   fees: number;
   realizedPnl: number | null;
+  /**
+   * Of a closing fill, how many contracts came from a lot opened on an EARLIER
+   * day (0 on buys, and on same-day round trips). Realized P&L is dated by the
+   * close, so without this an overnight loss reads as the exit day's mistake.
+   */
+  carriedQty: number;
+  /** Earliest day those carried contracts were opened, else null. */
+  openedOn: string | null;
+  /**
+   * Qty of this (day, symbol) group still open at that day's close. The same
+   * value on every fill of the group — the sync computes it from full history,
+   * which the page does not have (it only sees fills from the epoch forward).
+   */
+  groupOpenQty: number;
   filledAt: string;
   broker: string;
 }
