@@ -35,16 +35,42 @@ export interface StreakState {
 
 const EMPTY: StreakState = { position: "FLAT", since: "", entryRegime: "", lastEvent: "", updatedAt: "" };
 
+const etDate = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+
 export async function readState(): Promise<StreakState> {
   const row = await getOne<Partial<StreakState>>(TABLES.TV_TREND, PARTITION, ROW);
   if (!row) return { ...EMPTY };
-  return {
+  const state: StreakState = {
     position: (row.position as Position) ?? "FLAT",
     since: row.since ?? "",
     entryRegime: row.entryRegime ?? "",
     lastEvent: row.lastEvent ?? "",
     updatedAt: row.updatedAt ?? "",
   };
+
+  /**
+   * A belief does not survive the session.
+   *
+   * This is an ALERTING system — it places nothing, and the operator is flat by
+   * the end of the day. If a stale "CALLS" carried into the next morning, the
+   * first green_start would read as "already long, nothing changed" and send
+   * NOTHING. A missed entry alert is the one failure mode that is invisible:
+   * silence looks identical to "no signal yet".
+   *
+   * So a position from an earlier ET trading date reads as FLAT. Being wrong in
+   * this direction costs at most one redundant ENTER alert, which is obvious and
+   * ignorable; being wrong the other way costs a signal you never knew existed.
+   *
+   * Read-time rather than a scheduled reset on purpose: no extra cron to fail,
+   * and it self-heals even if the box was off for a week.
+   */
+  if (state.position !== "FLAT") {
+    const then = state.updatedAt ? etDate(new Date(state.updatedAt)) : "";
+    if (!then || then !== etDate(new Date())) {
+      return { ...EMPTY, lastEvent: "auto-flat:new-session", updatedAt: state.updatedAt };
+    }
+  }
+  return state;
 }
 
 export async function writeState(s: StreakState): Promise<void> {
