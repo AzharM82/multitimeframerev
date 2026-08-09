@@ -4,6 +4,7 @@ import { upsert, getOne, listByPartition, TABLES } from "../lib/tables.js";
 import { enqueueWhatsApp } from "../lib/queue.js";
 import { sendPushoverMessage } from "../lib/pushover.js";
 import { readRegime, recommend, ageMinutes, REGIME_MAX_AGE_MIN } from "../lib/tvTrend/regime.js";
+import { readState, writeState, nextState, eventKey, ranFor } from "../lib/tvTrend/state.js";
 
 /**
  * POST /api/tv-trend-webhook   — TradingView alert sink (anonymous route)
@@ -223,12 +224,21 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
     return { status: 200, jsonBody: { status: "duplicate", trend, event, key } };
   }
 
-  const regime = await readRegime();
+  // Both are single point reads; do them together to protect the 3s budget.
+  const [regime, prevState] = await Promise.all([readRegime(), readState()]);
   const stale = !regime || ageMinutes(regime.capturedAt, now.getTime()) > REGIME_MAX_AGE_MIN;
   const rec = recommend(trend, event, regime, stale);
 
+  /**
+   * The same event as last time = a repeat, not news. Recorded, never
+   * re-notified. Guards against level-based "Once Per Bar Close" alerts firing
+   * every bar for the life of a trend — see lib/tvTrend/state.ts.
+   */
+  const isRepeat = prevState.lastEvent === eventKey(trend, event);
+
   const verb = event === "trend_start" ? "STARTED" : "ENDED";
-  const head = `${EMOJI[trend]} ${trend.toUpperCase()} trend ${verb} ${et.label} ET`;
+  const ran = event === "trend_end" ? ranFor(prevState, trend, now.getTime()) : null;
+  const head = `${EMOJI[trend]} ${trend.toUpperCase()} trend ${verb} ${et.label} ET${ran ? ` · ${ran}` : ""}`;
   const body =
     `${head}\n` +
     `→ ${rec.action === "NONE" ? "no trade" : rec.action}\n` +
@@ -237,9 +247,25 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
     (stale && regime ? " (STALE)" : "") +
     (et.rth ? "" : "\n⚠️ outside regular trading hours");
 
+  if (isRepeat) {
+    await Promise.all([
+      upsert(TABLES.TV_TREND, `evt-${et.date}`, key, {
+        receivedAt: nowIso, trend, event, parseMode: mode, action: rec.action,
+        why: "repeat of the previous event — not re-notified", aligned: rec.aligned,
+        repeat: true, withinRth: et.rth, ip,
+      }).catch((e) => { ctx.error(`tv-trend: repeat write failed: ${e}`); }),
+      logHit("repeat", { trend, event, parseMode: mode, key }),
+    ]);
+    ctx.log(`tv-trend ${trend}/${event} → REPEAT, suppressed`);
+    return { status: 200, jsonBody: { status: "repeat", trend, event, action: rec.action, notified: { pushover: false, whatsapp: false } } };
+  }
+
   // Everything below is parallel and individually best-effort: TradingView gets
   // its 200 inside 3s even if a channel is slow. Failures are logged, never thrown.
-  const [, , push, wa] = await Promise.all([
+  const [, , , push, wa] = await Promise.all([
+    writeState(nextState(prevState, trend, event, nowIso)).catch((e) => {
+      ctx.error(`tv-trend: state write failed: ${e}`);
+    }),
     upsert(TABLES.TV_TREND, `evt-${et.date}`, key, {
       receivedAt: nowIso,
       trend,
