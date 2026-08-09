@@ -1,48 +1,42 @@
 import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } from "@azure/functions";
 import { timingSafeEqual } from "node:crypto";
 import { upsert, getOne, listByPartition, TABLES } from "../lib/tables.js";
-import { enqueueWhatsApp } from "../lib/queue.js";
-import { sendPushoverMessage } from "../lib/pushover.js";
-import { readRegime, recommend, ageMinutes, REGIME_MAX_AGE_MIN } from "../lib/tvTrend/regime.js";
-import { readState, writeState, nextState, eventKey, ranFor } from "../lib/tvTrend/state.js";
+import { readRegime, ageMinutes, REGIME_MAX_AGE_MIN } from "../lib/tvTrend/regime.js";
+import { readState, writeState, advance, heldFor } from "../lib/tvTrend/state.js";
+import { decide, actionLine } from "../lib/tvTrend/decide.js";
+import { notifyBoth } from "../lib/tvTrend/notify.js";
 
 /**
- * POST /api/tv-trend-webhook   — TradingView alert sink (anonymous route)
- * GET  /api/tv-trend-webhook?date=YYYY-MM-DD  — audit log (portal role)
+ * POST /api/tv-trend-webhook          — TradingView alert sink (anonymous route)
+ * POST /api/tv-trend-webhook?flat=1   — force the believed position back to FLAT
+ *                                       (x-timer-secret; no alert body needed)
+ * GET  /api/tv-trend-webhook          — audit log + current belief (portal role)
  *
  * Receives the "4-Chart Majority Trend Webhook Alerts" indicator: 4 breadth
  * symbols on 5-min Heikin-Ashi, 3-of-4 agreeing colour for 3 consecutive bars
- * starts a trend; it fires once on start and once on end, never in between.
+ * starts a trend. TradingView sends all four raw events; what they MEAN is
+ * decided here — see lib/tvTrend/decide.ts for the regime-dependent rules.
  *
- * The streak is the TRIGGER. The Gate's SPY regime is the FILTER — see
- * lib/tvTrend/regime.ts for the combination rules.
+ * THE MESSAGE STREAM IS POSITION CHANGES, NOT EVENTS. A green_end on a bullish
+ * day changes nothing, so it stays silent. That is what collapses four noisy
+ * alert types into decisions, and it makes repeated firing harmless for free.
  *
- * THREE CONSTRAINTS SHAPE THIS FILE:
- *
- *  1. TradingView cannot send custom headers. Every other machine endpoint here
- *     uses `x-timer-secret`; this one cannot, so the secret travels INSIDE the
- *     alert body (never the URL, which would land in logs). Source IP is
- *     recorded against TradingView's published ranges but is not enforced by
- *     default — see IP_ENFORCE below.
- *
- *  2. TradingView cancels a request that takes over 3 seconds. So: one point
- *     lookup for dedup, then every write and both alert channels fire in
- *     parallel, each with its own short timeout. Nothing here fans out.
- *
- *  3. Alerts may arrive twice. Events are keyed on (5-min bucket, trend, event)
- *     so a repeat is recorded as a duplicate and does NOT re-notify.
+ * CONSTRAINTS:
+ *  1. TradingView cannot send custom headers, so the secret rides INSIDE the
+ *     alert body (never the URL, which would land in logs).
+ *  2. TradingView cancels at 3 seconds. Point lookups only, everything else
+ *     parallel, each channel individually timed out.
+ *  3. Alerts can arrive twice — (5-min bucket, trend, event) dedups exact
+ *     retries; the position machine handles repeats across bars.
  */
 
 /** TradingView's published webhook sources (verified against their docs). */
 const TV_IPS = ["52.89.214.238", "34.212.75.30", "54.218.53.128", "52.32.178.7"];
 
 /**
- * IP is recorded always, enforced only on request.
- *
- * Deliberate default: if TradingView adds an egress IP, enforcing would silently
- * kill every signal, and a dead trading feed looks exactly like a quiet market.
- * The secret is the actual gate; the IP is evidence. Set TV_WEBHOOK_ENFORCE_IP=true
- * to make it a hard check.
+ * IP is recorded always, enforced only on request. If TradingView adds an
+ * egress IP, enforcing would silently kill every signal — and a dead trading
+ * feed looks exactly like a quiet market. The secret is the gate.
  */
 const IP_ENFORCE = process.env.TV_WEBHOOK_ENFORCE_IP === "true";
 
@@ -79,10 +73,10 @@ function normEvent(v: unknown): TrendEvent | null {
  * JSON first, keyword scan as fallback — the alert may be a JSON string or the
  * plain text of an `alert()` call.
  *
- * The fallback REFUSES ambiguity rather than guessing: a body mentioning both
- * colours, or neither, is rejected. Guessing here means recommending the wrong
- * side of the market. Which path was taken is recorded, so a fallback that
- * starts firing is visible instead of silently becoming the norm.
+ * The fallback REFUSES ambiguity rather than guessing: a body naming both
+ * colours, or neither, is rejected. Guessing here trades the wrong side of the
+ * market. The path used is recorded, so a fallback that starts firing is
+ * visible instead of quietly becoming the norm.
  */
 export function parseAlert(raw: string): { ok: true; value: Parsed } | { ok: false; reason: string } {
   try {
@@ -94,11 +88,8 @@ export function parseAlert(raw: string): { ok: true; value: Parsed } | { ok: fal
         return {
           ok: true,
           value: {
-            trend,
-            event,
-            time: str(o.time),
-            source: str(o.source),
-            timeframe: str(o.timeframe),
+            trend, event,
+            time: str(o.time), source: str(o.source), timeframe: str(o.timeframe),
             secret: str(o.secret) ?? str(o.key),
             mode: "json",
           },
@@ -124,9 +115,7 @@ export function parseAlert(raw: string): { ok: true; value: Parsed } | { ok: fal
     value: {
       trend: green ? "green" : "red",
       event: start ? "trend_start" : "trend_end",
-      time: null,
-      source: null,
-      timeframe: null,
+      time: null, source: null, timeframe: null,
       secret: raw.match(/secret["'\s]*[=:]["'\s]*([A-Za-z0-9_\-]{8,})/i)?.[1] ?? null,
       mode: "keyword",
     },
@@ -145,30 +134,21 @@ function secretOk(given: string | null): boolean {
 function clientIp(req: HttpRequest): string {
   const xff = req.headers.get("x-forwarded-for") || "";
   const first = xff.split(",")[0]?.trim() ?? "";
-  // Azure appends :port on IPv4. Strip only when it is unambiguously that.
   const m = first.match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/);
   return m ? m[1] : first;
 }
 
-/** ET wall-clock pieces, used for the partition, RTH test and display. */
+/** ET wall-clock pieces, for the partition, the RTH test and display. */
 function etNow(d = new Date()) {
   const date = d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const time = d.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false });
-  const label = d.toLocaleTimeString("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const label = d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
   const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
   const rth = dow >= 1 && dow <= 5 && time >= "09:30:00" && time < "16:00:00";
   return { date, time, label, rth };
 }
 
-/**
- * 5-minute bucket used for dedup. Prefers the bar time TradingView sent; falls
- * back to arrival time when it is missing or unparseable (the keyword path never
- * has one).
- */
+/** 5-minute bucket for dedup: TradingView's bar time when present, else arrival. */
 function bucket(timeStr: string | null, nowMs: number): string {
   const parsed = timeStr ? Date.parse(timeStr) : Number.NaN;
   const ms = Number.isFinite(parsed) ? parsed : nowMs;
@@ -177,7 +157,23 @@ function bucket(timeStr: string | null, nowMs: number): string {
 
 const EMOJI = { green: "🟢", red: "🔴" } as const;
 
+/** Operator escape hatch: our position is a belief and can drift from reality. */
+async function forceFlat(req: HttpRequest): Promise<HttpResponseInit> {
+  const secret = req.headers.get("x-timer-secret");
+  if (!process.env.TIMER_SECRET || secret !== process.env.TIMER_SECRET) {
+    return { status: 401, jsonBody: { error: "Unauthorized" } };
+  }
+  const prev = await readState();
+  await writeState({
+    position: "FLAT", since: "", entryRegime: "",
+    lastEvent: "force-flat", updatedAt: new Date().toISOString(),
+  });
+  return { jsonBody: { status: "ok", was: prev.position, now: "FLAT" } };
+}
+
 async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
+  if (req.query.get("flat") === "1") return forceFlat(req);
+
   const now = new Date();
   const nowIso = now.toISOString();
   const et = etNow(now);
@@ -186,16 +182,11 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
 
   const raw = (await req.text()).slice(0, 4000);
 
-  // Every hit is logged before any decision, so a rejected or malformed alert is
-  // still auditable. Best-effort: logging must never fail the 200.
+  // Log every hit before any decision, so rejected and malformed alerts stay
+  // auditable. Best-effort: logging must never fail the 200.
   const logHit = (decision: string, detail: Record<string, unknown> = {}) =>
     upsert(TABLES.TV_TREND, `hit-${et.date}`, `${nowIso}-${ip || "noip"}`, {
-      receivedAt: nowIso,
-      ip,
-      fromTradingView: fromTv,
-      decision,
-      raw,
-      ...detail,
+      receivedAt: nowIso, ip, fromTradingView: fromTv, decision, raw, ...detail,
     }).catch((e) => ctx.warn(`tv-trend: hit log failed: ${e instanceof Error ? e.message : e}`));
 
   if (IP_ENFORCE && !fromTv) {
@@ -224,106 +215,96 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
     return { status: 200, jsonBody: { status: "duplicate", trend, event, key } };
   }
 
-  // Both are single point reads; do them together to protect the 3s budget.
+  // Two point reads, together, to protect the 3s budget.
   const [regime, prevState] = await Promise.all([readRegime(), readState()]);
   const stale = !regime || ageMinutes(regime.capturedAt, now.getTime()) > REGIME_MAX_AGE_MIN;
-  const rec = recommend(trend, event, regime, stale);
+  const usable = regime && !stale ? regime : null;
 
-  /**
-   * The same event as last time = a repeat, not news. Recorded, never
-   * re-notified. Guards against level-based "Once Per Bar Close" alerts firing
-   * every bar for the life of a trend — see lib/tvTrend/state.ts.
-   */
-  const isRepeat = prevState.lastEvent === eventKey(trend, event);
+  const decision = decide({
+    trend, event,
+    position: prevState.position,
+    direction: usable ? usable.direction : null,
+    gate: usable ? usable.decision : null,
+    regimeLabel: usable ? usable.label : regime ? `${regime.label} (STALE)` : "regime unknown",
+  });
 
-  const verb = event === "trend_start" ? "STARTED" : "ENDED";
-  const ran = event === "trend_end" ? ranFor(prevState, trend, now.getTime()) : null;
-  const head = `${EMOJI[trend]} ${trend.toUpperCase()} trend ${verb} ${et.label} ET${ran ? ` · ${ran}` : ""}`;
+  const held = heldFor(prevState, now.getTime());
+  const head =
+    `${EMOJI[trend]} ${actionLine(decision.action)}` +
+    (decision.notify ? ` · ${et.label} ET` : "");
   const body =
     `${head}\n` +
-    `→ ${rec.action === "NONE" ? "no trade" : rec.action}\n` +
-    `${rec.why}\n` +
-    `Regime: ${regime ? `${regime.label} · Gate ${regime.decision}` : "unknown"}` +
-    (stale && regime ? " (STALE)" : "") +
+    `${decision.why}\n` +
+    `${trend.toUpperCase()} ${event === "trend_start" ? "streak started" : "streak ended"}` +
+    (held ? ` · ${held}` : "") + "\n" +
+    `Regime: ${regime ? `${regime.label} · Gate ${regime.decision}` : "unknown"}${stale && regime ? " (STALE)" : ""}` +
     (et.rth ? "" : "\n⚠️ outside regular trading hours");
 
-  if (isRepeat) {
-    await Promise.all([
-      upsert(TABLES.TV_TREND, `evt-${et.date}`, key, {
-        receivedAt: nowIso, trend, event, parseMode: mode, action: rec.action,
-        why: "repeat of the previous event — not re-notified", aligned: rec.aligned,
-        repeat: true, withinRth: et.rth, ip,
-      }).catch((e) => { ctx.error(`tv-trend: repeat write failed: ${e}`); }),
-      logHit("repeat", { trend, event, parseMode: mode, key }),
-    ]);
-    ctx.log(`tv-trend ${trend}/${event} → REPEAT, suppressed`);
-    return { status: 200, jsonBody: { status: "repeat", trend, event, action: rec.action, notified: { pushover: false, whatsapp: false } } };
-  }
+  const nextState = advance(
+    prevState,
+    decision.position,
+    `${trend}:${event}`,
+    usable?.label ?? "",
+    nowIso,
+  );
 
-  // Everything below is parallel and individually best-effort: TradingView gets
-  // its 200 inside 3s even if a channel is slow. Failures are logged, never thrown.
-  const [, , , push, wa] = await Promise.all([
-    writeState(nextState(prevState, trend, event, nowIso)).catch((e) => {
-      ctx.error(`tv-trend: state write failed: ${e}`);
-    }),
+  const [, , notified] = await Promise.all([
     upsert(TABLES.TV_TREND, `evt-${et.date}`, key, {
-      receivedAt: nowIso,
-      trend,
-      event,
-      parseMode: mode,
-      tvTime: time ?? "",
-      timeframe: timeframe ?? "",
-      action: rec.action,
-      why: rec.why,
-      aligned: rec.aligned,
-      regimeLabel: regime?.label ?? "",
-      regimeDecision: regime?.decision ?? "",
-      regimeStale: stale,
-      withinRth: et.rth,
-      ip,
+      receivedAt: nowIso, trend, event, parseMode: mode,
+      tvTime: time ?? "", timeframe: timeframe ?? "",
+      action: decision.action, why: decision.why, notified: decision.notify,
+      positionBefore: prevState.position, positionAfter: decision.position,
+      regimeLabel: regime?.label ?? "", regimeDecision: regime?.decision ?? "", regimeStale: stale,
+      withinRth: et.rth, ip,
     }).catch((e) => { ctx.error(`tv-trend: event write failed: ${e}`); }),
-    logHit("accepted", { trend, event, parseMode: mode, action: rec.action, key }),
-    sendPushoverMessage(head, body, rec.action === "NONE" ? 0 : 1, 1200),
-    enqueueWhatsApp({
-      to: process.env.WHATSAPP_RECEIVER || "",
-      text: body,
-      meta: { kind: "tv-trend", trend, event, action: rec.action },
-    }).then(() => true).catch(() => false),
+    logHit(decision.notify ? "accepted" : "accepted:silent", {
+      trend, event, parseMode: mode, action: decision.action, key,
+    }),
+    decision.notify
+      ? notifyBoth(head, body, "tv-trend", { trend, event, action: decision.action })
+      : Promise.resolve({ pushover: false, whatsapp: false }),
   ]);
 
-  ctx.log(`tv-trend ${trend}/${event} → ${rec.action} (parse=${mode}, push=${push}, wa=${wa})`);
+  // The state write is deliberately last: if it fails we would rather have
+  // alerted on a correct decision than silently lose the alert.
+  await writeState(nextState).catch((e) => ctx.error(`tv-trend: state write failed: ${e}`));
+
+  ctx.log(`tv-trend ${trend}/${event} ${prevState.position}->${decision.position} ${decision.action} notify=${decision.notify}`);
 
   return {
     status: 200,
     jsonBody: {
-      status: "ok",
-      trend,
-      event,
-      action: rec.action,
-      aligned: rec.aligned,
-      regime: regime?.label ?? null,
-      regimeStale: stale,
-      withinRth: et.rth,
-      parseMode: mode,
-      notified: { pushover: push, whatsapp: wa },
+      status: "ok", trend, event,
+      action: decision.action,
+      positionBefore: prevState.position,
+      position: decision.position,
+      why: decision.why,
+      regime: regime?.label ?? null, regimeStale: stale,
+      withinRth: et.rth, parseMode: mode,
+      notified,
     },
   };
 }
 
 /** Audit read — protected by the `/api/*` portal-role catch-all. */
 async function audit(req: HttpRequest): Promise<HttpResponseInit> {
-  const date = (req.query.get("date") || "").match(/^\d{4}-\d{2}-\d{2}$/)
-    ? req.query.get("date")!
-    : new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const q = (req.query.get("date") || "").match(/^\d{4}-\d{2}-\d{2}$/) ? req.query.get("date")! : null;
+  const date = q ?? new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const which = req.query.get("kind") === "hits" ? `hit-${date}` : `evt-${date}`;
-  const rows = await listByPartition<Record<string, unknown>>(TABLES.TV_TREND, which);
+  const [rows, regime, state] = await Promise.all([
+    listByPartition<Record<string, unknown>>(TABLES.TV_TREND, which),
+    readRegime(),
+    readState(),
+  ]);
   rows.sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
-  const regime = await readRegime();
   return {
     jsonBody: {
       date,
       kind: which.startsWith("hit") ? "hits" : "events",
       count: rows.length,
+      position: state.position,
+      positionSince: state.since,
+      entryRegime: state.entryRegime,
       regime,
       regimeAgeMin: regime ? Math.round(ageMinutes(regime.capturedAt)) : null,
       rows,
@@ -338,7 +319,7 @@ async function handler(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     ctx.error(`tv-trend-webhook error: ${message}`);
-    // Still a 200 on POST: TradingView treats non-2xx as a failed webhook, and
+    // Still 200 on POST: TradingView treats non-2xx as a failed webhook, and
     // the hit is already logged. Surfacing the error to TradingView helps nobody.
     return req.method === "POST"
       ? { status: 200, jsonBody: { status: "error", error: message } }

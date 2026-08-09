@@ -1,6 +1,9 @@
 import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } from "@azure/functions";
 import { computeGateScore } from "../lib/gate/compute.js";
 import { classifyRegime, writeRegime, type GateDecision } from "../lib/tvTrend/regime.js";
+import { readState, writeState, advance, heldFor } from "../lib/tvTrend/state.js";
+import { decideOnRegimeChange, actionLine } from "../lib/tvTrend/decide.js";
+import { notifyBoth } from "../lib/tvTrend/notify.js";
 
 /**
  * POST /api/tv-regime-timer  (x-timer-secret)  — refresh the cached Gate regime
@@ -34,7 +37,30 @@ async function tvRegimeTimer(req: HttpRequest, ctx: InvocationContext): Promise<
     };
     await writeRegime(snap);
     ctx.log(`tv-regime: ${snap.label} (${snap.direction}) · Gate ${snap.decision} · quality ${snap.qualityScore}`);
-    return { jsonBody: { status: "ok", ...snap } };
+
+    /**
+     * A regime turning against an open position closes it here, not on the next
+     * streak event. The reason for holding can evaporate long before the
+     * opposite streak appears, and waiting for it means riding a dead thesis.
+     * This is the only exit the operator gets that no TradingView alert causes.
+     */
+    const state = await readState();
+    const flip = decideOnRegimeChange(state.position, snap.direction, snap.label);
+    if (!flip) return { jsonBody: { status: "ok", ...snap, position: state.position } };
+
+    const now = new Date();
+    const head = `⚠️ ${actionLine(flip.action)} · regime flip`;
+    const held = heldFor(state, now.getTime());
+    const body =
+      `${head}\n${flip.why}\n` +
+      `Entered under ${state.entryRegime || "an unrecorded regime"}${held ? ` · ${held}` : ""}\n` +
+      `Regime now: ${snap.label} · Gate ${snap.decision}`;
+
+    const notified = await notifyBoth(head, body, "tv-trend-regime-flip", { action: flip.action });
+    await writeState(advance(state, flip.position, "regime-flip", snap.label, now.toISOString()));
+    ctx.log(`tv-regime: FLIP EXIT ${state.position}->FLAT (${snap.label})`);
+
+    return { jsonBody: { status: "ok", ...snap, flipExit: flip.action, was: state.position, notified } };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     ctx.error(`tv-regime-timer error: ${message}`);
