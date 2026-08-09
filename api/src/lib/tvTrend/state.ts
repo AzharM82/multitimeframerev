@@ -1,49 +1,49 @@
 import { upsert, getOne, TABLES } from "../tables.js";
+import type { Position } from "./decide.js";
 
 /**
- * Which streak the receiver currently believes is running.
+ * What the receiver believes the operator is holding, and since when.
  *
- * WHY THIS EXISTS (2026-08-09): the TradingView side moved from one Pine
- * `alert()` — which fired exactly twice per trend by construction — to four
- * native alerts on "Once Per Bar Close". That setting fires at the close of
- * EVERY bar on which its condition holds. If those conditions are level-based
- * ("a green trend is active") rather than edge-based ("a green trend just
- * started"), the same event repeats every 5 minutes for the life of the trend.
+ * ALERTS-ONLY, so this is a BELIEF, not a broker fact — the operator places
+ * every trade by hand. If they skip one, this drifts, which is why
+ * `POST /api/tv-trend-webhook?flat=1` exists to force it back to FLAT.
  *
- * The bucket dedup in the webhook cannot catch that: successive bars are
- * different 5-minute buckets, so each looks like a fresh event.
+ * There is deliberately no end-of-day reset (operator, 2026-08-09: "signal
+ * driven only"), so a position carries across sessions until a streak or a
+ * regime flip closes it. The trade-off is accepted: the state can be stale
+ * overnight, and force-flat is the correction.
  *
- * So the receiver enforces the semantics itself — an event identical to the
- * last one it acted on is a REPEAT: still recorded, never re-notified. That
- * makes "twice per trend" true regardless of how the alerts are configured,
- * which matters because we do not control that side and cannot see it change.
- *
- * Deliberately a "no two consecutive identical events" rule rather than a
- * strict start/end state machine: a flip (green start straight into red start)
- * and a genuine end-without-a-start we never saw both still notify. Only the
- * literal repeat is suppressed.
+ * Note this file no longer suppresses repeated events by itself. The position
+ * machine in decide.ts subsumes that and does it better: a second identical
+ * event produces no position change, so it is silent for the right reason
+ * rather than because a key matched.
  */
 
 const PARTITION = "state";
 const ROW = "current";
 
 export interface StreakState {
-  /** "<trend>:<event>" of the last event that actually notified. */
+  position: Position;
+  /** When the current position was opened (ISO), "" when flat. */
+  since: string;
+  /** Regime label at entry — lets an exit say what changed. */
+  entryRegime: string;
+  /** Last event acted on, for diagnostics only. */
   lastEvent: string;
-  /** Streak believed to be running, or "" when flat. */
-  activeTrend: "green" | "red" | "";
-  /** When that streak started — lets an END report how long it ran. */
-  activeSince: string;
   updatedAt: string;
 }
 
+const EMPTY: StreakState = { position: "FLAT", since: "", entryRegime: "", lastEvent: "", updatedAt: "" };
+
 export async function readState(): Promise<StreakState> {
   const row = await getOne<Partial<StreakState>>(TABLES.TV_TREND, PARTITION, ROW);
+  if (!row) return { ...EMPTY };
   return {
-    lastEvent: row?.lastEvent ?? "",
-    activeTrend: (row?.activeTrend as StreakState["activeTrend"]) ?? "",
-    activeSince: row?.activeSince ?? "",
-    updatedAt: row?.updatedAt ?? "",
+    position: (row.position as Position) ?? "FLAT",
+    since: row.since ?? "",
+    entryRegime: row.entryRegime ?? "",
+    lastEvent: row.lastEvent ?? "",
+    updatedAt: row.updatedAt ?? "",
   };
 }
 
@@ -51,36 +51,31 @@ export async function writeState(s: StreakState): Promise<void> {
   await upsert(TABLES.TV_TREND, PARTITION, ROW, { ...s });
 }
 
-export const eventKey = (trend: string, event: string) => `${trend}:${event}`;
-
-/** Advance the believed state for an event we are about to act on. */
-export function nextState(
+/** Roll the belief forward after a decision. */
+export function advance(
   prev: StreakState,
-  trend: "green" | "red",
-  event: "trend_start" | "trend_end",
+  next: Position,
+  lastEvent: string,
+  regimeLabel: string,
   nowIso: string,
 ): StreakState {
-  if (event === "trend_start") {
-    return { lastEvent: eventKey(trend, event), activeTrend: trend, activeSince: nowIso, updatedAt: nowIso };
-  }
-  // An END only clears the position if it matches what we thought was running;
-  // an END for the other colour leaves that streak alone.
-  const clears = prev.activeTrend === trend;
+  const opened = next !== "FLAT" && prev.position !== next;
   return {
-    lastEvent: eventKey(trend, event),
-    activeTrend: clears ? "" : prev.activeTrend,
-    activeSince: clears ? "" : prev.activeSince,
+    position: next,
+    since: next === "FLAT" ? "" : opened ? nowIso : prev.since,
+    entryRegime: next === "FLAT" ? "" : opened ? regimeLabel : prev.entryRegime,
+    lastEvent,
     updatedAt: nowIso,
   };
 }
 
-/** "ran 35m" for an END we saw the start of, else null. */
-export function ranFor(prev: StreakState, trend: string, startedAtMs: number): string | null {
-  if (prev.activeTrend !== trend || !prev.activeSince) return null;
-  const t = Date.parse(prev.activeSince);
+/** "held 35m" for a position we saw open, else null. */
+export function heldFor(prev: StreakState, nowMs: number): string | null {
+  if (prev.position === "FLAT" || !prev.since) return null;
+  const t = Date.parse(prev.since);
   if (!Number.isFinite(t)) return null;
-  const mins = Math.round((startedAtMs - t) / 60_000);
-  if (mins < 1) return "ran <1m";
-  if (mins < 60) return `ran ${mins}m`;
-  return `ran ${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}m`;
+  const mins = Math.round((nowMs - t) / 60_000);
+  if (mins < 1) return "held <1m";
+  if (mins < 60) return `held ${mins}m`;
+  return `held ${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}m`;
 }
