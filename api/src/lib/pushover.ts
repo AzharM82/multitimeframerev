@@ -16,6 +16,39 @@ export function isPushoverConfigured(): boolean {
   return !!(process.env.PUSHOVER_USER_KEY && process.env.PUSHOVER_APP_TOKEN);
 }
 
+/**
+ * Send one arbitrary Pushover notification. Best-effort: never throws, so an
+ * alert channel being down cannot fail the caller's request.
+ *
+ * `timeoutMs` matters for webhook handlers — TradingView cancels a request that
+ * takes over 3s, so a hung Pushover call must not eat that budget.
+ */
+export async function sendPushoverMessage(
+  title: string,
+  message: string,
+  priority = 0,
+  timeoutMs = 1500,
+): Promise<boolean> {
+  if (!isPushoverConfigured()) return false;
+  try {
+    const res = await fetch(PUSHOVER_API_URL, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        token: process.env.PUSHOVER_APP_TOKEN!,
+        user: process.env.PUSHOVER_USER_KEY!,
+        title,
+        message,
+        priority: String(priority),
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 function formatMessage(signal: CapitulationSignal, phase: Phase): string {
   const phaseLabel = phase === "morning"
     ? "Morning Burst 9:30-10:00"
