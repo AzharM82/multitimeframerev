@@ -50,8 +50,12 @@ export function classifyRegime(label: string): RegimeDirection {
   return "neutral";
 }
 
+/** ET calendar date, the partition key everything in this table is filed under. */
+export const etDateOf = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+
 export async function writeRegime(snap: RegimeSnapshot): Promise<void> {
-  await upsert(TABLES.TV_TREND, PARTITION, ROW, {
+  const body = {
     label: snap.label,
     direction: snap.direction,
     decision: snap.decision,
@@ -59,7 +63,19 @@ export async function writeRegime(snap: RegimeSnapshot): Promise<void> {
     spyPrice: snap.spyPrice,
     ma50: snap.ma50,
     capturedAt: snap.capturedAt,
-  });
+  };
+  /**
+   * `current` is what the webhook reads; the `rhist-<date>` row is the record.
+   *
+   * Every refresh is appended, not just the changes. A step function drawn only
+   * from changes cannot tell "the regime held steady for three hours" apart from
+   * "the cron died three hours ago" — and telling those apart is the entire
+   * point of the page this feeds. ~26 rows a day is nothing.
+   */
+  await Promise.all([
+    upsert(TABLES.TV_TREND, PARTITION, ROW, body),
+    upsert(TABLES.TV_TREND, `rhist-${etDateOf(snap.capturedAt)}`, snap.capturedAt, body),
+  ]);
 }
 
 export async function readRegime(): Promise<RegimeSnapshot | null> {

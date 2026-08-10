@@ -22,6 +22,7 @@ import type {
   TvRequestResponse,
   TvHistoryResponse,
   OpeningDriveResponse,
+  SpyStreakResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -179,4 +180,14 @@ export function getJournalSummary(): Promise<JournalSummaryResponse> {
 
 export function getSectorDeskHistory(days = 30): Promise<SectorDeskHistoryResponse> {
   return request<SectorDeskHistoryResponse>(`/sector-desk-history?days=${days}`);
+}
+
+export function getSpyStreak(date?: string): Promise<SpyStreakResponse> {
+  return request<SpyStreakResponse>(`/tv-trend-webhook${date ? `?date=${date}` : ""}`);
+}
+
+/** Reset the believed position. The browser never holds the timer secret — the
+ *  endpoint accepts a signed-in portal session for exactly this button. */
+export function forceSpyFlat(): Promise<{ status: string; was: string; now: string }> {
+  return request(`/tv-trend-webhook?flat=1`, { method: "POST" });
 }

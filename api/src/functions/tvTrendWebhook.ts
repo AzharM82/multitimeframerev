@@ -157,10 +157,19 @@ function bucket(timeStr: string | null, nowMs: number): string {
 
 const EMOJI = { green: "🟢", red: "🔴" } as const;
 
-/** Operator escape hatch: our position is a belief and can drift from reality. */
+/**
+ * Operator escape hatch: our position is a belief and can drift from reality.
+ *
+ * Accepts a signed-in portal session OR the timer secret. The session is allowed
+ * so the SPY Streak tab can offer a button — the alternative is an operator
+ * reaching for curl to correct state mid-session, which is exactly when they
+ * will not. The browser never sees the secret.
+ */
 async function forceFlat(req: HttpRequest): Promise<HttpResponseInit> {
+  const signedIn = !!req.headers.get("x-ms-client-principal");
   const secret = req.headers.get("x-timer-secret");
-  if (!process.env.TIMER_SECRET || secret !== process.env.TIMER_SECRET) {
+  const viaSecret = !!process.env.TIMER_SECRET && secret === process.env.TIMER_SECRET;
+  if (!signedIn && !viaSecret) {
     return { status: 401, jsonBody: { error: "Unauthorized" } };
   }
   const prev = await readState();
@@ -286,28 +295,48 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
   };
 }
 
-/** Audit read — protected by the `/api/*` portal-role catch-all. */
+/**
+ * Audit read — protected by the `/api/*` portal-role catch-all.
+ *
+ * One call returns everything the SPY Streak tab needs for a day: the live
+ * banner (regime + position), the streak events, the regime samples that draw
+ * the timeline, and the raw hits INCLUDING rejects. Rejects are deliberately in
+ * the same payload — a wrong secret or a malformed alert must be visible on the
+ * page, because from the operator's phone that is indistinguishable from a quiet
+ * market. That confusion is exactly what prompted this tab.
+ */
 async function audit(req: HttpRequest): Promise<HttpResponseInit> {
   const q = (req.query.get("date") || "").match(/^\d{4}-\d{2}-\d{2}$/) ? req.query.get("date")! : null;
   const date = q ?? new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  const which = req.query.get("kind") === "hits" ? `hit-${date}` : `evt-${date}`;
-  const [rows, regime, state] = await Promise.all([
-    listByPartition<Record<string, unknown>>(TABLES.TV_TREND, which),
+
+  const [events, hits, regimeSamples, regime, state] = await Promise.all([
+    listByPartition<Record<string, unknown>>(TABLES.TV_TREND, `evt-${date}`),
+    listByPartition<Record<string, unknown>>(TABLES.TV_TREND, `hit-${date}`),
+    listByPartition<Record<string, unknown>>(TABLES.TV_TREND, `rhist-${date}`),
     readRegime(),
     readState(),
   ]);
-  rows.sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
+  const byTime = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+    String(a.receivedAt ?? a.capturedAt).localeCompare(String(b.receivedAt ?? b.capturedAt));
+  events.sort(byTime);
+  hits.sort(byTime);
+  regimeSamples.sort(byTime);
+
+  /** Last time TradingView itself reached us — the real "is it alive" signal. */
+  const lastFromTv = [...hits].reverse().find((h) => TV_IPS.includes(String(h.ip)));
+
   return {
     jsonBody: {
       date,
-      kind: which.startsWith("hit") ? "hits" : "events",
-      count: rows.length,
       position: state.position,
       positionSince: state.since,
       entryRegime: state.entryRegime,
       regime,
       regimeAgeMin: regime ? Math.round(ageMinutes(regime.capturedAt)) : null,
-      rows,
+      lastTradingViewContact: lastFromTv?.receivedAt ?? null,
+      events,
+      hits,
+      regimeSamples,
     },
     headers: { "Cache-Control": "no-store" },
   };
