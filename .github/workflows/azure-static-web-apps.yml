@@ -1,15 +1,41 @@
 name: Azure Static Web Apps CI/CD
 
+# MANUAL ONLY — the push and pull_request triggers were removed 2026-08-09.
+#
+# WHY: this workflow was deploying to PRODUCTION on every merge to main, at the
+# same time as the documented `swa deploy` step in CLAUDE.md. Two consequences,
+# both bad:
+#
+#   1. They RACE. Whichever upload lands last wins, so an Oryx-built artifact
+#      could silently replace the build that was just verified against the live
+#      site. On 2026-08-09 the collision was visible: the run for the #26 merge
+#      died with "The content server has rejected the request with: BadRequest /
+#      No matching Static Web App environment was found" while a CLI deploy was
+#      uploading.
+#
+#   2. Merging deployed an UNVERIFIED build. The standing rule is to deploy only
+#      what has been validated end-to-end and then check the live site — an
+#      automatic deploy on merge cannot honour either half of that.
+#
+# So deploying is now exactly what CLAUDE.md says it is: a separate, explicit
+# step. Run it by hand:
+#
+#   npm run build && cd api && npm run build && cd .. \
+#     && swa deploy ./dist --api-location api --deployment-token TOKEN \
+#          --env production --api-language node --api-version 20
+#
+# The job is kept (rather than the file deleted) so the capability survives:
+# trigger it from the Actions tab if a CLI deploy is ever unavailable. Removing
+# the pull_request trigger also stops new numbered preview environments piling
+# up — and note `close_pull_request` can no longer fire, so any preview
+# environments still listed must be cleaned up by hand.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   build_and_deploy:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    # Written to stay correct if the push/pull_request triggers are ever restored.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy
     steps:
@@ -28,6 +54,7 @@ jobs:
           output_location: "dist"
 
   close_pull_request:
+    # Inert while pull_request is not a trigger; kept alongside the job it pairs with.
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
     name: Close Pull Request
