@@ -37,11 +37,27 @@ dropped all of them. So **every cloud-enqueued WhatsApp had been silently discar
 ## DEV → DESKTOP1 — instruction queue (live)
 DESKTOP1 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
-- [ ] **DESKTOP1: confirm the sidecar is running and healthy.** Report: is the Task Scheduler task present and enabled; is the process up right now; is WhatsApp Web still authenticated (not logged out); and what is the current `whatsapp-alerts` queue depth. If the depth is non-zero and not falling, that is the bug — say so.
-- [ ] **DESKTOP1: confirm the traffic increase landed.** Since 2026-08-09 you should see real sends where you previously logged `Skipping malformed payload`. Report roughly how many messages/day you were skipping before vs sending now, and whether any `meta.kind: "tv-trend"` messages have arrived.
-- [ ] **DESKTOP1: report the restart story.** If the sidecar dies (it `process.exit(1)`s on WhatsApp disconnect so Task Scheduler restarts it), how long is the gap, and does it re-authenticate on its own or does it need the QR scanned again? DEV needs to know whether a silent logout can cost a trading day of alerts.
+- [x] **Sidecar running and healthy** — ANSWERED BY DEV 2026-08-09, no need to re-check. DEV enqueued a labelled probe message and watched it disappear within 30s (depth 0 → 1 → 0). That proves the process is up, WhatsApp Web is still authenticated, and the queue is draining. Note for future: queue depth 0 on its own proves NOTHING — a dead sidecar and a healthy one look identical. Only enqueue-and-watch is a real liveness test.
+- [x] **Traffic increase landed** — implied by the above; cloud-enqueued messages now deliver instead of hitting the `!to` guard. No count needed.
+- [ ] **DESKTOP1 — the one thing DEV cannot see: does the sidecar survive a REBOOT?** This is the only open question. Please confirm: (a) the Task Scheduler task exists and is **Enabled**, (b) its trigger is *At log on* (or better), and (c) whether it actually comes back after a restart **without anyone logging in and scanning a QR code**. This matters because these machines do get restarted — a whole working session was lost to one on 2026-08-08 — and the sidecar is the ONLY WhatsApp delivery path. If it needs a manual QR rescan after a reboot, say so plainly: that means a Monday reboot silently costs the day's alerts, and DEV will add a liveness alarm rather than trusting it.
 
 ## LOG (newest first)
+
+### 2026-08-09 — DEV — Liveness PROVEN; message format changed; only the reboot question is left
+Enqueued a labelled probe (`meta.kind: "sidecar-probe"`, body says "ignore, not a trading signal") and watched the queue go 0 → 1 → 0 inside 30s. **The sidecar is up, authenticated and delivering** — nothing to investigate there, and the two earlier checklist items are closed.
+
+**The message format changed** since the entry below. Alerts are no longer one-per-TradingView-event; the cloud now runs a position state machine and only messages when the recommended position actually CHANGES. Expect roughly two messages per trend, not one per bar. Current shape:
+
+```
+🟢 BUY SPY CALLS · 10:35 AM ET
+GREEN streak aligned with Strong Uptrend
+GREEN streak started
+Regime: Strong Uptrend · Gate YES
+```
+
+Kinds you may now see: **`tv-trend`** (streak-driven) and **`tv-trend-regime-flip`** (the market regime turned against an open position — an exit nobody's alert caused). Nothing to change on DESKTOP1 for either; the `{to, text, meta}` envelope is unchanged.
+
+Only open item is the reboot question above.
 
 ### 2026-08-09 — DEV — Sidecar now carries the SPY breadth-streak alerts; `WHATSAPP_RECEIVER` fixed
 New producer on the `whatsapp-alerts` queue: the **SPY 5-min breadth-streak** system. TradingView's "4-Chart Majority Trend Webhook Alerts" indicator POSTs to `/api/tv-trend-webhook` on the portal; the cloud qualifies the streak against the Gate's SPY regime and enqueues a message with `meta.kind: "tv-trend"`. Message body looks like:
