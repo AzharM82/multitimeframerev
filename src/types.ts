@@ -896,3 +896,60 @@ export interface OpeningDriveResponse {
   count: number;
   candidates: OpeningDriveCandidate[];
 }
+
+// ── SPY breadth-streak system ────────────────────────────────────────────────
+// TradingView "4-Chart Majority Trend" streaks, qualified by the Gate's SPY
+// regime. Every field here is a record of a DECISION, including the ones that
+// deliberately produced no alert — silence is the state the operator most needs
+// to be able to see.
+
+export interface SpyStreakEvent {
+  receivedAt: string;
+  trend: "green" | "red";
+  event: "trend_start" | "trend_end";
+  action: string;
+  why: string;
+  notified: boolean;
+  positionBefore: string;
+  positionAfter: string;
+  regimeLabel: string;
+  regimeDecision: string;
+  regimeStale: boolean;
+  withinRth: boolean;
+  parseMode: string;
+}
+
+export interface SpyStreakHit {
+  receivedAt: string;
+  ip: string;
+  fromTradingView: boolean;
+  decision: string;
+  reason?: string;
+  trend?: string;
+  event?: string;
+  raw?: string;
+}
+
+export interface SpyRegimeSample {
+  capturedAt: string;
+  label: string;
+  direction: "bullish" | "bearish" | "neutral";
+  decision: "YES" | "CAUTION" | "NO";
+  qualityScore: number;
+  spyPrice: number;
+  ma50: number;
+}
+
+export interface SpyStreakResponse {
+  date: string;
+  position: "FLAT" | "CALLS" | "PUTS";
+  positionSince: string;
+  entryRegime: string;
+  regime: SpyRegimeSample | null;
+  regimeAgeMin: number | null;
+  /** Last time TradingView itself reached us — the real liveness signal. */
+  lastTradingViewContact: string | null;
+  events: SpyStreakEvent[];
+  hits: SpyStreakHit[];
+  regimeSamples: SpyRegimeSample[];
+}
