@@ -37,7 +37,16 @@ npm run build && cd api && npm run build && cd .. && swa deploy ./dist --api-loc
 # token: az staticwebapp secrets list --name mtfrev-app --resource-group rg-mtfrev --query "properties.apiKey" -o tsv
 ```
 
-Merging a PR does NOT deploy — deploying is a separate, explicit step. Cron timers live in a separate
+Merging a PR does NOT deploy — deploying is a separate, explicit step. This was **not actually true
+until 2026-08-09**: `.github/workflows/azure-static-web-apps.yml` carried `push`/`pull_request`
+triggers and deployed production on every merge, racing the CLI deploy above. A real collision killed
+the #26 run ("No matching Static Web App environment was found") while a CLI deploy was uploading, and
+the reverse ordering would have silently replaced a verified build with an Oryx one. Its triggers are
+now `workflow_dispatch` only. **Do not restore them** — an auto-deploy on merge ships an unverified
+build and cannot honour the verify-the-live-site rule below. Side effect: `close_pull_request` no
+longer fires, so leftover numbered preview environments must be deleted by hand.
+
+Cron timers live in a separate
 Function App `mtfrev-cron` (deploy: `cd tools/cron-functions && func azure functionapp publish mtfrev-cron --javascript`).
 
 After every deploy, verify the LIVE site — a clean `swa deploy` exit says nothing about whether the
