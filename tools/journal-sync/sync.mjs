@@ -303,13 +303,33 @@ async function fetchNotes(cfg) {
   return body.notes ?? [];
 }
 
+/**
+ * The list as it stands, so the rebuild MERGES into it instead of restating it.
+ *
+ * Non-fatal by design. Losing the existing points costs continuity — the model
+ * rebuilds from the notes alone — but it must never take the whole run down.
+ * It did exactly that on 2026-08-09: the GET was portal-role gated, this call
+ * had no credential, and the 302 to the login page became "redirect count
+ * exceeded", an unhandled throw that killed the sync before it summarised
+ * anything. Hence both the secret AND the catch.
+ */
 async function fetchSummary(cfg) {
-  const res = await fetch(`${cfg.PORTAL_URL}/api/journal-summary`, {
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!res.ok) return [];
-  const body = await res.json();
-  return body.points ?? [];
+  try {
+    const res = await fetch(`${cfg.PORTAL_URL}/api/journal-summary`, {
+      headers: { "x-timer-secret": cfg.PORTAL_TIMER_SECRET },
+      redirect: "manual",
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) {
+      log(`existing lessons: HTTP ${res.status} — rebuilding from the notes alone`);
+      return [];
+    }
+    const body = await res.json();
+    return body.points ?? [];
+  } catch (e) {
+    log(`existing lessons unavailable (${e.message}) — rebuilding from the notes alone`);
+    return [];
+  }
 }
 
 /**

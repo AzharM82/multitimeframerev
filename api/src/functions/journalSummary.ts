@@ -77,7 +77,25 @@ function parse(row: SummaryRow): { points: string[]; noteCount: number; generate
   return { points, noteCount: row.noteCount ?? 0, generatedAt: row.generatedAt ?? "" };
 }
 
+/**
+ * A signed-in portal session, or the local summariser. Same rule as
+ * journal-notes.
+ *
+ * Added 2026-08-09: the GET was protected only by the SWA `portal` route role,
+ * so the summariser — which must read the CURRENT list in order to merge into
+ * it rather than restate it — got a 302 to the login page and died with
+ * "redirect count exceeded". The whole nightly run failed on a read that was
+ * never meant to be fatal.
+ */
+function mayRead(req: HttpRequest): boolean {
+  if (req.headers.get("x-ms-client-principal")) return true;
+  const secret = req.headers.get("x-timer-secret");
+  return !!process.env.TIMER_SECRET && secret === process.env.TIMER_SECRET;
+}
+
 async function read(req: HttpRequest): Promise<HttpResponseInit> {
+  if (!mayRead(req)) return { status: 401, jsonBody: { error: "Unauthorized" } };
+
   const rows = await listByPartition<SummaryRow>(TABLES.JOURNAL_SUMMARY, PARTITION);
   rows.sort((a, b) => a.rowKey.localeCompare(b.rowKey));
 

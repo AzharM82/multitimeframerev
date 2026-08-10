@@ -377,10 +377,12 @@ export function JournalPage() {
         </p>
       </div>
 
-      {/* The day's trades lead; the running lessons sit alongside, not below —
-          they are what you read while writing the next note. */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] gap-3 items-start">
-        <div className="space-y-3 min-w-0">
+      {/* Lessons LEFT, notes RIGHT, equal halves (operator, 2026-08-09). The
+          rail was 22rem against a full-width note column, which read as though
+          the lessons were an afterthought — they are the point of the exercise,
+          so they get equal billing and are the first thing you look at. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+        <div className="space-y-3 min-w-0 lg:order-2">
           {dates.length === 0 ? (
             <div className="bg-bg-card border border-border rounded px-3 py-6 text-sm text-text-secondary">
               No closed trades yet. Run the sync on this machine:{" "}
@@ -488,14 +490,14 @@ export function JournalPage() {
         </div>
 
         {/* Rolling lessons — capped at 10, rebuilt on the dev machine by the sync job. */}
-        <aside className="bg-bg-card border border-border rounded lg:sticky lg:top-3">
+        <aside className="bg-bg-card border border-border rounded lg:sticky lg:top-3 lg:order-1 min-w-0">
           <div className="card-header px-3 pt-2.5 pb-1.5 border-b-2 border-text-primary">
             What I've learned
             <span className="font-normal normal-case text-text-secondary">{" "}· top 10, consolidated</span>
           </div>
           {points.length === 0 ? (
             <div className="px-3 py-4 text-xs text-text-secondary">
-              Nothing yet. Write a few notes on the left, then the next sync builds the list from them.
+              Nothing yet. Write a few notes on the right, then the next sync builds the list from them.
             </div>
           ) : (
             <>
