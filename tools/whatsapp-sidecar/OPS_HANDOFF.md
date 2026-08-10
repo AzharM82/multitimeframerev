@@ -17,7 +17,8 @@ patterns.
 - **DESKTOP1 runs `tools/whatsapp-sidecar`** (`whatsapp-web.js`), started at logon via Task Scheduler. It polls the Azure Storage Queue **`whatsapp-alerts`**, base64-decodes each message, and sends `{to, text}` over WhatsApp Web. It is **generic** — it does not know or care which feature produced a message.
 - **The sidecar is the ONLY delivery leg for WhatsApp.** If it is not running, messages accumulate in the queue and nothing is delivered. **Pushover is a separate, independent path from the cloud** and keeps arriving regardless — so "I got a Pushover but no WhatsApp" almost always means the sidecar is down on DESKTOP1.
 - Producers writing to that queue today: **Opening Drive** (TRIGGERED / EXIT), the **Finviz scanner-alert** path, and (new, 2026-08-09) the **SPY breadth-streak webhook** (`meta.kind: "tv-trend"`).
-- Health check from any machine: queue depth on `whatsapp-alerts`. Steady 0 = sidecar draining normally. A non-zero depth that does not fall = sidecar down or WhatsApp Web logged out.
+- **Health check — read this before trusting a number.** Queue depth 0 proves NOTHING: a dead sidecar and a healthy one look identical, because both leave an empty queue. The only real liveness test is **enqueue a labelled message and watch it disappear**. A non-zero depth that does not fall does mean something is wrong.
+- **⚠️ TWO sidecars drain this one queue.** There is an instance on DESKTOP1 *and* one on DESKTOP2 (see `tools/bigdog-scanner/OPS_HANDOFF.md`). A queue message is consumed exactly once, by whichever polls first, so delivery is correct either way — the recipient travels inside the message — but **you cannot tell from the queue which machine delivered**, and proving "a sidecar is alive" is not the same as proving *this* one is. If DESKTOP2 is ever repurposed or shut down, delivery quietly falls to DESKTOP1 alone, and vice versa.
 
 ## ⚠️ Behaviour change 2026-08-09 — expect MORE WhatsApp traffic
 
@@ -39,7 +40,9 @@ DESKTOP1 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 - [x] **Sidecar running and healthy** — ANSWERED BY DEV 2026-08-09, no need to re-check. DEV enqueued a labelled probe message and watched it disappear within 30s (depth 0 → 1 → 0). That proves the process is up, WhatsApp Web is still authenticated, and the queue is draining. Note for future: queue depth 0 on its own proves NOTHING — a dead sidecar and a healthy one look identical. Only enqueue-and-watch is a real liveness test.
 - [x] **Traffic increase landed** — implied by the above; cloud-enqueued messages now deliver instead of hitting the `!to` guard. No count needed.
-- [ ] **DESKTOP1 — the one thing DEV cannot see: does the sidecar survive a REBOOT?** This is the only open question. Please confirm: (a) the Task Scheduler task exists and is **Enabled**, (b) its trigger is *At log on* (or better), and (c) whether it actually comes back after a restart **without anyone logging in and scanning a QR code**. This matters because these machines do get restarted — a whole working session was lost to one on 2026-08-08 — and the sidecar is the ONLY WhatsApp delivery path. If it needs a manual QR rescan after a reboot, say so plainly: that means a Monday reboot silently costs the day's alerts, and DEV will add a liveness alarm rather than trusting it.
+- [x] **Reboot / auto-start survival — CLOSED BY THE OPERATOR 2026-08-09.** Operator owns restarting the machine and keeping the sidecar up: *"It is my job to make sure that I restart the machine and everything is all working on it."* Do not re-open this or build a liveness alarm for it unless the operator asks.
+
+**There are no open items for DESKTOP1.** Nothing in the SPY breadth-streak work or the MTF portal needs anything from this machine beyond the sidecar continuing to run. If a future entry adds one, it goes above this line.
 
 ## LOG (newest first)
 
