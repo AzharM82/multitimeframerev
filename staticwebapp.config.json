@@ -166,6 +166,15 @@
       ]
     },
     {
+      "route": "/api/journal-summary",
+      "methods": [
+        "GET"
+      ],
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/journal-notes",
       "methods": [
         "GET"
