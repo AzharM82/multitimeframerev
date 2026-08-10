@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SpyStreakResponse, SpyStreakEvent, SpyRegimeSample } from "../types.js";
 import { getSpyStreak, forceSpyFlat } from "../services/api.js";
+import { fmtTimePT, PT_LABEL } from "../utils/time.js";
 
 /**
  * SPY Streak — the window into the breadth-streak system.
@@ -18,12 +19,18 @@ import { getSpyStreak, forceSpyFlat } from "../services/api.js";
  * market.
  */
 
+/**
+ * Times DISPLAY in Pacific via utils/time — the portal-wide rule. Market LOGIC
+ * (the 9:30–16:00 session, the trading-day partition key) stays Eastern, which
+ * is why ET survives below for positioning and for `tradingDay`. I originally
+ * rendered this page in ET and broke that convention; see utils/time.ts.
+ */
 const ET = "America/New_York";
-const hhmm = (iso: string) =>
-  new Date(iso).toLocaleTimeString("en-US", { timeZone: ET, hour: "numeric", minute: "2-digit" });
-const todayET = () => new Date().toLocaleDateString("en-CA", { timeZone: ET });
 
-/** Minutes since ET midnight — the x-axis unit for the timeline. */
+/** The ET trading date is the STORAGE key — every row is filed under it. */
+const tradingDay = () => new Date().toLocaleDateString("en-CA", { timeZone: ET });
+
+/** Minutes since ET midnight — the x-axis unit. Positioning only, never shown. */
 function etMinutes(iso: string): number {
   const t = new Date(iso).toLocaleTimeString("en-GB", { timeZone: ET, hour12: false });
   const [h, m] = t.split(":").map(Number);
@@ -32,6 +39,16 @@ function etMinutes(iso: string): number {
 
 const OPEN = 9 * 60 + 30;
 const CLOSE = 16 * 60;
+
+/**
+ * An ET session minute rendered as a Pacific clock label — 9:30 ET reads 6:30.
+ * US Eastern and Pacific change DST on the same dates, so the gap is a constant
+ * three hours year-round and a fixed shift is exact, not an approximation.
+ */
+const ptTick = (etMin: number) => {
+  const m = etMin - 180;
+  return `${((Math.floor(m / 60) + 11) % 12) + 1}:${String(m % 60).padStart(2, "0")}`;
+};
 
 const TONE: Record<string, string> = {
   bullish: "text-signal-bull",
@@ -101,7 +118,7 @@ function Timeline({ spans, samples, events, isToday }: {
           <g key={m}>
             <line x1={x(m)} y1={14} x2={x(m)} y2={H - 20} stroke="currentColor" className="text-border" strokeWidth={1} />
             <text x={x(m)} y={H - 6} textAnchor="middle" className="fill-current text-text-secondary" fontSize={10}>
-              {`${((Math.floor(m / 60) + 11) % 12) + 1}:${String(m % 60).padStart(2, "0")}`}
+              {ptTick(m)}
             </text>
           </g>
         ))}
@@ -117,7 +134,7 @@ function Timeline({ spans, samples, events, isToday }: {
           return (
             <rect key={s.capturedAt} x={x(from)} y={18} width={Math.max(1.5, x(to) - x(from))} height={16}
               className={cls} fill="currentColor" opacity={s.decision === "NO" ? 0.25 : 0.65}>
-              <title>{`${hhmm(s.capturedAt)} — ${s.label} · Gate ${s.decision} · quality ${s.qualityScore}`}</title>
+              <title>{`${fmtTimePT(s.capturedAt)} — ${s.label} · Gate ${s.decision} · quality ${s.qualityScore}`}</title>
             </rect>
           );
         })}
@@ -135,7 +152,7 @@ function Timeline({ spans, samples, events, isToday }: {
             className={s.trend === "green" ? "text-signal-bull" : "text-signal-bear"}
             fill="currentColor" opacity={s.open ? 0.45 : 0.8}
             stroke="currentColor" strokeWidth={s.open ? 1.5 : 0} strokeDasharray={s.open ? "3 2" : undefined}>
-            <title>{`${s.trend.toUpperCase()} ${hhmm(new Date().toISOString())}`}</title>
+            <title>{`${s.trend.toUpperCase()} streak ${ptTick(s.from)}–${s.open ? "now" : ptTick(s.to)} ${PT_LABEL}${s.open ? " (still running)" : ""}`}</title>
           </rect>
         ))}
         {spans.length === 0 && (
@@ -155,7 +172,7 @@ function Timeline({ spans, samples, events, isToday }: {
                 className={e.trend === "green" ? "text-signal-bull" : "text-signal-bear"}
                 fill={e.notified ? "currentColor" : "var(--color-bg-card, #fff)"}
                 stroke="currentColor" strokeWidth={1.5}>
-                <title>{`${hhmm(e.receivedAt)} ${e.trend} ${e.event} → ${e.action}${e.notified ? " (alerted)" : " (silent)"}\n${e.why}`}</title>
+                <title>{`${fmtTimePT(e.receivedAt)} ${e.trend} ${e.event} → ${e.action}${e.notified ? " (alerted)" : " (silent)"}\n${e.why}`}</title>
               </circle>
             </g>
           );
@@ -174,7 +191,7 @@ function Timeline({ spans, samples, events, isToday }: {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export function SpyStreakPage() {
-  const [date, setDate] = useState<string>(todayET);
+  const [date, setDate] = useState<string>(tradingDay);
   const [data, setData] = useState<SpyStreakResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -192,12 +209,12 @@ export function SpyStreakPage() {
 
   // The page's job is "is it alive right now", so it must not go stale itself.
   useEffect(() => {
-    if (date !== todayET()) return;
+    if (date !== tradingDay()) return;
     const t = setInterval(() => void load(date), 60_000);
     return () => clearInterval(t);
   }, [date, load]);
 
-  const isToday = date === todayET();
+  const isToday = date === tradingDay();
   const nowMin = etMinutes(new Date().toISOString());
   const spans = useMemo(() => toSpans(data?.events ?? [], nowMin), [data, nowMin]);
 
@@ -229,7 +246,7 @@ export function SpyStreakPage() {
         <span className="flex-1" />
         <label className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-secondary">
           day
-          <input type="date" value={date} max={todayET()} onChange={(e) => setDate(e.target.value || todayET())}
+          <input type="date" value={date} max={tradingDay()} onChange={(e) => setDate(e.target.value || tradingDay())}
             className="bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary" />
         </label>
       </div>
@@ -253,7 +270,7 @@ export function SpyStreakPage() {
             {data.position}
           </div>
           <div className="text-[10px] text-text-secondary">
-            {data.position === "FLAT" ? "nothing open" : `since ${hhmm(data.positionSince)} · ${data.entryRegime || "?"}`}
+            {data.position === "FLAT" ? "nothing open" : `since ${fmtTimePT(data.positionSince)} · ${data.entryRegime || "?"}`}
           </div>
           {data.position !== "FLAT" && (
             <button onClick={onFlat} disabled={busy}
@@ -266,7 +283,7 @@ export function SpyStreakPage() {
         <div className="bg-bg-card border border-border rounded px-3 py-2">
           <div className="text-[10px] uppercase tracking-wider text-text-secondary">Last TradingView contact</div>
           <div className={`text-sm font-bold ${data.lastTradingViewContact ? "text-text-primary" : "text-signal-bear"}`}>
-            {data.lastTradingViewContact ? hhmm(data.lastTradingViewContact) : "never"}
+            {data.lastTradingViewContact ? fmtTimePT(data.lastTradingViewContact) : "never"}
           </div>
           <div className="text-[10px] text-text-secondary">
             {data.lastTradingViewContact ? ago(data.lastTradingViewContact) : "no alert has ever reached the endpoint"}
@@ -286,7 +303,9 @@ export function SpyStreakPage() {
       <div className="bg-bg-card border border-border rounded px-3 py-2">
         <div className="card-header pb-1.5 border-b-2 border-text-primary mb-2">
           Session timeline
-          <span className="font-normal normal-case text-text-secondary"> · bands are streaks, pins are decisions (filled = alerted)</span>
+          <span className="font-normal normal-case text-text-secondary">
+            {" "}· all times {PT_LABEL} · bands are streaks, pins are decisions (filled = alerted)
+          </span>
         </div>
         <Timeline spans={spans} samples={data.regimeSamples} events={data.events} isToday={isToday} />
       </div>
@@ -317,7 +336,7 @@ export function SpyStreakPage() {
               <tbody>
                 {data.events.map((e, i) => (
                   <tr key={i} className="border-b border-border/40 last:border-b-0">
-                    <td className="px-3 py-1 whitespace-nowrap tabular-nums">{hhmm(e.receivedAt)}</td>
+                    <td className="px-3 py-1 whitespace-nowrap tabular-nums">{fmtTimePT(e.receivedAt)}</td>
                     <td className={`px-3 py-1 whitespace-nowrap font-semibold ${e.trend === "green" ? "text-signal-bull" : "text-signal-bear"}`}>
                       {e.trend === "green" ? "🟢" : "🔴"} {e.event === "trend_start" ? "start" : "end"}
                     </td>
@@ -352,7 +371,7 @@ export function SpyStreakPage() {
                 <tbody>
                   {data.hits.map((h, i) => (
                     <tr key={i} className="border-b border-border/40 last:border-b-0">
-                      <td className="px-3 py-1 whitespace-nowrap tabular-nums">{hhmm(h.receivedAt)}</td>
+                      <td className="px-3 py-1 whitespace-nowrap tabular-nums">{fmtTimePT(h.receivedAt)}</td>
                       <td className="px-3 py-1 whitespace-nowrap text-text-secondary">{h.ip}</td>
                       <td className="px-3 py-1 whitespace-nowrap">
                         {h.fromTradingView ? <span className="text-text-secondary">TradingView</span> : <span className="text-signal-bear">other source</span>}
