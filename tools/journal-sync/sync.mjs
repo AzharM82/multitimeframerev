@@ -21,6 +21,9 @@
  *   node sync.mjs                       full run
  *   node sync.mjs --no-summary          trades only, skip the Claude call
  *   node sync.mjs --dry-run             fetch and report, write nothing
+ *   node sync.mjs --rebuild             rebuild the lessons from scratch,
+ *                                       ignoring the existing list (use when
+ *                                       the STYLE of the points changes)
  *   node sync.mjs --portal http://…     write to a different portal host
  *
  * --portal exists so a change can be exercised against `swa start` on this
@@ -366,12 +369,19 @@ Rules:
 - Return AT MOST ${MAX_POINTS} points. Never an 11th. If a new lesson does not fit an
   existing point, MERGE the two most similar existing points to make room.
 - Prefer EXTENDING an existing point over creating a new one. If the notes repeat a
-  lesson, sharpen that point with the new specifics instead of restating it.
-- Each point: one or two sentences, concrete and behavioural. Name the tickers or
-  setups where they make the lesson real. "Cutting MSFT winners inside 10 minutes
-  while letting losers run to the close" beats "manage risk better".
-- Base every point ONLY on what the notes actually say. Do not invent lessons from
-  the P&L numbers alone, and do not give trading advice the trader did not reach.
+  lesson, sharpen that point instead of restating it.
+- Each point is a STANDING RULE the trader could follow tomorrow, written GENERICALLY:
+  ONE sentence, no tickers, no dollar amounts, no dates, no retelling of the specific
+  trade. This is a list to re-read before the open, not a record of what happened —
+  the incident is already in the note. Specifics also date instantly and burn the
+  ${MAX_POINTS}-point budget.
+    write: "Never hold a day trade overnight hoping a won position gives more."
+    NOT:   "Holding MSFT on 8/5 instead of selling gave back $42,482.86."
+- Phrase it as an instruction to yourself ("Take the profit when...", "Stop trading
+  after..."), not as a description of a past mistake.
+- Base every point ONLY on what the notes actually say. The P&L is context for how
+  much a lesson cost — never quote it. Do not invent lessons from the numbers alone,
+  and do not give trading advice the trader did not reach themselves.
 - Order by how often the notes touch on it, most recurring first.
 
 Output ONLY a JSON array of strings. No prose, no markdown fence, no keys.`;
@@ -440,6 +450,7 @@ const argv = process.argv.slice(2);
 const args = new Set(argv);
 const dryRun = args.has("--dry-run");
 const noSummary = args.has("--no-summary");
+const rebuild = args.has("--rebuild");
 const portalOverride = argv.includes("--portal") ? argv[argv.indexOf("--portal") + 1] : null;
 
 /**
@@ -508,8 +519,12 @@ if (notes.length === 0) {
   process.exit(0);
 }
 
-const existing = await fetchSummary(cfg);
-log(`existing lessons: ${existing.length}`);
+// --rebuild starts from a blank list. Needed whenever the STYLE of the points
+// changes: the prompt tells the model to extend what is already there, so a
+// normal run would faithfully carry the old phrasing forward and the new rules
+// would appear not to work.
+const existing = rebuild ? [] : await fetchSummary(cfg);
+log(rebuild ? "existing lessons: ignored (--rebuild)" : `existing lessons: ${existing.length}`);
 
 const raw = await runClaude(buildPrompt(existing, notes, pnlByKey));
 const points = parsePoints(raw);
