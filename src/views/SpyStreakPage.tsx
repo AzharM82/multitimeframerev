@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SpyStreakResponse, SpyStreakEvent, SpyRegimeSample } from "../types.js";
+import type { SpyStreakResponse, SpyStreakEvent, SpyRegimeSample, SpyResearchReport } from "../types.js";
 import { getSpyStreak, forceSpyFlat } from "../services/api.js";
 import { fmtTimePT, PT_LABEL } from "../utils/time.js";
 
@@ -184,6 +184,114 @@ function Timeline({ spans, samples, events, isToday }: {
             className="text-text-primary" strokeWidth={1} strokeDasharray="2 2" />
         )}
       </svg>
+    </div>
+  );
+}
+
+
+// ─── EOD research ────────────────────────────────────────────────────────────
+
+/**
+ * The narrative is the only model-written text on this page, so it gets the
+ * smallest renderer that reads well and cannot execute anything: headings,
+ * bullets, bold. No markdown library, no dangerouslySetInnerHTML.
+ */
+function Markdownish({ text }: { text: string }) {
+  const blocks = text.split("\n");
+  const bold = (line: string) =>
+    line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+      part.startsWith("**") && part.endsWith("**")
+        ? <strong key={i}>{part.slice(2, -2)}</strong>
+        : <span key={i}>{part}</span>);
+  return (
+    <div className="space-y-1.5">
+      {blocks.map((line, i) => {
+        const t = line.trim();
+        if (!t) return null;
+        if (t.startsWith("## ")) return <div key={i} className="font-bold text-sm pt-1">{t.slice(3)}</div>;
+        if (t.startsWith("# ")) return <div key={i} className="font-bold text-sm pt-1">{t.slice(2)}</div>;
+        if (/^[-*]\s/.test(t)) return (
+          <div key={i} className="flex gap-2 text-xs leading-relaxed">
+            <span className="text-dim shrink-0">·</span><span>{bold(t.replace(/^[-*]\s/, ""))}</span>
+          </div>);
+        return <p key={i} className="text-xs leading-relaxed">{bold(t)}</p>;
+      })}
+    </div>
+  );
+}
+
+function ResearchSection({ report }: { report: SpyResearchReport | null }) {
+  const [open, setOpen] = useState(false);
+  const money = (n: number) => `${n < 0 ? "−" : "+"}$${Math.abs(n).toFixed(2)}`;
+
+  return (
+    <div className="bg-bg-card border border-border rounded">
+      <button onClick={() => setOpen((v) => !v)}
+        className="w-full text-left card-header px-3 pt-2.5 pb-1.5 border-b-2 border-text-primary flex items-center gap-2">
+        <span>EOD research</span>
+        {report ? (
+          <span className={`normal-case font-normal ${report.sufficient ? "text-text-secondary" : "text-signal-bear"}`}>
+            · {report.closedTrades} closed trades{report.sufficient ? "" : ` (needs ${report.minTrades} to rank variants)`}
+          </span>
+        ) : (
+          <span className="normal-case font-normal text-text-secondary">· not run for this day</span>
+        )}
+        <span className="flex-1" />
+        <span className="text-[10px] normal-case font-normal text-text-secondary">{open ? "hide" : "show"}</span>
+      </button>
+
+      {open && (
+        report === null ? (
+          <div className="px-3 py-4 text-xs text-text-secondary">
+            No report for this day. It is generated after the close by{" "}
+            <code className="text-[11px]">tools/streak-research/research.mjs</code>, which replays the
+            day&apos;s streaks against real SPY option bars.
+          </div>
+        ) : (
+          <div className="px-3 py-3 space-y-3">
+            <Markdownish text={report.narrative} />
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead className="text-text-secondary">
+                  <tr className="border-b border-border">
+                    <th className="text-left font-normal py-1 pr-3">Rule set</th>
+                    <th className="text-left font-normal py-1 pr-3">Instrument</th>
+                    <th className="text-right font-normal py-1 pr-3">Signals</th>
+                    <th className="text-right font-normal py-1 pr-3">Closed</th>
+                    <th className="text-right font-normal py-1 pr-3">Net $/contract</th>
+                    <th className="text-right font-normal py-1 pr-3">Win %</th>
+                    <th className="text-right font-normal py-1">Avg %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.variants.map((v, i) => (
+                    <tr key={i} className={`border-b border-border/40 last:border-b-0 ${v.rules === "live" ? "bg-bg-primary/40" : ""}`}>
+                      <td className="py-1 pr-3 whitespace-nowrap" title={v.rulesLabel}>
+                        {v.rules === "live" ? <strong>{v.rules}</strong> : v.rules}
+                      </td>
+                      <td className="py-1 pr-3 whitespace-nowrap text-text-secondary">{v.instrument}</td>
+                      <td className="py-1 pr-3 text-right tabular-nums">{v.signals}</td>
+                      <td className="py-1 pr-3 text-right tabular-nums">{v.realisedTrades}</td>
+                      <td className={`py-1 pr-3 text-right tabular-nums ${v.realisedTrades ? (v.netPerContract >= 0 ? "text-signal-bull" : "text-signal-bear") : "text-dim"}`}>
+                        {v.realisedTrades ? money(v.netPerContract) : "—"}
+                      </td>
+                      <td className="py-1 pr-3 text-right tabular-nums text-text-secondary">{v.winRate ?? "—"}</td>
+                      <td className="py-1 text-right tabular-nums text-text-secondary">{v.avgPct ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="text-[10px] text-dim">
+              Generated {new Date(report.generatedAt).toLocaleString()} · fills are the next 5-min bar&apos;s open
+              after each signal · P&amp;L is one contract · the numbers are computed deterministically, only the
+              commentary is model-written.
+            </div>
+          </div>
+        )
+      )}
     </div>
   );
 }
@@ -388,6 +496,8 @@ export function SpyStreakPage() {
           )
         )}
       </div>
+
+      <ResearchSection report={data.research} />
     </div>
   );
 }

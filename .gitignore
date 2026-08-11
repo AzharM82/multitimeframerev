@@ -39,3 +39,12 @@ tools/tv-sidecar/*.log
 # Deliberately local-only: this feature keeps every credential off Azure.
 tools/journal-sync/journal-sync.env
 tools/journal-sync/.prompt.txt
+
+# streak-research — holds the portal timer secret + the Polygon key.
+# Named *.env rather than a single path so a new tool cannot quietly ship one.
+tools/streak-research/research.env
+# Cached option bars — reproducible from Polygon, no need to version.
+tools/streak-research/cache/
+tools/*/*.env
+!tools/*/.env.example
+

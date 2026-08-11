@@ -940,6 +940,33 @@ export interface SpyRegimeSample {
   ma50: number;
 }
 
+export interface SpyResearchVariant {
+  rules: string;
+  rulesLabel: string;
+  instrument: string;
+  signals: number;
+  priced: number;
+  skipped: number;
+  realisedTrades: number;
+  unrealisedTrades: number;
+  netPerContract: number;
+  winRate: number | null;
+  avgPct: number | null;
+}
+
+/** EOD backtest written by tools/streak-research. Numbers are computed
+ *  deterministically there; `narrative` is the only model-written part. */
+export interface SpyResearchReport {
+  date: string;
+  generatedAt: string;
+  minTrades: number;
+  closedTrades: number;
+  /** False = too few trades to rank variants; the narrative says so. */
+  sufficient: boolean;
+  narrative: string;
+  variants: SpyResearchVariant[];
+}
+
 export interface SpyStreakResponse {
   date: string;
   position: "FLAT" | "CALLS" | "PUTS";
@@ -952,4 +979,5 @@ export interface SpyStreakResponse {
   events: SpyStreakEvent[];
   hits: SpyStreakHit[];
   regimeSamples: SpyRegimeSample[];
+  research: SpyResearchReport | null;
 }

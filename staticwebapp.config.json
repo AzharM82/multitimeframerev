@@ -186,7 +186,8 @@
     {
       "route": "/api/tv-trend-webhook",
       "methods": [
-        "POST"
+        "POST",
+        "GET"
       ],
       "allowedRoles": [
         "anonymous"
