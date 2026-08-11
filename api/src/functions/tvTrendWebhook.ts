@@ -180,8 +180,33 @@ async function forceFlat(req: HttpRequest): Promise<HttpResponseInit> {
   return { jsonBody: { status: "ok", was: prev.position, now: "FLAT" } };
 }
 
+/**
+ * Store the EOD research report. Written by tools/streak-research, which runs
+ * locally so the Claude CLI is used against the existing subscription rather
+ * than a model key in Azure — the same arrangement as the journal summariser.
+ *
+ * Timer secret only: this is a machine writer, never a browser.
+ */
+async function saveReport(req: HttpRequest): Promise<HttpResponseInit> {
+  const secret = req.headers.get("x-timer-secret");
+  if (!process.env.TIMER_SECRET || secret !== process.env.TIMER_SECRET) {
+    return { status: 401, jsonBody: { error: "Unauthorized" } };
+  }
+  const body = (await req.json().catch(() => null)) as { date?: string; report?: unknown } | null;
+  const date = String(body?.date ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !body?.report) {
+    return { status: 400, jsonBody: { error: "date (YYYY-MM-DD) and report required" } };
+  }
+  await upsert(TABLES.TV_TREND, "report", date, {
+    payloadJson: JSON.stringify(body.report).slice(0, 60_000),
+    generatedAt: new Date().toISOString(),
+  });
+  return { jsonBody: { status: "ok", date } };
+}
+
 async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> {
   if (req.query.get("flat") === "1") return forceFlat(req);
+  if (req.query.get("report") === "1") return saveReport(req);
 
   const now = new Date();
   const nowIso = now.toISOString();
@@ -306,16 +331,29 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
  * market. That confusion is exactly what prompted this tab.
  */
 async function audit(req: HttpRequest): Promise<HttpResponseInit> {
+  // A signed-in portal session, or the local research job. Without the second
+  // case the EOD agent cannot read its own input — the same trap that broke the
+  // journal summariser, so it is closed here up front rather than discovered.
+  const signedIn = !!req.headers.get("x-ms-client-principal");
+  const viaSecret = !!process.env.TIMER_SECRET && req.headers.get("x-timer-secret") === process.env.TIMER_SECRET;
+  if (!signedIn && !viaSecret) return { status: 401, jsonBody: { error: "Unauthorized" } };
+
   const q = (req.query.get("date") || "").match(/^\d{4}-\d{2}-\d{2}$/) ? req.query.get("date")! : null;
   const date = q ?? new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
-  const [events, hits, regimeSamples, regime, state] = await Promise.all([
+  const [events, hits, regimeSamples, regime, state, reportRow] = await Promise.all([
     listByPartition<Record<string, unknown>>(TABLES.TV_TREND, `evt-${date}`),
     listByPartition<Record<string, unknown>>(TABLES.TV_TREND, `hit-${date}`),
     listByPartition<Record<string, unknown>>(TABLES.TV_TREND, `rhist-${date}`),
     readRegime(),
     readState(),
+    getOne<{ payloadJson?: string }>(TABLES.TV_TREND, "report", date),
   ]);
+
+  let research: unknown = null;
+  if (reportRow?.payloadJson) {
+    try { research = JSON.parse(reportRow.payloadJson); } catch { research = null; }
+  }
   const byTime = (a: Record<string, unknown>, b: Record<string, unknown>) =>
     String(a.receivedAt ?? a.capturedAt).localeCompare(String(b.receivedAt ?? b.capturedAt));
   events.sort(byTime);
@@ -337,6 +375,7 @@ async function audit(req: HttpRequest): Promise<HttpResponseInit> {
       events,
       hits,
       regimeSamples,
+      research,
     },
     headers: { "Cache-Control": "no-store" },
   };
