@@ -117,6 +117,25 @@ function barWithinRth(barTime: string, arrival: Date): boolean {
  *  malformed strategy name could. Sanitise rather than trust. */
 const safeRowKey = (s: string) => s.replace(/[\\/#?]/g, "_").slice(0, 250);
 
+/**
+ * Strip the shared secret out of a body before it is stored or logged.
+ *
+ * The raw body is kept for the audit trail, and TradingView cannot send custom
+ * headers — so the secret travels INSIDE that body. Storing it verbatim puts a
+ * live credential in Table Storage on every single hit, and the audit endpoint
+ * then serves it to anything that can read the tab. Redact at the boundary, so
+ * there is no path by which the raw text is persisted with the secret intact.
+ *
+ * Deliberately pattern-based rather than "remove the known secret": a body
+ * carrying a WRONG secret is exactly the case worth logging, and printing a
+ * failed guess is nearly as bad as printing the real one.
+ */
+function redactSecrets(raw: string): string {
+  return raw
+    .replace(/("(?:secret|key|token)"\s*:\s*")[^"]*(")/gi, "$1[redacted]$2")
+    .replace(/\b((?:secret|key|token)\s*[=:]\s*"?)[A-Za-z0-9_\-]{8,}("?)/gi, "$1[redacted]$2");
+}
+
 const SIDE_EMOJI: Record<string, string> = { CALL: "🟢", PUT: "🔴", NONE: "⚪" };
 
 /** The Pushover/WhatsApp body: the one-liner, then why, then the six legs. */
@@ -214,7 +233,8 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
    */
   const logHit = (decision: string, detail: Record<string, unknown> = {}) =>
     upsert(TABLES.SPY_CONVICTION, `hit-${et.date}`, `${nowIso}-${ip || "noip"}`, {
-      receivedAt: nowIso, ip, fromTradingView: fromTv, decision, raw: raw.slice(0, 4000), ...detail,
+      receivedAt: nowIso, ip, fromTradingView: fromTv, decision,
+      raw: redactSecrets(raw).slice(0, 4000), ...detail,
     }).catch((e) => ctx.warn(`spy-conviction: hit log failed: ${e instanceof Error ? e.message : e}`));
 
   if (IP_ENFORCE && !fromTv) {
