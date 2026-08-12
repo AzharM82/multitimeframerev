@@ -49,10 +49,27 @@ async function poly(url, key, { paced = false } = {}, tries = 4) {
       signal: AbortSignal.timeout(30_000),
     });
     if (res.status === 429) { await sleep(OPTION_CALL_SPACING_MS); continue; }
+    /**
+     * 403 on an option aggregate means the DATE is not entitled, not the
+     * contract: this plan sells option history from T-1 back, never the current
+     * session (verified 2026-08-11 — same-day 403s for every expiry while SPY
+     * equity bars for the same day return fine). Surfaced as a typed error so
+     * the caller can say "not available until tomorrow" instead of dying with a
+     * raw HTTP code.
+     */
+    if (res.status === 403) {
+      const err = new Error(`option data for this date is not on the plan (T-1 and older only)`);
+      err.code = "NOT_ENTITLED";
+      throw err;
+    }
+    // Transient upstream failures get the same treatment as a rate limit. A
+    // single 502 used to abort the whole sweep, which for an unattended 6am job
+    // means no report and no obvious reason why.
+    if (res.status >= 500) { await sleep(2000 * (i + 1)); continue; }
     if (!res.ok) throw new Error(`polygon ${res.status} for ${url.split("?")[0].slice(-60)}`);
     return res.json();
   }
-  throw new Error("polygon rate-limited after retries");
+  throw new Error(`polygon unavailable after ${tries} attempts (rate limit or 5xx)`);
 }
 
 /**

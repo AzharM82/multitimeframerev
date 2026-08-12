@@ -111,7 +111,8 @@ function runClaude(prompt) {
   });
 }
 
-function buildPrompt(date, table, totals, mechanicsOnly) {
+function buildPrompt(dates, table, totals, mechanicsOnly) {
+  const date = dates.length > 1 ? `${dates[0]} .. ${dates[dates.length - 1]} (${dates.length} sessions)` : dates[0];
   return `You are reviewing one trading day of a SPY breadth-streak alert system.
 
 The system: a TradingView indicator marks a "streak" when 3 of 4 market-breadth
@@ -162,41 +163,90 @@ const args = new Set(argv);
 const dryRun = args.has("--dry-run");
 const dateArg = argv.includes("--date") ? argv[argv.indexOf("--date") + 1] : null;
 const portalOverride = argv.includes("--portal") ? argv[argv.indexOf("--portal") + 1] : null;
+const daysArg = argv.includes("--days") ? Number(argv[argv.indexOf("--days") + 1]) : 1;
 
 const cfg = loadEnv();
 if (portalOverride) cfg.PORTAL_URL = portalOverride.replace(/\/$/, "");
-const date = dateArg ?? new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+/**
+ * Default to the LAST COMPLETED session, not today.
+ *
+ * Polygon sells this plan option history from T-1 back and refuses the current
+ * session outright (403 "plan doesn't include this data timeframe", verified
+ * 2026-08-11 for every expiry, while SPY equity bars for the same day are fine).
+ * So an "end of day" report necessarily covers yesterday; defaulting to today
+ * would 403 on the first contract every single run.
+ */
+function previousSession(from = new Date()) {
+  const d = new Date(from.toLocaleDateString("en-CA", { timeZone: "America/New_York" }) + "T12:00:00Z");
+  do { d.setUTCDate(d.getUTCDate() - 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
+const endDate = dateArg ?? previousSession();
+
+/**
+ * Weekday sessions ending at endDate. Each day is simulated SEPARATELY and the
+ * trades concatenated — never merged into one stream. A position does not
+ * survive the close (the live system resets at session start), and the option
+ * chain is chosen relative to each day's own spot and expiry, so pairing across
+ * a day boundary would invent trades that could not exist.
+ */
+function sessionsEnding(end, n) {
+  const out = [];
+  const d = new Date(`${end}T12:00:00Z`);
+  while (out.length < n) {
+    const dow = d.getUTCDay();
+    if (dow !== 0 && dow !== 6) out.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() - 1);
+  }
+  return out.reverse();
+}
+const dates = sessionsEnding(endDate, Math.max(1, daysArg));
+const date = dates[dates.length - 1];
 
 console.log(`\nstreak-research  ${date}${dryRun ? "  [DRY RUN]" : ""}`);
 console.log(`portal: ${cfg.PORTAL_URL}\n`);
 
-const day = await fetchDay(cfg, date);
-const events = (day.events ?? []).filter((e) => e.trend && e.event);
-log(`streak events: ${events.length}`);
-if (events.length === 0) {
-  log("nothing to analyse for this date — no report written");
+const sessions = [];
+for (const d of dates) {
+  const day = await fetchDay(cfg, d);
+  const evs = (day.events ?? []).filter((e) => e.trend && e.event);
+  if (evs.length === 0) { log(`${d}: no streak events — skipped`); continue; }
+  const bars = await spyBars(d, cfg.POLYGON_API_KEY);
+  sessions.push({ date: d, events: evs, spy: bars });
+  log(`${d}: ${evs.length} events, ${bars.size} SPY bars`);
+}
+if (sessions.length === 0) {
+  log("nothing to analyse in this range — no report written");
   process.exit(0);
 }
-
-const spy = await spyBars(date, cfg.POLYGON_API_KEY);
-log(`SPY 5-min bars: ${spy.size}`);
+const events = sessions.flatMap((s) => s.events);
 
 const rows = [];
 for (const rules of RULE_SETS) {
-  const trades = pairTrades(events, rules);
+  let signalCount = 0;
   for (const inst of INSTRUMENTS) {
     const priced = [];
-    for (const t of trades) {
-      priced.push(await priceTrade(t, inst, {
-        date, key: cfg.POLYGON_API_KEY, spy,
-        // Option bars are paced at ~5/min, so a cold sweep takes minutes. Say so
-        // as it happens rather than looking hung.
-        onFetch: (tk) => log(`   fetching ${tk} (paced ~13s; cached ${fetchStats.cached}, fetched ${fetchStats.fetched})`),
-      }));
+    for (const s of sessions) {
+      const trades = pairTrades(s.events, rules);   // per session, never across days
+      if (inst === INSTRUMENTS[0]) signalCount += trades.length;
+      for (const t of trades) {
+        try {
+        priced.push(await priceTrade(t, inst, {
+          date: s.date, key: cfg.POLYGON_API_KEY, spy: s.spy,
+          // Option bars are paced at ~5/min, so a cold sweep takes minutes. Say
+          // so as it happens rather than looking hung.
+          onFetch: (tk) => log(`   fetching ${tk} (paced ~13s; cached ${fetchStats.cached}, fetched ${fetchStats.fetched})`),
+        }));
+        } catch (e) {
+          if (e.code === "NOT_ENTITLED") {
+            priced.push({ ...t, skipped: `option data for ${s.date} not on the plan yet (available T+1)` });
+          } else throw e;
+        }
+      }
     }
     rows.push({ rules: rules.id, rulesLabel: rules.label, instrument: inst.id, ...summarise(priced), trades: priced });
   }
-  log(`${rules.id.padEnd(20)} ${trades.length} signal(s) × ${INSTRUMENTS.length} instruments`);
+  log(`${rules.id.padEnd(20)} ${signalCount} trade(s) across ${sessions.length} session(s)`);
 }
 
 /**
@@ -260,7 +310,7 @@ let narrative;
   log(sufficient
     ? `${totals.independentSignals} independent signals — full interpretation`
     : `only ${totals.independentSignals} independent signals (< ${MIN_TRADES}) — MECHANICS-ONLY review, no performance conclusions`);
-  narrative = (await runClaude(buildPrompt(date, table, totals, !sufficient))).trim();
+  narrative = (await runClaude(buildPrompt(dates, table, totals, !sufficient))).trim();
   if (!sufficient) {
     narrative = `> **Mechanics review only.** ${totals.independentSignals} independent streak signals on ` +
       `${date}; ranking rule variants needs at least ${MIN_TRADES}. Nothing below is a claim about profitability.
@@ -271,6 +321,8 @@ let narrative;
 
 const report = {
   date,
+  dates,
+  sessions: sessions.length,
   generatedAt: new Date().toISOString(),
   minTrades: MIN_TRADES,
   closedTrades: totals.independentSignals,
