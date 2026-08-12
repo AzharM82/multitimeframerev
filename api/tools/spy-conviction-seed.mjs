@@ -25,6 +25,23 @@ const SECRET = pick("TV_WEBHOOK_SECRET");
 const CONN = pick("AZURE_STORAGE_CONNECTION_STRING");
 const BASE = process.env.BASE_URL || "http://localhost:4280";
 
+/**
+ * Seeding writes through the live endpoint into the SHARED PRODUCTION table and
+ * drives the real position state machine. During a session that means inventing
+ * signals on top of whatever is genuinely open, so it declines to run.
+ */
+function marketIsOpen(now = new Date()) {
+  const t = now.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false });
+  const d = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const dow = new Date(`${d}T12:00:00Z`).getUTCDay();
+  return dow >= 1 && dow <= 5 && t >= "09:25:00" && t < "16:05:00";
+}
+if (marketIsOpen() && !process.argv.includes("--force")) {
+  console.error("\n  REFUSING TO RUN — the market is open and this drives the real position state.\n" +
+                "  Run it after the close, or pass --force.\n");
+  process.exit(1);
+}
+
 const STRATEGY = "SEED_SPY_CONVICTION";
 const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
@@ -39,8 +56,10 @@ if (process.argv.includes("--clean")) {
       removed++;
     }
   }
-  await client.deleteEntity("cstate", "current").catch(() => {});
-  console.log(`removed ${removed} seeded rows + the state row`);
+  // Deliberately does NOT touch cstate/current. This runs against the shared
+  // PRODUCTION storage account, and a real open position must survive a cleanup
+  // — deleting it would leave the tab reporting FLAT while the operator holds.
+  console.log(`removed ${removed} seeded rows (believed position left untouched)`);
   process.exit(0);
 }
 
