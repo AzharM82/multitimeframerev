@@ -2,7 +2,7 @@ import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } 
 import { timingSafeEqual } from "node:crypto";
 import { upsert, getOne, listByPartition, TABLES } from "../lib/tables.js";
 import {
-  parseConviction, dedupeKey, formatAlert, barHHMM,
+  parseConviction, dedupeKey, formatAlert, barHHMM, barToEt,
   NOTIFY_ACTIONS, type ConvictionAlert,
 } from "../lib/spyConviction/models.js";
 import { readState, writeState, applySignal, advance, heldFor } from "../lib/spyConviction/state.js";
@@ -61,15 +61,37 @@ function constantTimeEq(given: string, expected: string): boolean {
  * may have nowhere else to put it — an unauthenticated fallback would be the
  * only worse option.
  */
-function authorized(req: HttpRequest, raw: string): boolean {
+interface AuthResult {
+  ok: boolean;
+  /** Which channel carried a credential — recorded on every hit. */
+  via: "query" | "body" | "none";
+  /**
+   * LENGTH of what was presented, never the value.
+   *
+   * A rejected hit is otherwise a dead end: the body is redacted before it is
+   * stored, so nothing distinguishes "a stale alert is still sending the
+   * PASTE_SECRET_HERE placeholder" from "the secret was rotated and this one is
+   * genuinely out of date". The length separates them instantly — 17 vs 48 — and
+   * leaks nothing. Four hours of 401s on 2026-08-12 were diagnosed by reading
+   * exactly this off TradingView's side, because our own log could not say.
+   */
+  presentedLen: number;
+  expectedLen: number;
+}
+
+function authorized(req: HttpRequest, raw: string): AuthResult {
   const expected = process.env.TV_WEBHOOK_SECRET || "";
-  if (!expected) return false;
-
   const token = req.query.get("token") || req.query.get("secret") || "";
-  if (token && constantTimeEq(token, expected)) return true;
+  const inBody = raw.match(/"(?:secret|key)"\s*:\s*"([^"]{8,200})"/)?.[1] ?? "";
 
-  const inBody = raw.match(/"(?:secret|key)"\s*:\s*"([^"]{8,200})"/)?.[1];
-  return !!inBody && constantTimeEq(inBody, expected);
+  const via: AuthResult["via"] = token ? "query" : inBody ? "body" : "none";
+  const presented = token || inBody;
+  const base = { via, presentedLen: presented.length, expectedLen: expected.length };
+
+  if (!expected) return { ok: false, ...base };
+  if (token && constantTimeEq(token, expected)) return { ok: true, ...base, via: "query" };
+  if (inBody && constantTimeEq(inBody, expected)) return { ok: true, ...base, via: "body" };
+  return { ok: false, ...base };
 }
 
 function clientIp(req: HttpRequest): string {
@@ -90,27 +112,27 @@ function etNow(d = new Date()) {
 /**
  * Was the BAR inside regular hours — not, was the request.
  *
- * TradingView stamps `bar_time` in exchange time, which is ET for SPY. Judging
- * this by arrival marks a retried, backfilled or replayed alert as out-of-hours
- * even though the bar it describes sat squarely mid-session, and the research
- * agent then reports phantom overnight signals. Caught by that agent's own
- * mechanics review on the first conviction run, 2026-08-12.
+ * Judging by arrival marks a retried, backfilled or replayed alert as
+ * out-of-hours even though the bar it describes sat squarely mid-session, and
+ * the research agent then reports phantom overnight signals. Caught by that
+ * agent's own mechanics review on the first conviction run, 2026-08-12.
+ *
+ * The timezone question lives in barToEt(), which decides from the stamp's own
+ * markers rather than assuming — see the note there; it is the one field whose
+ * misreading is completely silent.
  *
  * Falls back to arrival only when there is no usable bar stamp — an unknown bar
  * time is the one case where the request is the best evidence available.
  */
 function barWithinRth(barTime: string, arrival: Date): boolean {
-  const m = barTime.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/);
-  if (!m) {
+  const bar = barToEt(barTime);
+  if (!bar || bar.dow < 0) {
     const t = arrival.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false });
     const d = arrival.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     const dow0 = new Date(`${d}T12:00:00Z`).getUTCDay();
     return dow0 >= 1 && dow0 <= 5 && t >= "09:30:00" && t < "16:00:00";
   }
-  const [, day, hh, mm] = m;
-  const dow = new Date(`${day}T12:00:00Z`).getUTCDay();
-  const minutes = Number(hh) * 60 + Number(mm);
-  return dow >= 1 && dow <= 5 && minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+  return bar.dow >= 1 && bar.dow <= 5 && bar.minutes >= 9 * 60 + 30 && bar.minutes < 16 * 60;
 }
 
 /** Table row keys reject `/ \ # ?`; the dedupe key uses none of them, but a
@@ -246,8 +268,11 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
    * A bad secret is 401 and is NOT dead-lettered: that is not TradingView
    * getting it wrong, it is someone else knocking, and it should stay loud.
    */
-  if (!authorized(req, raw)) {
-    await logHit("rejected:secret");
+  const auth = authorized(req, raw);
+  if (!auth.ok) {
+    await logHit("rejected:secret", {
+      secretVia: auth.via, secretLen: auth.presentedLen, expectedLen: auth.expectedLen,
+    });
     return { status: 401, jsonBody: { error: "Unauthorized" } };
   }
 
@@ -309,7 +334,7 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
       notified: shouldNotify, withinRth, ip, line,
     }).catch((e) => { ctx.error(`spy-conviction: event write failed: ${e}`); }),
     logHit(transition.anomaly ? "accepted:anomaly" : shouldNotify ? "accepted" : "accepted:silent",
-      { signal: alert.signal, action: alert.action, key }),
+      { signal: alert.signal, action: alert.action, key, secretVia: auth.via }),
     shouldNotify
       ? notifyBoth(head, body, "spy-conviction", {
           signal: alert.signal, action: alert.action, side: alert.side, score: alert.score,

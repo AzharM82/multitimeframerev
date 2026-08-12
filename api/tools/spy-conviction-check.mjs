@@ -15,7 +15,8 @@
  */
 
 import {
-  parseConviction, dedupeKey, formatAlert, NOTIFY_ACTIONS,
+  parseConviction, dedupeKey, formatAlert, NOTIFY_ACTIONS, barHHMM,
+  barToEt,
 } from "../dist/lib/spyConviction/models.js";
 import { applySignal } from "../dist/lib/spyConviction/state.js";
 
@@ -101,6 +102,50 @@ check("an unknown future field does not stop the feed", () => {
 check("numeric strings are coerced (Pine str.tostring output)", () => {
   const a = parsed({ score: "-67", spy: "770.45", legs_agree: "6" });
   eq(a.score, -67); eq(a.spy, 770.45); eq(a.legsAgree, 6);
+});
+
+console.log("\nbar_time timezone — the one field whose misreading is silent");
+
+check("a naive stamp is exchange time and is read verbatim", () => {
+  const b = barToEt("2026-08-12 09:50:00");
+  eq(b.hhmm, "09:50"); eq(b.date, "2026-08-12"); eq(b.converted, false);
+});
+
+check("a UTC stamp is CONVERTED, not read as ET", () => {
+  // 13:50Z in August is 09:50 ET. Reading it verbatim would draw a 9:50 bar at
+  // 1:50 PM and call a mid-session bar overnight, with nothing to notice.
+  const b = barToEt("2026-08-12T13:50:00Z");
+  eq(b.hhmm, "09:50", "UTC stamp"); eq(b.converted, true);
+});
+
+check("an explicit offset is honoured", () => {
+  eq(barToEt("2026-08-12T06:50:00-07:00").hhmm, "09:50");
+});
+
+check("unix seconds and milliseconds both convert", () => {
+  const ms = Date.UTC(2026, 7, 12, 13, 50, 0);
+  eq(barToEt(String(ms)).hhmm, "09:50", "millis");
+  eq(barToEt(String(Math.floor(ms / 1000))).hhmm, "09:50", "seconds");
+});
+
+check("DST is handled, not approximated", () => {
+  // January: ET is UTC-5, so the same 09:50 bar is 14:50Z, not 13:50Z.
+  eq(barToEt("2026-01-15T14:50:00Z").hhmm, "09:50");
+});
+
+check("a bare clock labels but does not date", () => {
+  const b = barToEt("09:50");
+  eq(b.hhmm, "09:50"); eq(b.dow, -1, "no date means no weekday");
+});
+
+check("junk returns null rather than a made-up time", () => {
+  eq(barToEt("not a time"), null);
+  eq(barToEt(""), null);
+});
+
+check("barHHMM reflects the conversion", () => {
+  eq(barHHMM("2026-08-12T13:50:00Z"), "09:50");
+  eq(barHHMM("2026-08-12 09:50:00"), "09:50");
 });
 
 console.log("\ndedupe identity");
