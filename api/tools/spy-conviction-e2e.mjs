@@ -179,6 +179,18 @@ await check("GET without a principal or timer secret → 401", async () => {
   eq((await fetch(`${BASE}/api/spy-conviction`)).status, 401, "status");
 });
 
+await check("the stored raw body never contains the secret", async () => {
+  const res = await fetch(`${BASE}/api/spy-conviction`, { headers: { "x-timer-secret": TIMER } });
+  const j = await res.json();
+  // The audit trail keeps the raw body, and TradingView can only carry the
+  // secret INSIDE that body. Storing it verbatim would put a live credential in
+  // Table Storage on every hit and serve it to anything that can read the tab.
+  const leaked = j.hits.filter((h) => String(h.raw ?? "").includes(SECRET));
+  eq(leaked.length, 0, `hits leaking the secret (${leaked.map((h) => h.decision).join(", ")})`);
+  ok(j.hits.some((h) => String(h.raw ?? "").includes("[redacted]")),
+     "expected at least one redacted body — is redactSecrets wired in?");
+});
+
 await check("GET with the timer secret returns today's alerts", async () => {
   const res = await fetch(`${BASE}/api/spy-conviction`, { headers: { "x-timer-secret": TIMER } });
   eq(res.status, 200, "status");
