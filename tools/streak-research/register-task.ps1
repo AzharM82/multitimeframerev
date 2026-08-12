@@ -4,14 +4,19 @@
   Runs on THIS machine (the dev box), like tools/journal-sync - it needs the
   Claude CLI and the Polygon key, neither of which belongs in Azure.
 
-  TIMING: 06:00 PT, BEFORE the open, and it reports on the PREVIOUS session.
+  TIMING: 13:30 PT, thirty minutes after the 13:00 close, reporting on TODAY.
 
-  Not a choice - a constraint. This Polygon plan sells option history from T-1
-  back and refuses the current session outright (403 "plan doesn't include this
-  data timeframe", verified 2026-08-11). So the day's own option bars simply do
-  not exist for us until tomorrow, and an after-the-close run would 403 on the
-  first contract every time. Running pre-open instead puts yesterday's review in
-  front of the operator while it can still change how they trade today.
+  Same-day is possible because TradingView serves the current session's option
+  bars; Polygon refuses them (403, T-1 and older only) and stays as the fallback
+  for EXPIRED contracts, which TradingView will not serve. The thirty minutes is
+  for the delayed OPRA feed (_DLY) to finish filling the closing bars.
+
+  If TradingView is not running the agent silently reports on the PREVIOUS
+  session instead, since that is all Polygon can price.
+
+  NOTE: a sweep drives the TradingView chart through dozens of contracts, taking
+  a couple of minutes. Operator accepted this for an end-of-day run. The chart is
+  saved and restored around the sweep.
 
   The sweep is slow by design the FIRST time a day is analysed: option
   aggregates are rate-limited to ~5 requests/minute, so a cold run takes
@@ -26,7 +31,7 @@
     .\register-task.ps1 -Unregister
 #>
 param(
-  [string]$At = "06:00",
+  [string]$At = "13:30",
   [switch]$Unregister
 )
 

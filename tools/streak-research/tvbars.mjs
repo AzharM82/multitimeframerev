@@ -1,36 +1,43 @@
 /**
- * ⚠️ WIP — NOT WIRED IN, NOT WORKING RELIABLY (2026-08-11).
+ * TradingView as an option-bar source, over CDP.
  *
- * Nothing imports this. simulate.mjs still prices exclusively from Polygon.
- * Committed for the API archaeology below, which took a while to establish and
- * would otherwise have to be rediscovered.
+ * WHY IT EXISTS: Polygon will not sell this plan the CURRENT session's option
+ * aggregates (403), and throttles the historical ones to ~5 requests a minute.
+ * TradingView carries the same OPRA contracts, serves 5-minute bars through the
+ * current close, keeps roughly five sessions of intraday history, and answers in
+ * ~1.5s. That is the difference between reviewing today after the bell and
+ * reviewing yesterday tomorrow.
  *
- * WHAT IS PROVEN:
- *   - TradingView carries the OPRA contracts (OPRA_DLY:SPY260812C775.0) with
- *     5-minute bars, ~300 of them, spanning roughly five sessions INCLUDING the
- *     current one — which is exactly what Polygon refuses (403 on today).
- *   - The bars are reachable: activeChart().getSeries().data() exposes size(),
- *     first(), last(), valueAt() and each((i,row)=>...) where a row is
- *     [time, open, high, low, close, volume]. There is NO lastIndex().
- *   - exportData() is NOT usable — it throws "Data export is not supported"
- *     for this feed, so the study-collector style accessor is the only way in.
- *   - The feed is DELAYED (_DLY suffix), so a run immediately after the close
- *     may be missing the final bars.
+ * NOT A REPLACEMENT. TradingView does not serve EXPIRED contracts, and a
+ * backtest is mostly expired contracts, so simulate.mjs keeps Polygon as the
+ * fallback and records which source priced each one.
  *
- * WHAT IS NOT SOLVED — the reason this is not wired in:
- *   Extraction fails intermittently even when the series demonstrably holds 300
- *   bars (verified directly: symbol correct, resolution 5, size() === 300, yet
- *   both this reader AND the TradingView MCP return "chart may still be
- *   loading"). So it is the extraction path, not this file's logic. A sweep
- *   needs 40-80 symbol swaps and TradingView stopped responding entirely during
- *   testing at that rate.
+ * WHAT IT COSTS: this drives the DESKTOP app's single shared chart. It is not a
+ * service, it cannot run with the app closed, and a sweep walks the chart
+ * through dozens of contracts — so callers save and restore the view, and the
+ * job is scheduled for after the close.
  *
- * BEFORE RESUMING: this drives the operator's SINGLE SHARED CHART. Any real
- * version needs its own layout or a headless equivalent — a research job must
- * never fight the human for the screen, and must never be able to take the
- * charting app down.
+ * TWO THINGS THAT COST AN EVENING TO FIND, both of which look identical to a
+ * slow chart load:
+ *
+ *   1. THE SYMBOL NEEDS THE EXCHANGE PREFIX AND A DECIMAL STRIKE.
+ *      `OPRA:SPY260812C775.0` resolves; a bare `SPY260812C775` renders "This
+ *      symbol doesn't exist" and the series then sits at size 0 forever. It
+ *      appeared to work early on only because that one contract had been loaded
+ *      by hand, leaving it resolved in the session.
+ *
+ *   2. SET AND READ MUST BE SEPARATE CDP EVALUATES.
+ *      set-symbol, poll, then read inside one long async IIFE NEVER returns
+ *      data, however long it waits — the chart does not progress its load while
+ *      a single evaluate is outstanding. Driving the poll from Node works first
+ *      time, every time.
+ *
+ * Also: exportData() is a dead end ("Data export is not supported" on this
+ * feed). Bars come from activeChart().getSeries().data(), which has
+ * size/first/last/valueAt and each((i,row)) with [time,o,h,l,c,v] — and no
+ * lastIndex(). The feed is DELAYED (_DLY), so allow time after the close for the
+ * final bars to fill.
  */
-
 /**
  * TradingView as an option-bar source, over CDP.
  *
@@ -57,14 +64,27 @@
 
 const PORT = 9222;
 
-/** `O:SPY260812C00775000` -> `SPY260812C775` (TradingView / OPRA form). */
+/**
+ * `O:SPY260812C00775000` -> `OPRA:SPY260812C775.0`
+ *
+ * THE EXCHANGE PREFIX AND THE DECIMAL ARE BOTH REQUIRED. A bare
+ * `SPY260812C775` renders "This symbol doesn't exist" on a chart that has not
+ * already resolved that contract, and the series then sits at size 0 forever —
+ * which reads exactly like a slow load and cost most of an evening to diagnose.
+ * It appeared to work only because the operator had loaded that one contract by
+ * hand, leaving it resolved in the session.
+ *
+ * TradingView normalises `OPRA:` to `OPRA_DLY:` on this (delayed) feed, so we
+ * send the plain prefix and let it map. The strike always carries at least one
+ * decimal place: 775.0, not 775.
+ */
 export function toTvSymbol(polygonTicker) {
   const m = String(polygonTicker).replace(/^O:/, "").match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/);
   if (!m) return null;
   const [, root, yymmdd, cp, strike8] = m;
   const strike = Number(strike8) / 1000;
-  // TradingView drops trailing zeros: 775, not 775.000.
-  return `${root}${yymmdd}${cp}${strike % 1 === 0 ? strike : String(strike).replace(/0+$/, "")}`;
+  const printed = strike % 1 === 0 ? strike.toFixed(1) : String(strike);
+  return `OPRA:${root}${yymmdd}${cp}${printed}`;
 }
 
 async function cdpTargets() {
@@ -168,65 +188,56 @@ export async function tvRestoreView(view) {
  * Returns null when TradingView cannot serve it — an unknown symbol, or the
  * chart never producing data. Null means "ask Polygon", never "no trades".
  */
-export async function tvOptionBars(tvSymbol, { resolution = "5", tries = 3 } = {}) {
+export async function tvOptionBars(tvSymbol, { resolution = "5", tries = 2, timeoutMs = 25_000 } = {}) {
   const target = await chartTarget();
   if (!target) return null;
   const s = await Session.open(target.webSocketDebuggerUrl);
   try {
     for (let attempt = 1; attempt <= tries; attempt++) {
-      const rows = await s.eval(`(async () => {
+      /**
+       * THREE SEPARATE EVALUATES, deliberately.
+       *
+       * Doing set-then-poll-then-read inside one long async IIFE never returns
+       * data, however long it waits — the chart does not appear to progress its
+       * load while a single evaluate is outstanding. Split into discrete calls,
+       * with the polling driven from Node, it works first time. Every "chart may
+       * still be loading" failure tonight was this, plus a bad symbol format.
+       */
+      await s.eval(`(() => {
         const c = window.TradingViewApi.activeChart();
-        const wait = (ms) => new Promise(r => setTimeout(r, ms));
-        const want = ${JSON.stringify(tvSymbol)};
-
-        const norm0 = (x) => String(x).toUpperCase().replace(/[^A-Z0-9.]/g, "");
-        const already = norm0(c.symbol()).includes(norm0(want))
-          && String(c.resolution()) === ${JSON.stringify(resolution)};
-
-        // Symbol FIRST, resolution SECOND, read THIRD. Setting the resolution
-        // is what forces the series to re-resolve; without it the read returns
-        // the PREVIOUS symbol's bars, which is far worse than returning none.
-        //
-        // Skipped entirely when the chart is already there: a redundant
-        // setSymbol throws the series back into a reload and costs another
-        // multi-second wait for data we could have read immediately.
-        if (!already) {
-          c.setSymbol(want);
-          await wait(700);
-          c.setResolution(${JSON.stringify(resolution)});
-          await wait(1200);
-        }
-
-        // NOT exportData — TradingView answers "Data export is not supported"
-        // for this feed. The series' own data accessor is unrestricted.
-        // Note it has no lastIndex(); each()/size()/last() are what exist, and
-        // each() STOPS when the callback returns truthy.
-        const norm = (x) => String(x).toUpperCase().replace(/[^A-Z0-9.]/g, "");
-        for (let i = 0; i < 60; i++) {
-          try {
-            const sym = norm(c.symbol());
-            // The resolved symbol carries an exchange prefix and a .0 suffix
-            // (OPRA_DLY:SPY260812C775.0), so match on containment, not equality.
-            const onTarget = sym.includes(norm(want));
-            const d = c.getSeries().data();
-            if (onTarget && d && d.size && d.size() > 0) {
-              const out = [];
-              d.each((idx, row) => {
-                if (row && row.length >= 5) {
-                  out.push({ t: row[0] * 1000, o: row[1], h: row[2], l: row[3], c: row[4], v: row[5] ?? 0 });
-                }
-                return false; // falsy = keep iterating
-              });
-              if (out.length) return { symbol: c.symbol(), bars: out };
-            }
-          } catch (e) { /* series still swapping */ }
-          await wait(500);
-        }
-        return null;
+        c.setSymbol(${JSON.stringify(tvSymbol)});
+        c.setResolution(${JSON.stringify(resolution)});
+        return true;
       })()`);
 
-      if (rows && rows.bars && rows.bars.length) return rows.bars;
-      if (attempt < tries) await new Promise((r) => setTimeout(r, 1200));
+      const deadline = Date.now() + timeoutMs;
+      let ready = false;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 800));
+        const state = await s.eval(`(() => {
+          try {
+            const c = window.TradingViewApi.activeChart();
+            return { sym: String(c.symbol()), size: c.getSeries().data().size() };
+          } catch (e) { return { sym: "", size: -1 }; }
+        })()`);
+        const norm = (x) => String(x).toUpperCase().replace(/[^A-Z0-9.]/g, "");
+        // Compare on the bare contract: we send OPRA:..., it resolves OPRA_DLY:...
+        const bare = norm(tvSymbol).replace(/^OPRA(DLY)?/, "");
+        if (state && state.size > 0 && norm(state.sym).includes(bare)) { ready = true; break; }
+      }
+      if (!ready) continue;
+
+      const bars = await s.eval(`(() => {
+        const d = window.TradingViewApi.activeChart().getSeries().data();
+        const out = [];
+        // each() has no lastIndex sibling and STOPS on a truthy return.
+        d.each((i, row) => {
+          if (row && row.length >= 5) out.push({ t: row[0] * 1000, o: row[1], h: row[2], l: row[3], c: row[4], v: row[5] ?? 0 });
+          return false;
+        });
+        return out;
+      })()`);
+      if (bars && bars.length) return bars;
     }
     return null;
   } finally {
