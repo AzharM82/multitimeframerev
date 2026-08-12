@@ -118,8 +118,11 @@ export const TABLES = {
   /** The rolling 10-point lessons list, one row per version. */
   JOURNAL_SUMMARY: "JournalSummary",
   /**
-   * SPY 5-min breadth-streak system: TradingView webhook hits (audit + dedup)
-   * and the cached Gate regime snapshot the webhook qualifies them against.
+   * SPY Conviction Score: TradingView alerts from the 10-min six-leg indicator,
+   * the believed position, and raw hits including rejects and dead letters.
+   *
+   * Replaced the 5-min breadth-streak + Gate-regime system on 2026-08-12; its
+   * `TvTrendAlerts` table was archived to dev/spy-conviction/ and dropped.
    */
-  TV_TREND: "TvTrendAlerts",
+  SPY_CONVICTION: "SpyConviction",
 } as const;

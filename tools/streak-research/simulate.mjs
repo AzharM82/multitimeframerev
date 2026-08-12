@@ -121,11 +121,30 @@ export let fetchStats = { cached: 0, tradingview: 0, polygon: 0 };
 /** Which source priced each contract, so any number in the report is traceable. */
 export const barSource = new Map();
 
+/**
+ * Which source to prefer: "polygon" (default), "tradingview", or "auto".
+ *
+ * DEFAULT IS POLYGON, by operator decision 2026-08-12. It is headless, needs no
+ * desktop app, never touches the operator's chart, and is the only source for
+ * EXPIRED contracts. The cost is real and should be stated plainly: Polygon
+ * refuses the current session (403), so the report necessarily covers the
+ * PREVIOUS day, and its ~5 requests/minute cap makes a cold sweep take 10-20
+ * minutes.
+ *
+ * "tradingview" buys same-day at the price of a desktop dependency and a couple
+ * of minutes of the operator's chart being driven. "auto" prefers TradingView
+ * when it is running. Nothing is deleted — this is one line in research.env.
+ */
+const BAR_SOURCE = (process.env.BAR_SOURCE || "polygon").toLowerCase();
+
 let tvChecked = false, tvUsable = false;
 async function tvReady() {
+  if (BAR_SOURCE === "polygon") return false;
   if (!tvChecked) { tvChecked = true; tvUsable = await tvAvailable(); }
   return tvUsable;
 }
+
+export const barSourceMode = BAR_SOURCE;
 
 /**
  * 5-minute bars for one contract on one session, keyed by ET HH:MM.
@@ -213,57 +232,79 @@ function nextBarAfter(bars, hhmm) {
 }
 
 /**
- * Turn the day's events into entry/exit pairs under one RULE SET.
- * Mirrors api/src/lib/tvTrend/decide.ts — kept separate on purpose so a rule
- * variant can be tested without touching the code that trades.
+ * The bar an event belongs to, as ET HH:MM — the key every bar map is indexed by.
+ *
+ * The BAR's own clock, not arrival. They agree to within seconds on a healthy
+ * feed, but a retry or a backfill arrives late, and filling a trade at the
+ * arrival time of a replayed alert prices a bar the signal never saw.
  */
-export function pairTrades(events, rules) {
-  const trades = [];
-  let open = null; // { side:"call"|"put", at, regime }
+const eventAt = (e) =>
+  (/^\d{2}:\d{2}$/.test(e.barHhmm ?? "") ? e.barHhmm : etHHMM(Date.parse(e.receivedAt)));
 
-  const dirOf = (label) => {
-    const l = String(label || "").toLowerCase();
-    if (l.includes("uptrend")) return "bullish";
-    if (l.includes("downtrend")) return "bearish";
-    return "neutral";
-  };
+const sideOf = (e) =>
+  e.side === "CALL" ? "call" : e.side === "PUT" ? "put"
+    : String(e.signal ?? "").includes("CALL") ? "call"
+    : String(e.signal ?? "").includes("PUT") ? "put" : null;
+
+/**
+ * Turn the day's conviction alerts into entry/exit pairs under one RULE SET.
+ *
+ * The indicator now decides — so unlike the streak system there is no regime to
+ * filter on and no rules to reimplement. What is left worth arguing with is
+ * WHEN to act on what it says: enter at the ARM or wait for the BUY, exit at the
+ * first REDUCE or hold for the SELL, gate on how strong the score was.
+ *
+ * Kept out of the API on purpose, as before: a rule variant must be testable
+ * without touching the code that alerts.
+ */
+export function pairConvictionTrades(events, rules) {
+  const trades = [];
+  let open = null; // { side, entryAt, entryScore }
+
+  const close = (at, why) => { trades.push({ ...open, exitAt: at, exitWhy: why }); open = null; };
 
   for (const e of events) {
-    const at = etHHMM(Date.parse(e.receivedAt));
-    const dir = dirOf(e.regimeLabel);
-    const want = e.trend === "green" ? "bullish" : "bearish";
-    const side = e.trend === "green" ? "call" : "put";
+    const at = eventAt(e);
+    const side = sideOf(e);
+    const signal = String(e.signal ?? "");
+    const score = Number(e.score ?? 0);
 
-    if (e.event === "trend_start") {
-      if (open && open.side !== side) {
-        trades.push({ ...open, exitAt: at, exitWhy: "opposite streak" });
-        open = null;
-      }
+    const isEntry = rules.entry === "arm"
+      ? signal === "ARM_CALL" || signal === "ARM_PUT"
+      : signal === "BUY_CALL" || signal === "BUY_PUT";
+
+    if (isEntry && side) {
+      // An entry while something is open is a side flip the machine should not
+      // have produced. Close the old one rather than silently dropping either.
+      if (open && open.side !== side) close(at, "opposite signal");
       if (open) continue;
-      if (rules.gateBlocksNo && e.regimeDecision === "NO") continue;
-      const aligned = dir === want;
-      const allowed = rules.regimeFilter === "off" ? true
-        : rules.regimeFilter === "aligned-or-neutral" ? (aligned || dir === "neutral")
-        : aligned;
-      if (!allowed) continue;
-      open = { side, entryAt: at, regime: e.regimeLabel, trend: e.trend };
-    } else if (open && open.side === side) {
-      /**
-       * With the regime filter OFF, the hold decision must not consult the
-       * regime either. It used to: `dir === want` was evaluated regardless, so
-       * the "no-regime" variant still let the regime decide whether to hold
-       * through a pause — a partial filter wearing the label of none, which
-       * made every comparison against it meaningless. Caught by the agent's own
-       * mechanics review, 2026-08-10.
-       */
-      const holdThroughPause =
-        rules.exit === "opposite" && (rules.regimeFilter === "off" || dir === want);
-      if (!holdThroughPause) {
-        trades.push({ ...open, exitAt: at, exitWhy: rules.exit === "opposite" ? "streak end (regime not aligned)" : "streak end" });
-        open = null;
-      }
+      if (rules.minScore && Math.abs(score) < rules.minScore) continue;
+      open = { side, entryAt: at, entryScore: score, entrySignal: signal };
+      continue;
     }
+
+    if (!open) continue;
+
+    // An ARM_CANCEL kills a position entered on the ARM; there is nothing else
+    // that would ever close it, since no BUY followed.
+    if (signal === "ARM_CANCEL" && rules.entry === "arm") { close(at, "arm cancelled"); continue; }
+
+    if (side && side !== open.side) continue;
+
+    if (rules.exit === "reduce" && (signal === "REDUCE_CALL" || signal === "REDUCE_PUT")) {
+      close(at, "first reduce"); continue;
+    }
+    if (rules.exit !== "hold" && (signal === "SELL_CALL" || signal === "SELL_PUT")) {
+      close(at, "sell signal"); continue;
+    }
+    if (rules.exitBelowScore && Math.abs(score) < rules.exitBelowScore) {
+      close(at, `score faded below ${rules.exitBelowScore}`); continue;
+    }
+    // STAND_ASIDE means the indicator believes it is flat. Following it is the
+    // same call the live state machine makes, and for the same reason.
+    if (signal === "STAND_ASIDE" && rules.exit !== "hold") { close(at, "stand aside"); continue; }
   }
+
   if (open) trades.push({ ...open, exitAt: null, exitWhy: "still open at close" });
   return trades;
 }

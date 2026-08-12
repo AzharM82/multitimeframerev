@@ -184,7 +184,7 @@
       ]
     },
     {
-      "route": "/api/tv-trend-webhook",
+      "route": "/api/spy-conviction",
       "methods": [
         "POST",
         "GET"
@@ -194,9 +194,10 @@
       ]
     },
     {
-      "route": "/api/tv-regime-timer",
+      "route": "/api/tv-trend-webhook",
       "methods": [
-        "POST"
+        "POST",
+        "GET"
       ],
       "allowedRoles": [
         "anonymous"

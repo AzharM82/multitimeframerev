@@ -74,12 +74,12 @@ import "./functions/journalTrades.js";
 import "./functions/journalNotes.js";
 import "./functions/journalSummary.js";
 
-// SPY 5-min breadth-streak system — TradingView "4-Chart Majority Trend"
-// webhook (the trigger) qualified against the Gate's SPY regime (the filter),
-// refreshed onto a single row by the cron so the webhook stays inside
-// TradingView's 3-second cancel.
-import "./functions/tvTrendWebhook.js";
-import "./functions/tvRegimeTimer.js";
+// SPY Conviction Score — TradingView alert sink for the six-leg 10-minute
+// indicator. Registers /api/spy-conviction AND /api/tv-trend-webhook, the URL
+// already configured in TradingView. Replaced the 5-min breadth-streak + Gate
+// regime system on 2026-08-12: the indicator now emits the decision itself, so
+// there is no regime lookup and no regime cron.
+import "./functions/spyConviction.js";
 
 // Portal authentication — SWA rolesSource allowlist (Google sign-in).
 // Invoked by the SWA platform, not the browser; must stay anonymous.

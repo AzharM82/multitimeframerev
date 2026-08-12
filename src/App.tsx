@@ -9,7 +9,7 @@ import { SectorDeskPage } from "./views/SectorDeskPage.js";
 import { TradingViewPage } from "./views/TradingViewPage.js";
 import { OpeningDrivePage } from "./views/OpeningDrivePage.js";
 import { JournalPage } from "./views/JournalPage.js";
-import { SpyStreakPage } from "./views/SpyStreakPage.js";
+import { SpyConvictionPage } from "./views/SpyConvictionPage.js";
 import { ErrorBoundary } from "./views/ErrorBoundary.js";
 import { AboutPage } from "./views/AboutPage.js";
 
@@ -23,7 +23,7 @@ const TABS: { key: Page; label: string }[] = [
   { key: "rotation", label: "Rotation" },
   { key: "chart", label: "Chart Analysis" },
   { key: "opening", label: "Opening Drive" },
-  { key: "spy", label: "SPY Streak" },
+  { key: "spy", label: "SPY Conviction" },
   { key: "journal", label: "Journal" },
   { key: "about", label: "About" },
 ];
@@ -119,7 +119,7 @@ function App() {
           {page === "rotation" && <RotationPage />}
           {page === "chart" && <TradingViewPage />}
           {page === "opening" && <OpeningDrivePage />}
-          {page === "spy" && <SpyStreakPage />}
+          {page === "spy" && <SpyConvictionPage />}
           {page === "journal" && <JournalPage />}
           {page === "about" && <AboutPage />}
         </ErrorBoundary>

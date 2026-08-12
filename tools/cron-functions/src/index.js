@@ -121,19 +121,12 @@ app.timer("openingDriveEngineCron", {
   handler: async (_t, ctx) => fire("opening-drive-engine", ctx),
 });
 
-// SPY breadth-streak regime — refresh the Gate snapshot the TradingView trend
-// webhook qualifies streaks against. Every 15 min through the session, plus one
-// pre-open run so the very first streak of the day already has a regime.
-// The webhook ages this out at 90 min (REGIME_MAX_AGE_MIN) and degrades to "no
-// recommendation" rather than trusting a stale read.
-app.timer("tvRegimeCron", {
-  schedule: "0 20 9 * * 1-5",
-  handler: async (_t, ctx) => fire("tv-regime-timer", ctx),
-});
-app.timer("tvRegimeSessionCron", {
-  schedule: "0 */15 9-16 * * 1-5",
-  handler: async (_t, ctx) => fire("tv-regime-timer", ctx),
-});
+// The SPY breadth-streak regime cron (tvRegimeCron / tvRegimeSessionCron) was
+// removed 2026-08-12. It kept a Gate snapshot warm so the streak webhook could
+// qualify a streak inside TradingView's 3-second cancel. The SPY Conviction
+// Score indicator that replaced that system emits its own decision, so there is
+// nothing left to pre-compute — and a timer whose endpoint is gone fails every
+// 15 minutes into a log nobody reads.
 
 // Day-trade reversal scanning is no longer in this Function App. It moved
 // to a local Python scanner (tools/chart-ocr/finviz_scanner.py) so reversal

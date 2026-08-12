@@ -188,11 +188,19 @@ export async function tvRestoreView(view) {
  * Returns null when TradingView cannot serve it — an unknown symbol, or the
  * chart never producing data. Null means "ask Polygon", never "no trades".
  */
-export async function tvOptionBars(tvSymbol, { resolution = "5", tries = 2, timeoutMs = 25_000 } = {}) {
+/**
+ * `matchSymbol: false` for SPREAD expressions like "ADD+ADDQ". TradingView
+ * resolves those to something that does not contain the requested string, so the
+ * containment check can never pass. Instead we require the resolved symbol to
+ * have CHANGED from what was on the chart before — which still rules out the
+ * real hazard, silently reading the previous symbol's bars.
+ */
+export async function tvOptionBars(tvSymbol, { resolution = "5", tries = 2, timeoutMs = 25_000, matchSymbol = true } = {}) {
   const target = await chartTarget();
   if (!target) return null;
   const s = await Session.open(target.webSocketDebuggerUrl);
   try {
+    const before = await s.eval(`(() => { try { return String(window.TradingViewApi.activeChart().symbol()); } catch (e) { return ""; } })()`);
     for (let attempt = 1; attempt <= tries; attempt++) {
       /**
        * THREE SEPARATE EVALUATES, deliberately.
@@ -223,7 +231,10 @@ export async function tvOptionBars(tvSymbol, { resolution = "5", tries = 2, time
         const norm = (x) => String(x).toUpperCase().replace(/[^A-Z0-9.]/g, "");
         // Compare on the bare contract: we send OPRA:..., it resolves OPRA_DLY:...
         const bare = norm(tvSymbol).replace(/^OPRA(DLY)?/, "");
-        if (state && state.size > 0 && norm(state.sym).includes(bare)) { ready = true; break; }
+        const onTarget = matchSymbol
+          ? norm(state.sym).includes(bare)
+          : norm(state.sym) !== norm(before);
+        if (state && state.size > 0 && onTarget) { ready = true; break; }
       }
       if (!ready) continue;
 

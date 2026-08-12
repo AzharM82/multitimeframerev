@@ -1,22 +1,24 @@
 <#
-  Registers the SPY streak research agent as a weekday scheduled task.
+  Registers the SPY conviction research agent as a weekday scheduled task.
 
   Runs on THIS machine (the dev box), like tools/journal-sync - it needs the
   Claude CLI and the Polygon key, neither of which belongs in Azure.
 
-  TIMING: 13:30 PT, thirty minutes after the 13:00 close, reporting on TODAY.
+  TIMING: 06:00 PT, before the open, reporting on the PREVIOUS session.
 
-  Same-day is possible because TradingView serves the current session's option
-  bars; Polygon refuses them (403, T-1 and older only) and stays as the fallback
-  for EXPIRED contracts, which TradingView will not serve. The thirty minutes is
-  for the delayed OPRA feed (_DLY) to finish filling the closing bars.
+  Follows from the source. Operator chose Polygon (BAR_SOURCE=polygon), which
+  refuses the current session outright (403, T-1 and older only) - so the report
+  can only ever be about yesterday, and pre-open is when yesterday's review is
+  still able to change how today is traded. Polygon is headless, needs no desktop
+  app, never touches the operator's chart, and is the ONLY source for expired
+  contracts.
 
-  If TradingView is not running the agent silently reports on the PREVIOUS
-  session instead, since that is all Polygon can price.
+  Set BAR_SOURCE=tradingview in research.env to trade that for same-day data,
+  and move this to 13:30 - but note a sweep then drives the operator's chart
+  through dozens of contracts for a couple of minutes.
 
-  NOTE: a sweep drives the TradingView chart through dozens of contracts, taking
-  a couple of minutes. Operator accepted this for an end-of-day run. The chart is
-  saved and restored around the sweep.
+  A cold Polygon sweep takes 10-20 minutes: option aggregates are capped at
+  ~5 requests/minute. Bars cache to disk, so re-runs are seconds.
 
   The sweep is slow by design the FIRST time a day is analysed: option
   aggregates are rate-limited to ~5 requests/minute, so a cold run takes
@@ -31,12 +33,12 @@
     .\register-task.ps1 -Unregister
 #>
 param(
-  [string]$At = "13:30",
+  [string]$At = "06:00",
   [switch]$Unregister
 )
 
 $ErrorActionPreference = "Stop"
-$TaskName = "MTF SPY Streak Research"
+$TaskName = "MTF SPY Conviction Research"
 $Here     = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Script   = Join-Path $Here "research.mjs"
 
@@ -57,7 +59,7 @@ if (-not $node) { throw "node is not on PATH" }
 
 # node.exe, not the .cmd shim, so Task Scheduler does not flash a console window.
 $action = New-ScheduledTaskAction -Execute $node -Argument "`"$Script`"" -WorkingDirectory $Here
-# Weekdays only - there are no streaks on a day the market did not open.
+# Weekdays only - there are no bars on a day the market did not open.
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At $At
 # StartWhenAvailable catches up if the machine was asleep at the trigger time.
 # 60 minutes is generous for a cold, rate-limited sweep.
@@ -65,7 +67,7 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopIfGoingOnB
   -AllowStartIfOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 60)
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-  -Settings $settings -Description "Replay the day's SPY breadth streaks against real option bars and publish the research report to the portal." -Force | Out-Null
+  -Settings $settings -Description "Replay the day's SPY conviction signals against real option bars and publish the research report to the portal." -Force | Out-Null
 
 "Registered '$TaskName' - weekdays at $At on $env:COMPUTERNAME."
 "Run it now with:  Start-ScheduledTask -TaskName '$TaskName'"

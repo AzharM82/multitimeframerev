@@ -897,47 +897,79 @@ export interface OpeningDriveResponse {
   candidates: OpeningDriveCandidate[];
 }
 
-// ── SPY breadth-streak system ────────────────────────────────────────────────
-// TradingView "4-Chart Majority Trend" streaks, qualified by the Gate's SPY
-// regime. Every field here is a record of a DECISION, including the ones that
-// deliberately produced no alert — silence is the state the operator most needs
-// to be able to see.
+// ── SPY Conviction Score ─────────────────────────────────────────────────────
+// TradingView's six-leg 10-minute indicator (Cum TICK, volume pressure, SPY vs
+// VWAP, SPY vs EMA9, SPY/RSP lead, VIX) emits the decision directly. Replaced
+// the 5-min breadth-streak + Gate-regime system on 2026-08-12.
+//
+// Every field is a record of a DECISION, including the ones that deliberately
+// produced no alert — silence is the state the operator most needs to see.
 
-export interface SpyStreakEvent {
+export type ConvictionSignal =
+  | "ARM_CALL" | "ARM_PUT" | "ARM_CANCEL"
+  | "BUY_CALL" | "BUY_PUT"
+  | "HOLD_CALL" | "HOLD_PUT"
+  | "REDUCE_CALL" | "REDUCE_PUT"
+  | "SELL_CALL" | "SELL_PUT"
+  | "STAND_ASIDE";
+
+export type ConvictionState = "FLAT" | "ARMED_CALL" | "ARMED_PUT" | "LONG_CALL" | "LONG_PUT";
+
+export interface ConvictionEvent {
   receivedAt: string;
-  trend: "green" | "red";
-  event: "trend_start" | "trend_end";
+  strategy: string;
+  signal: ConvictionSignal;
   action: string;
-  why: string;
+  side: "CALL" | "PUT" | "NONE";
+
+  grade: string;
+  bias: string;
+  score: number;
+  legsAgree: number;
+
+  entryTrigger: string;
+  entryDistAtr: number;
+  extAtr: number;
+  barsHeld: number;
+  entryScore: number;
+  entryPx: number;
+  blockReason: string;
+
+  /** The six legs, plus price context. */
+  spy: number;
+  vwap: number;
+  ema9: number;
+  atr: number;
+  vix: number;
+  tick: number;
+  cvd: number;
+  breadthRatio: number;
+
+  tf: string;
+  chartSymbol: string;
+  /** The indicator's bar timestamp, and the HH:MM the alert line prints. */
+  barTime: string;
+  barHhmm: string;
+
+  stateFrom: ConvictionState;
+  stateTo: ConvictionState;
+  anomaly: boolean;
+  anomalyDetail: string;
   notified: boolean;
-  positionBefore: string;
-  positionAfter: string;
-  regimeLabel: string;
-  regimeDecision: string;
-  regimeStale: boolean;
   withinRth: boolean;
-  parseMode: string;
+  /** The one-line notification exactly as it was sent. */
+  line: string;
 }
 
-export interface SpyStreakHit {
+export interface ConvictionHit {
   receivedAt: string;
   ip: string;
   fromTradingView: boolean;
   decision: string;
   reason?: string;
-  trend?: string;
-  event?: string;
+  signal?: string;
+  action?: string;
   raw?: string;
-}
-
-export interface SpyRegimeSample {
-  capturedAt: string;
-  label: string;
-  direction: "bullish" | "bearish" | "neutral";
-  decision: "YES" | "CAUTION" | "NO";
-  qualityScore: number;
-  spyPrice: number;
-  ma50: number;
 }
 
 export interface SpyResearchVariant {
@@ -967,17 +999,20 @@ export interface SpyResearchReport {
   variants: SpyResearchVariant[];
 }
 
-export interface SpyStreakResponse {
+export interface SpyConvictionResponse {
   date: string;
-  position: "FLAT" | "CALLS" | "PUTS";
-  positionSince: string;
-  entryRegime: string;
-  regime: SpyRegimeSample | null;
-  regimeAgeMin: number | null;
+  /** What we BELIEVE is open. The operator trades by hand, so it can drift. */
+  state: ConvictionState;
+  since: string;
+  entryScore: number;
+  entryPx: number;
+  lastSignal: string;
+  lastBarTime: string;
+  /** Running count of out-of-order transitions — a standing health signal. */
+  anomalies: number;
   /** Last time TradingView itself reached us — the real liveness signal. */
   lastTradingViewContact: string | null;
-  events: SpyStreakEvent[];
-  hits: SpyStreakHit[];
-  regimeSamples: SpyRegimeSample[];
+  events: ConvictionEvent[];
+  hits: ConvictionHit[];
   research: SpyResearchReport | null;
 }
