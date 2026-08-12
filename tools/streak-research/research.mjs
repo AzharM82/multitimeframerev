@@ -32,6 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { spyBars, pairTrades, priceTrade, summarise, fetchStats, etHHMM } from "./simulate.mjs";
+import { tvAvailable, tvCurrentView, tvRestoreView } from "./tvbars.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const log = (...a) => console.log(" ", ...a);
@@ -181,7 +182,29 @@ function previousSession(from = new Date()) {
   do { d.setUTCDate(d.getUTCDate() - 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
   return d.toISOString().slice(0, 10);
 }
-const endDate = dateArg ?? previousSession();
+/**
+ * Today when TradingView can price it, otherwise the previous session.
+ *
+ * TradingView serves the CURRENT session's option bars; Polygon refuses them.
+ * So the report is same-day whenever the desktop app is up, and silently falls
+ * back to yesterday when it is not — rather than producing a run where every
+ * contract 403s.
+ */
+const tvUp = await tvAvailable();
+const endDate = dateArg ?? (tvUp
+  ? new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" })
+  : previousSession());
+
+/**
+ * A sweep walks the operator's chart through dozens of contracts, so put it
+ * back where they left it. Best-effort: failing to restore a chart must never
+ * fail a report.
+ */
+let savedView = null;
+const restoreChart = async () => {
+  if (!savedView) return;
+  try { await tvRestoreView(savedView); } catch { /* chart may have been closed */ }
+};
 
 /**
  * Weekday sessions ending at endDate. Each day is simulated SEPARATELY and the
@@ -205,6 +228,9 @@ const date = dates[dates.length - 1];
 
 console.log(`\nstreak-research  ${date}${dryRun ? "  [DRY RUN]" : ""}`);
 console.log(`portal: ${cfg.PORTAL_URL}\n`);
+console.log(`option bars: ${tvUp ? "TradingView (same-day) with Polygon fallback" : "Polygon only — TradingView not running, so previous session"}
+`);
+if (tvUp) savedView = await tvCurrentView().catch(() => null);
 
 const sessions = [];
 for (const d of dates) {
@@ -235,7 +261,7 @@ for (const rules of RULE_SETS) {
           date: s.date, key: cfg.POLYGON_API_KEY, spy: s.spy,
           // Option bars are paced at ~5/min, so a cold sweep takes minutes. Say
           // so as it happens rather than looking hung.
-          onFetch: (tk) => log(`   fetching ${tk} (paced ~13s; cached ${fetchStats.cached}, fetched ${fetchStats.fetched})`),
+          onFetch: (tk) => log(`   fetching ${tk}  [cache ${fetchStats.cached} · tv ${fetchStats.tradingview} · poly ${fetchStats.polygon}]`),
         }));
         } catch (e) {
           if (e.code === "NOT_ENTITLED") {
@@ -248,6 +274,8 @@ for (const rules of RULE_SETS) {
   }
   log(`${rules.id.padEnd(20)} ${signalCount} trade(s) across ${sessions.length} session(s)`);
 }
+await restoreChart();
+log(`bars: ${fetchStats.cached} cached, ${fetchStats.tradingview} from TradingView, ${fetchStats.polygon} from Polygon`);
 
 /**
  * INDEPENDENT signals, not the sum across the sweep.

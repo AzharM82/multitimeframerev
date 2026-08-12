@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { toTvSymbol, tvOptionBars, tvAvailable } from "./tvbars.mjs";
 
 const POLY = "https://api.polygon.io";
 const ET = "America/New_York";
@@ -116,21 +117,60 @@ export async function chain(date, expiry, type, key) {
 }
 
 const barCache = new Map();
-export let fetchStats = { cached: 0, fetched: 0 };
+export let fetchStats = { cached: 0, tradingview: 0, polygon: 0 };
+/** Which source priced each contract, so any number in the report is traceable. */
+export const barSource = new Map();
 
+let tvChecked = false, tvUsable = false;
+async function tvReady() {
+  if (!tvChecked) { tvChecked = true; tvUsable = await tvAvailable(); }
+  return tvUsable;
+}
+
+/**
+ * 5-minute bars for one contract on one session, keyed by ET HH:MM.
+ *
+ * SOURCE ORDER: disk cache, then TradingView, then Polygon.
+ *
+ * TradingView first because it is the only one that has TODAY — Polygon 403s the
+ * current session on this plan — and because it answers in ~1.5s against
+ * Polygon's enforced 13s spacing. Polygon is not redundant though: TradingView
+ * does not serve EXPIRED contracts, and a backtest is mostly expired contracts.
+ * So the two genuinely cover different halves of the problem and the fallback
+ * stays.
+ */
 export async function optionBars(ticker, date, key, onFetch) {
   if (barCache.has(ticker)) return barCache.get(ticker);
 
   let rows = readCache(ticker, date);
+  let source = "cache";
+
   if (rows) {
     fetchStats.cached += 1;
   } else {
     if (onFetch) onFetch(ticker);
-    const j = await poly(`${POLY}/v2/aggs/ticker/${ticker}/range/5/minute/${date}/${date}?limit=50000&sort=asc`, key, { paced: true });
-    rows = j.results ?? [];
+
+    if (await tvReady()) {
+      const sym = toTvSymbol(ticker);
+      const tvBars = sym ? await tvOptionBars(sym) : null;
+      if (tvBars && tvBars.length) {
+        // TradingView hands back its whole window (~5 sessions); keep this day.
+        rows = tvBars.filter((b) => new Date(b.t).toLocaleDateString("en-CA", { timeZone: ET }) === date);
+        if (rows.length) { source = "tradingview"; fetchStats.tradingview += 1; }
+        else rows = null; // in its window but not this date — let Polygon try
+      }
+    }
+
+    if (!rows) {
+      const j = await poly(`${POLY}/v2/aggs/ticker/${ticker}/range/5/minute/${date}/${date}?limit=50000&sort=asc`, key, { paced: true });
+      rows = j.results ?? [];
+      source = "polygon";
+      fetchStats.polygon += 1;
+    }
     writeCache(ticker, date, rows);
-    fetchStats.fetched += 1;
   }
+
+  barSource.set(ticker, source);
   const map = new Map();
   for (const b of rows) map.set(etHHMM(b.t), b);
   barCache.set(ticker, map);
