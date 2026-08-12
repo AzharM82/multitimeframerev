@@ -1,29 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SpyStreakResponse, SpyStreakEvent, SpyRegimeSample, SpyResearchReport } from "../types.js";
-import { getSpyStreak, forceSpyFlat } from "../services/api.js";
+import type {
+  SpyConvictionResponse, ConvictionEvent, ConvictionState, SpyResearchReport,
+} from "../types.js";
+import { getSpyConviction, forceSpyFlat } from "../services/api.js";
 import { fmtTimePT, PT_LABEL } from "../utils/time.js";
 
 /**
- * SPY Streak — the window into the breadth-streak system.
+ * SPY Conviction — the window into the score system.
  *
  * WHY THIS EXISTS: the system is alerts-only, and by design most events produce
- * NO alert — a green_end on a bullish day is a pause, a counter-trend streak is
- * suppressed. That is correct behaviour, but from the operator's phone a healthy
- * quiet system and a dead one look identical. On 2026-08-10 a real TradingView
- * streak arrived, was correctly suppressed, and the only way to know any of that
- * had happened was to query table storage by hand.
+ * NO alert. Every 10-minute bar sends something; HOLD and STAND_ASIDE are the
+ * quiet majority and stay silent on purpose. That is correct, but from the
+ * operator's phone a healthy quiet system and a dead one look identical — the
+ * lesson the streak tab was built on, and it carries over unchanged.
  *
- * So this page is built around ONE question — "is it alive, and what did it
- * decide?" — and it shows the silent decisions and the rejected hits with the
- * same prominence as the alerts. A rejected secret must never look like a quiet
- * market.
+ * So the page answers ONE question first — "is it alive, and what did it
+ * decide?" — and gives the silent bars and the REJECTED hits the same
+ * prominence as the alerts. A wrong secret must never look like a flat tape.
  */
 
 /**
  * Times DISPLAY in Pacific via utils/time — the portal-wide rule. Market LOGIC
  * (the 9:30–16:00 session, the trading-day partition key) stays Eastern, which
- * is why ET survives below for positioning and for `tradingDay`. I originally
- * rendered this page in ET and broke that convention; see utils/time.ts.
+ * is why ET survives below for positioning and for `tradingDay`.
  */
 const ET = "America/New_York";
 
@@ -41,6 +40,20 @@ const OPEN = 9 * 60 + 30;
 const CLOSE = 16 * 60;
 
 /**
+ * Where a bar belongs on the x-axis.
+ *
+ * The BAR's own timestamp, not the arrival time. They agree to within seconds
+ * on a healthy feed, but when they disagree — a retry, a delayed webhook, a
+ * replayed session — the bar time is the one that says when the market actually
+ * did the thing. `barHhmm` is exchange time (ET), which is what the axis is in.
+ */
+function barMinutes(e: ConvictionEvent): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(e.barHhmm ?? "");
+  if (m) return Number(m[1]) * 60 + Number(m[2]);
+  return etMinutes(e.receivedAt);
+}
+
+/**
  * An ET session minute rendered as a Pacific clock label — 9:30 ET reads 6:30.
  * US Eastern and Pacific change DST on the same dates, so the gap is a constant
  * three hours year-round and a fixed shift is exact, not an approximation.
@@ -50,11 +63,21 @@ const ptTick = (etMin: number) => {
   return `${((Math.floor(m / 60) + 11) % 12) + 1}:${String(m % 60).padStart(2, "0")}`;
 };
 
-const TONE: Record<string, string> = {
-  bullish: "text-signal-bull",
-  bearish: "text-signal-bear",
-  neutral: "text-text-secondary",
-};
+/**
+ * The bar's own clock, in Pacific — what the table shows.
+ *
+ * Deliberately NOT the arrival time. On a healthy feed they agree to within
+ * seconds, but the arrival time of a backfill or a replay is "now" for every
+ * row, which reads as twenty alerts in the same minute and disagrees with the
+ * chart, which is drawn on bar time. The bar time is when the market did the
+ * thing, and that is the column an operator is actually reading.
+ */
+function barLabelPT(e: ConvictionEvent): string {
+  const min = barMinutes(e) - 180;
+  const h12 = ((Math.floor(min / 60) + 11) % 12) + 1;
+  const ampm = Math.floor(min / 60) % 24 < 12 ? "AM" : "PM";
+  return `${h12}:${String(((min % 60) + 60) % 60).padStart(2, "0")} ${ampm}`;
+}
 
 const ago = (iso: string | null) => {
   if (!iso) return null;
@@ -66,113 +89,133 @@ const ago = (iso: string | null) => {
   return h < 24 ? `${h}h${String(mins % 60).padStart(2, "0")}m ago` : `${Math.floor(h / 24)}d ago`;
 };
 
-// ─── The timeline ────────────────────────────────────────────────────────────
-
-interface Span { trend: "green" | "red"; from: number; to: number; open: boolean }
-
-/**
- * Pair trend_start with the matching trend_end to get drawable spans.
- *
- * A start with no end is still drawn, running to "now" and flagged open — an
- * unfinished streak is the single most interesting thing on the page, and
- * dropping it because its partner has not arrived would hide exactly that.
- */
-function toSpans(events: SpyStreakEvent[], nowMin: number): Span[] {
-  const spans: Span[] = [];
-  const openOf: Record<string, number | null> = { green: null, red: null };
-  for (const e of events) {
-    const m = etMinutes(e.receivedAt);
-    if (e.event === "trend_start") {
-      if (openOf[e.trend] === null) openOf[e.trend] = m;
-    } else {
-      const from = openOf[e.trend];
-      if (from !== null) { spans.push({ trend: e.trend, from, to: m, open: false }); openOf[e.trend] = null; }
-      else spans.push({ trend: e.trend, from: Math.max(OPEN, m - 5), to: m, open: false });
-    }
+/** Bullish states green, bearish red, flat neutral — one rule, used everywhere. */
+function toneOf(x: { side?: string; state?: string; score?: number }): string {
+  const s = x.side ?? x.state ?? "";
+  if (s.includes("CALL")) return "text-signal-bull";
+  if (s.includes("PUT")) return "text-signal-bear";
+  if (typeof x.score === "number" && x.score !== 0) {
+    return x.score > 0 ? "text-signal-bull" : "text-signal-bear";
   }
-  for (const t of ["green", "red"] as const) {
-    if (openOf[t] !== null) spans.push({ trend: t, from: openOf[t]!, to: Math.max(openOf[t]! + 5, nowMin), open: true });
-  }
-  return spans;
+  return "text-text-secondary";
 }
 
-function Timeline({ spans, samples, events, isToday }: {
-  spans: Span[]; samples: SpyRegimeSample[]; events: SpyStreakEvent[]; isToday: boolean;
-}) {
+const STATE_LABEL: Record<ConvictionState, string> = {
+  FLAT: "FLAT",
+  ARMED_CALL: "ARMED · CALLS",
+  ARMED_PUT: "ARMED · PUTS",
+  LONG_CALL: "LONG CALLS",
+  LONG_PUT: "LONG PUTS",
+};
+
+/** Signals that move real money get a pin; the rest are score samples only. */
+const PINNED = new Set(["ARM_CALL", "ARM_PUT", "ARM_CANCEL", "BUY_CALL", "BUY_PUT",
+  "REDUCE_CALL", "REDUCE_PUT", "SELL_CALL", "SELL_PUT"]);
+
+// ─── The timeline ────────────────────────────────────────────────────────────
+
+/**
+ * Conviction score across the session, zero-centred, with the decisions pinned
+ * on it.
+ *
+ * The score line is the whole story the streak bands used to tell, and it tells
+ * it better: you can see conviction building toward an ARM and draining before
+ * a SELL, instead of a binary colour that flips with no warning. A gap in the
+ * line is a gap in the feed — that must stay visible, so segments are only
+ * joined between consecutive bars.
+ */
+function Timeline({ events, isToday }: { events: ConvictionEvent[]; isToday: boolean }) {
   // L leaves room for the 9:30 tick label, which is centred on the axis origin
   // and would otherwise be clipped by the viewBox.
-  const W = 1000, H = 132, L = 34, R = 18;
+  const W = 1000, H = 172, L = 34, R = 18, TOP = 20, BOT = 118;
   const span = CLOSE - OPEN;
   const x = (min: number) => L + ((Math.min(Math.max(min, OPEN), CLOSE) - OPEN) / span) * (W - L - R);
+  /** Scores run −100…100; clamp so a runaway value cannot escape the frame. */
+  const y = (score: number) => {
+    const mid = (TOP + BOT) / 2;
+    return mid - (Math.max(-100, Math.min(100, score)) / 100) * ((BOT - TOP) / 2);
+  };
   const nowMin = etMinutes(new Date().toISOString());
 
   const ticks: number[] = [];
   for (let m = OPEN; m <= CLOSE; m += 30) ticks.push(m);
 
+  /** One point per bar, in session order. */
+  const pts = events
+    .map((e) => ({ e, min: barMinutes(e), score: e.score }))
+    .sort((a, b) => a.min - b.min);
+
+  /**
+   * Break the line wherever more than ~2 bars are missing. Drawing straight
+   * through a 40-minute outage would render the gap as a smooth trend, which is
+   * the one thing the operator must not be shown.
+   */
+  const segments: { min: number; score: number }[][] = [];
+  let run: { min: number; score: number }[] = [];
+  for (const p of pts) {
+    const prev = run[run.length - 1];
+    if (prev && p.min - prev.min > 25) { segments.push(run); run = []; }
+    run.push({ min: p.min, score: p.score });
+  }
+  if (run.length) segments.push(run);
+
   return (
     <div className="overflow-x-auto">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[640px]" role="img"
-        aria-label="Streak and regime timeline for the session">
+        aria-label="Conviction score and decisions across the session">
         {/* half-hour grid */}
         {ticks.map((m) => (
           <g key={m}>
-            <line x1={x(m)} y1={14} x2={x(m)} y2={H - 20} stroke="currentColor" className="text-border" strokeWidth={1} />
+            <line x1={x(m)} y1={TOP - 6} x2={x(m)} y2={BOT + 22} stroke="currentColor" className="text-border" strokeWidth={1} />
             <text x={x(m)} y={H - 6} textAnchor="middle" className="fill-current text-text-secondary" fontSize={10}>
               {ptTick(m)}
             </text>
           </g>
         ))}
 
-        {/* REGIME lane — one tick per refresh, so a gap means the cron stopped
-            rather than the regime holding steady. That distinction is the point. */}
-        <text x={L} y={11} className="fill-current text-text-secondary" fontSize={9}>REGIME</text>
-        {samples.map((s, i) => {
-          const next = samples[i + 1];
-          const from = etMinutes(s.capturedAt);
-          const to = next ? etMinutes(next.capturedAt) : Math.min(from + 15, isToday ? nowMin : CLOSE);
-          const cls = s.direction === "bullish" ? "text-signal-bull" : s.direction === "bearish" ? "text-signal-bear" : "text-dim";
-          return (
-            <rect key={s.capturedAt} x={x(from)} y={18} width={Math.max(1.5, x(to) - x(from))} height={16}
-              className={cls} fill="currentColor" opacity={s.decision === "NO" ? 0.25 : 0.65}>
-              <title>{`${fmtTimePT(s.capturedAt)} — ${s.label} · Gate ${s.decision} · quality ${s.qualityScore}`}</title>
-            </rect>
-          );
-        })}
-        {samples.length === 0 && (
-          <text x={L + 54} y={31} className="fill-current text-dim" fontSize={10}>
-            no regime samples for this day
-          </text>
-        )}
-
-        {/* STREAK lane — bands from start to end. */}
-        <text x={L} y={54} className="fill-current text-text-secondary" fontSize={9}>STREAKS</text>
-        <line x1={L} y1={72} x2={W - R} y2={72} stroke="currentColor" className="text-border" strokeWidth={1} />
-        {spans.map((s, i) => (
-          <rect key={i} x={x(s.from)} y={60} width={Math.max(3, x(s.to) - x(s.from))} height={24} rx={2}
-            className={s.trend === "green" ? "text-signal-bull" : "text-signal-bear"}
-            fill="currentColor" opacity={s.open ? 0.45 : 0.8}
-            stroke="currentColor" strokeWidth={s.open ? 1.5 : 0} strokeDasharray={s.open ? "3 2" : undefined}>
-            <title>{`${s.trend.toUpperCase()} streak ${ptTick(s.from)}–${s.open ? "now" : ptTick(s.to)} ${PT_LABEL}${s.open ? " (still running)" : ""}`}</title>
-          </rect>
+        {/* score bands: ±100 edges, 0 centre. The centre line is heavier because
+            a score crossing it is the moment the thesis changes side. */}
+        {[100, 50, -50, -100].map((s) => (
+          <g key={s}>
+            <line x1={L} y1={y(s)} x2={W - R} y2={y(s)} stroke="currentColor" className="text-border" strokeWidth={0.5} strokeDasharray="2 3" />
+            <text x={L - 4} y={y(s) + 3} textAnchor="end" className="fill-current text-dim" fontSize={8}>{s > 0 ? `+${s}` : s}</text>
+          </g>
         ))}
-        {spans.length === 0 && (
-          <text x={L + 54} y={75} className="fill-current text-dim" fontSize={10}>
-            no streaks recorded for this day
+        <line x1={L} y1={y(0)} x2={W - R} y2={y(0)} stroke="currentColor" className="text-text-secondary" strokeWidth={1} />
+        <text x={L - 4} y={y(0) + 3} textAnchor="end" className="fill-current text-text-secondary" fontSize={8}>0</text>
+        <text x={L} y={12} className="fill-current text-text-secondary" fontSize={9}>CONVICTION SCORE</text>
+
+        {/* the score line */}
+        {segments.map((seg, i) => (
+          <polyline key={i} fill="none" stroke="currentColor" className="text-text-primary" strokeWidth={1.5}
+            points={seg.map((p) => `${x(p.min)},${y(p.score)}`).join(" ")} />
+        ))}
+
+        {/* every bar gets a dot, so a silent HOLD is still visibly a heartbeat */}
+        {pts.map((p, i) => (
+          <circle key={`d${i}`} cx={x(p.min)} cy={y(p.score)} r={1.8}
+            className={toneOf({ score: p.score })} fill="currentColor" opacity={0.8}>
+            <title>{`${fmtTimePT(p.e.receivedAt)} — ${p.e.signal} · score ${p.e.score} · ${p.e.legsAgree}/6 legs`}</title>
+          </circle>
+        ))}
+
+        {segments.length === 0 && (
+          <text x={L + 60} y={y(0) - 6} className="fill-current text-dim" fontSize={10}>
+            no conviction alerts recorded for this day
           </text>
         )}
 
-        {/* Event markers — a filled pin alerted, hollow was a silent decision. */}
-        {events.map((e, i) => {
-          const ex = x(etMinutes(e.receivedAt));
+        {/* Decision pins — filled alerted, hollow was a silent decision. */}
+        {pts.filter((p) => PINNED.has(p.e.signal)).map((p, i) => {
+          const px = x(p.min);
           return (
-            <g key={i}>
-              <line x1={ex} y1={88} x2={ex} y2={98} stroke="currentColor"
-                className={e.trend === "green" ? "text-signal-bull" : "text-signal-bear"} strokeWidth={1.5} />
-              <circle cx={ex} cy={101} r={3.5}
-                className={e.trend === "green" ? "text-signal-bull" : "text-signal-bear"}
-                fill={e.notified ? "currentColor" : "var(--color-bg-card, #fff)"}
+            <g key={`p${i}`}>
+              <line x1={px} y1={y(p.score)} x2={px} y2={BOT + 8} stroke="currentColor"
+                className={toneOf(p.e)} strokeWidth={1} opacity={0.5} />
+              <circle cx={px} cy={BOT + 12} r={3.5} className={toneOf(p.e)}
+                fill={p.e.notified ? "currentColor" : "var(--color-bg-card, #fff)"}
                 stroke="currentColor" strokeWidth={1.5}>
-                <title>{`${fmtTimePT(e.receivedAt)} ${e.trend} ${e.event} → ${e.action}${e.notified ? " (alerted)" : " (silent)"}\n${e.why}`}</title>
+                <title>{`${fmtTimePT(p.e.receivedAt)} ${p.e.signal}${p.e.notified ? " (alerted)" : " (silent)"}\n${p.e.line}`}</title>
               </circle>
             </g>
           );
@@ -180,14 +223,13 @@ function Timeline({ spans, samples, events, isToday }: {
 
         {/* now */}
         {isToday && nowMin >= OPEN && nowMin <= CLOSE && (
-          <line x1={x(nowMin)} y1={14} x2={x(nowMin)} y2={H - 20} stroke="currentColor"
+          <line x1={x(nowMin)} y1={TOP - 6} x2={x(nowMin)} y2={BOT + 22} stroke="currentColor"
             className="text-text-primary" strokeWidth={1} strokeDasharray="2 2" />
         )}
       </svg>
     </div>
   );
 }
-
 
 // ─── EOD research ────────────────────────────────────────────────────────────
 
@@ -245,7 +287,7 @@ function ResearchSection({ report }: { report: SpyResearchReport | null }) {
           <div className="px-3 py-4 text-xs text-text-secondary">
             No report for this day. It is generated after the close by{" "}
             <code className="text-[11px]">tools/streak-research/research.mjs</code>, which replays the
-            day&apos;s streaks against real SPY option bars.
+            day&apos;s BUY → SELL signals against real SPY option bars.
           </div>
         ) : (
           <div className="px-3 py-3 space-y-3">
@@ -285,7 +327,7 @@ function ResearchSection({ report }: { report: SpyResearchReport | null }) {
             </div>
 
             <div className="text-[10px] text-dim">
-              Generated {new Date(report.generatedAt).toLocaleString()} · fills are the next 5-min bar&apos;s open
+              Generated {new Date(report.generatedAt).toLocaleString()} · fills are the next bar&apos;s open
               after each signal · P&amp;L is one contract · the numbers are computed deterministically, only the
               commentary is model-written.
             </div>
@@ -298,17 +340,18 @@ function ResearchSection({ report }: { report: SpyResearchReport | null }) {
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
-export function SpyStreakPage() {
+export function SpyConvictionPage() {
   const [date, setDate] = useState<string>(tradingDay);
-  const [data, setData] = useState<SpyStreakResponse | null>(null);
+  const [data, setData] = useState<SpyConvictionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showHits, setShowHits] = useState(false);
+  const [showSilent, setShowSilent] = useState(false);
 
   const load = useCallback(async (d: string) => {
     setLoading(true); setError(null);
-    try { setData(await getSpyStreak(d)); }
+    try { setData(await getSpyConviction(d)); }
     catch (e) { setError(e instanceof Error ? e.message : "failed to load"); }
     finally { setLoading(false); }
   }, []);
@@ -323,8 +366,17 @@ export function SpyStreakPage() {
   }, [date, load]);
 
   const isToday = date === tradingDay();
-  const nowMin = etMinutes(new Date().toISOString());
-  const spans = useMemo(() => toSpans(data?.events ?? [], nowMin), [data, nowMin]);
+
+  const { latest, alerted, silent, rejected, anomalies } = useMemo(() => {
+    const events = data?.events ?? [];
+    return {
+      latest: events.length ? events[events.length - 1] : null,
+      alerted: events.filter((e) => e.notified).length,
+      silent: events.filter((e) => !e.notified).length,
+      rejected: (data?.hits ?? []).filter((h) => h.decision.startsWith("rejected") || h.decision === "deadletter"),
+      anomalies: events.filter((e) => e.anomaly),
+    };
+  }, [data]);
 
   const onFlat = async () => {
     setBusy(true);
@@ -333,22 +385,20 @@ export function SpyStreakPage() {
     finally { setBusy(false); }
   };
 
-  if (loading && !data) return <div className="text-center py-16 text-sm text-text-secondary">Loading SPY streak …</div>;
+  if (loading && !data) return <div className="text-center py-16 text-sm text-text-secondary">Loading SPY conviction …</div>;
   if (error && !data) return <div className="text-center py-16 text-sm text-signal-bear">{error}</div>;
   if (!data) return null;
 
-  const r = data.regime;
-  const stale = data.regimeAgeMin !== null && data.regimeAgeMin > 90;
-  const rejected = data.hits.filter((h) => h.decision.startsWith("rejected"));
-  const silent = data.events.filter((e) => !e.notified).length;
+  const shown = showSilent ? data.events : data.events.filter((e) => e.notified || e.anomaly);
 
   return (
     <div className="space-y-3">
       <div className="flex items-baseline gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold">SPY Streak</h1>
+          <h1 className="text-xl font-bold">SPY Conviction</h1>
           <p className="text-xs text-text-secondary">
-            5-min breadth streaks from TradingView, qualified by the Gate's SPY regime. Alerts only — nothing is traded.
+            Six breadth and price legs scored on closed 10-minute SPY bars, from TradingView.
+            Alerts only — nothing is traded, sized or staged.
           </p>
         </div>
         <span className="flex-1" />
@@ -362,25 +412,28 @@ export function SpyStreakPage() {
       {/* Live state. Everything here answers "is it alive". */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <div className="bg-bg-card border border-border rounded px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wider text-text-secondary">Regime</div>
-          <div className={`text-sm font-bold ${r ? TONE[r.direction] : "text-dim"}`}>{r ? r.label : "unknown"}</div>
-          <div className="text-[10px] text-text-secondary">
-            {r ? `Gate ${r.decision} · quality ${r.qualityScore}` : "no regime on record"}
+          <div className="text-[10px] uppercase tracking-wider text-text-secondary">Latest score</div>
+          <div className={`text-sm font-bold ${latest ? toneOf({ score: latest.score }) : "text-dim"}`}>
+            {latest ? `${latest.score > 0 ? "+" : ""}${latest.score}` : "—"}
+            {latest && <span className="font-normal text-text-secondary"> · {latest.legsAgree}/6 legs</span>}
           </div>
-          <div className={`text-[10px] ${stale ? "text-signal-bear font-semibold" : "text-dim"}`}>
-            {r ? (stale ? `STALE — ${data.regimeAgeMin}m old, cron not refreshing` : `refreshed ${data.regimeAgeMin}m ago`) : ""}
+          <div className="text-[10px] text-text-secondary">
+            {latest ? [latest.grade, latest.bias].filter(Boolean).join(" · ") || "no grade" : "no bars yet"}
+          </div>
+          <div className="text-[10px] text-dim">
+            {latest ? `bar ${barLabelPT(latest)} ${PT_LABEL} · ${latest.signal}` : ""}
           </div>
         </div>
 
         <div className="bg-bg-card border border-border rounded px-3 py-2">
           <div className="text-[10px] uppercase tracking-wider text-text-secondary">Believed position</div>
-          <div className={`text-sm font-bold ${data.position === "CALLS" ? "text-signal-bull" : data.position === "PUTS" ? "text-signal-bear" : "text-text-secondary"}`}>
-            {data.position}
-          </div>
+          <div className={`text-sm font-bold ${toneOf({ state: data.state })}`}>{STATE_LABEL[data.state]}</div>
           <div className="text-[10px] text-text-secondary">
-            {data.position === "FLAT" ? "nothing open" : `since ${fmtTimePT(data.positionSince)} · ${data.entryRegime || "?"}`}
+            {data.state === "FLAT"
+              ? "nothing open"
+              : `since ${fmtTimePT(data.since)}${data.entryPx ? ` · SPY ${data.entryPx}` : ""}`}
           </div>
-          {data.position !== "FLAT" && (
+          {data.state !== "FLAT" && (
             <button onClick={onFlat} disabled={busy}
               className="mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border border-border text-text-secondary hover:text-text-primary disabled:opacity-40">
               {busy ? "resetting…" : "force flat"}
@@ -400,58 +453,97 @@ export function SpyStreakPage() {
 
         <div className="bg-bg-card border border-border rounded px-3 py-2">
           <div className="text-[10px] uppercase tracking-wider text-text-secondary">Today</div>
-          <div className="text-sm font-bold">{data.events.length} events</div>
-          <div className="text-[10px] text-text-secondary">{silent} silent · {data.events.length - silent} alerted</div>
+          <div className="text-sm font-bold">{data.events.length} bars</div>
+          <div className="text-[10px] text-text-secondary">{alerted} alerted · {silent} silent</div>
           {rejected.length > 0 && (
-            <div className="text-[10px] text-signal-bear font-semibold">{rejected.length} rejected</div>
+            <div className="text-[10px] text-signal-bear font-semibold">{rejected.length} rejected / unreadable</div>
+          )}
+          {anomalies.length > 0 && (
+            <div className="text-[10px] text-signal-bear font-semibold">{anomalies.length} out of order</div>
           )}
         </div>
       </div>
+
+      {/* An out-of-order signal means a step went missing — the state below is a
+          belief, and this is the one thing that tells you it may be wrong. */}
+      {anomalies.length > 0 && (
+        <div className="bg-bg-card border border-signal-bear/60 rounded px-3 py-2 text-xs">
+          <span className="font-semibold text-signal-bear">
+            {anomalies.length} signal{anomalies.length === 1 ? "" : "s"} arrived out of order
+          </span>
+          <span className="text-text-secondary">
+            {" "}— the position below is a belief and may have drifted. Latest: {anomalies[anomalies.length - 1].anomalyDetail}
+          </span>
+        </div>
+      )}
 
       <div className="bg-bg-card border border-border rounded px-3 py-2">
         <div className="card-header pb-1.5 border-b-2 border-text-primary mb-2">
           Session timeline
           <span className="font-normal normal-case text-text-secondary">
-            {" "}· all times {PT_LABEL} · bands are streaks, pins are decisions (filled = alerted)
+            {" "}· all times {PT_LABEL} · line is the score, pins are decisions (filled = alerted)
           </span>
         </div>
-        <Timeline spans={spans} samples={data.regimeSamples} events={data.events} isToday={isToday} />
+        <Timeline events={data.events} isToday={isToday} />
       </div>
 
       <div className="bg-bg-card border border-border rounded">
-        <div className="card-header px-3 pt-2.5 pb-1.5 border-b-2 border-text-primary">
-          Decisions
-          <span className="font-normal normal-case text-text-secondary"> · including the ones that deliberately said nothing</span>
+        <div className="card-header px-3 pt-2.5 pb-1.5 border-b-2 border-text-primary flex items-center gap-2">
+          <span>Decisions</span>
+          <span className="flex-1" />
+          <button onClick={() => setShowSilent((v) => !v)}
+            className="text-[10px] normal-case font-normal text-text-secondary hover:text-text-primary">
+            {showSilent ? `hide the ${silent} silent bars` : `show all ${data.events.length} bars`}
+          </button>
         </div>
-        {data.events.length === 0 ? (
+        {shown.length === 0 ? (
           <div className="px-3 py-4 text-xs text-text-secondary">
-            No streaks recorded on {date}. If that surprises you, check "last TradingView contact" above —
-            never means the alerts are not reaching us at all.
+            {data.events.length === 0
+              ? <>No conviction alerts on {date}. If that surprises you, check &ldquo;last TradingView contact&rdquo;
+                  above — <em>never</em> means the alerts are not reaching us at all.</>
+              : <>Nothing alerted on {date}; all {data.events.length} bars were HOLD or STAND_ASIDE. Use
+                  &ldquo;show all bars&rdquo; to see them.</>}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[11px]">
               <thead className="text-text-secondary">
                 <tr className="border-b border-border">
-                  <th className="text-left font-normal px-3 py-1">Time</th>
-                  <th className="text-left font-normal px-3 py-1">Streak</th>
-                  <th className="text-left font-normal px-3 py-1">Action</th>
-                  <th className="text-left font-normal px-3 py-1">Position</th>
-                  <th className="text-left font-normal px-3 py-1">Why</th>
+                  <th className="text-left font-normal px-3 py-1">Bar</th>
+                  <th className="text-left font-normal px-3 py-1">Signal</th>
+                  <th className="text-right font-normal px-3 py-1">Score</th>
+                  <th className="text-right font-normal px-3 py-1">Legs</th>
+                  <th className="text-left font-normal px-3 py-1">Trigger</th>
+                  <th className="text-right font-normal px-3 py-1">SPY</th>
+                  <th className="text-left font-normal px-3 py-1">State</th>
                   <th className="text-left font-normal px-3 py-1">Alerted</th>
                 </tr>
               </thead>
               <tbody>
-                {data.events.map((e, i) => (
-                  <tr key={i} className="border-b border-border/40 last:border-b-0">
-                    <td className="px-3 py-1 whitespace-nowrap tabular-nums">{fmtTimePT(e.receivedAt)}</td>
-                    <td className={`px-3 py-1 whitespace-nowrap font-semibold ${e.trend === "green" ? "text-signal-bull" : "text-signal-bear"}`}>
-                      {e.trend === "green" ? "🟢" : "🔴"} {e.event === "trend_start" ? "start" : "end"}
+                {shown.map((e, i) => (
+                  <tr key={i} className={`border-b border-border/40 last:border-b-0 ${e.anomaly ? "bg-signal-bear/5" : ""}`}>
+                    <td className="px-3 py-1 whitespace-nowrap tabular-nums"
+                      title={`bar ${e.barHhmm} ET · arrived ${fmtTimePT(e.receivedAt)} ${PT_LABEL}`}>
+                      {barLabelPT(e)}
                     </td>
-                    <td className="px-3 py-1 whitespace-nowrap font-semibold">{e.action.replace(/_/g, " ")}</td>
-                    <td className="px-3 py-1 whitespace-nowrap text-text-secondary">{e.positionBefore} → {e.positionAfter}</td>
-                    <td className="px-3 py-1 text-text-secondary">{e.why}</td>
-                    <td className="px-3 py-1">{e.notified ? <span className="text-signal-bull">sent</span> : <span className="text-dim">silent</span>}</td>
+                    <td className={`px-3 py-1 whitespace-nowrap font-semibold ${toneOf(e)}`}>{e.signal}</td>
+                    <td className={`px-3 py-1 text-right tabular-nums ${toneOf({ score: e.score })}`}>
+                      {e.score > 0 ? "+" : ""}{e.score}
+                    </td>
+                    <td className="px-3 py-1 text-right tabular-nums text-text-secondary">{e.legsAgree}/6</td>
+                    <td className="px-3 py-1 text-text-secondary">
+                      {e.entryTrigger && e.entryTrigger !== "none"
+                        ? `${e.entryTrigger}${e.entryDistAtr ? ` @${e.entryDistAtr} ATR` : ""}`
+                        : e.blockReason && e.blockReason !== "none" ? e.blockReason : "—"}
+                    </td>
+                    <td className="px-3 py-1 text-right tabular-nums text-text-secondary">{e.spy || "—"}</td>
+                    <td className="px-3 py-1 whitespace-nowrap text-text-secondary">
+                      {e.stateFrom === e.stateTo ? e.stateTo : `${e.stateFrom} → ${e.stateTo}`}
+                      {e.anomaly && <span className="text-signal-bear font-semibold"> ⚠</span>}
+                    </td>
+                    <td className="px-3 py-1">
+                      {e.notified ? <span className="text-signal-bull">sent</span> : <span className="text-dim">silent</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -484,10 +576,10 @@ export function SpyStreakPage() {
                       <td className="px-3 py-1 whitespace-nowrap">
                         {h.fromTradingView ? <span className="text-text-secondary">TradingView</span> : <span className="text-signal-bear">other source</span>}
                       </td>
-                      <td className={`px-3 py-1 whitespace-nowrap font-semibold ${h.decision.startsWith("rejected") ? "text-signal-bear" : "text-text-primary"}`}>
+                      <td className={`px-3 py-1 whitespace-nowrap font-semibold ${h.decision.startsWith("rejected") || h.decision === "deadletter" ? "text-signal-bear" : "text-text-primary"}`}>
                         {h.decision}
                       </td>
-                      <td className="px-3 py-1 text-text-secondary">{h.reason ?? `${h.trend ?? ""} ${h.event ?? ""}`.trim()}</td>
+                      <td className="px-3 py-1 text-text-secondary">{h.reason ?? h.signal ?? ""}</td>
                     </tr>
                   ))}
                 </tbody>
