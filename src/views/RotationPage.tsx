@@ -130,9 +130,8 @@ function IndustryStocks({
         <span className="font-normal normal-case text-text-secondary"> · {sector} · {stocks.length} names</span>
       </div>
 
-      {/* Two clocks in one tab: the tree above is Polygon (~15 min delayed), these
-          rows are FinViz real-time. Say so rather than let the numbers disagree
-          silently. */}
+      {/* One clock since 2026-08-14: the tree above now reads the same FinViz
+          real-time feed these rows do, so the two can no longer disagree. */}
       <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
         FinViz real-time · {covered}/{joined.length} covered
         {enrichError && <span className="text-signal-bear"> · {enrichError}</span>}
@@ -246,11 +245,12 @@ export function RotationPage() {
   /**
    * Auto-refresh while the market is open.
    *
-   * 60s is deliberate, not conservative: the Polygon plan in use has no
-   * real-time entitlement (the snapshot omits lastTrade/lastQuote), so the
-   * underlying data is ~15 minutes delayed. Polling faster would re-fetch
-   * identical numbers and burn rate limit for nothing. The server cache
-   * (30s for quotes) absorbs any overlap.
+   * 60s used to be justified by the feed being ~15 minutes delayed — polling
+   * faster re-fetched identical numbers. On the FinViz real-time path that
+   * argument no longer holds, but 60s stays: it matches the server cache (30s)
+   * closely enough that most ticks are served warm, and the whole-market export
+   * is ~650 KB per miss. A sector-rotation read does not need finer granularity
+   * than a minute; the Sector Desk is the tab for close tape work.
    */
   useEffect(() => {
     if (!marketOpen) return;
@@ -327,6 +327,13 @@ export function RotationPage() {
   }
 
   const periodWaiting = metric === "period" && !perf;
+
+  // Named in the tooltip rather than the label: the misses are stale universe
+  // entries (renamed or delisted names), not a live feed problem, so they
+  // belong on hover instead of in the status line every session.
+  const missingNote = quotes.missing?.length
+    ? ` · no row for ${quotes.missing.join(", ")}`
+    : "";
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
@@ -435,9 +442,15 @@ export function RotationPage() {
           </>
         )}
         <span className="text-dim">·</span>
-        <span title="Polygon plan has no real-time entitlement; snapshot omits lastTrade/lastQuote">
-          Source ~15 min delayed
-        </span>
+        {quotes.source === "finviz" ? (
+          <span title={`FinViz Elite real-time${missingNote}`}>
+            FinViz real-time · {quotes.count}/{quotes.universe} covered
+          </span>
+        ) : (
+          <span title="FinViz unavailable — fell back to Polygon, whose plan has no real-time entitlement (snapshot omits lastTrade/lastQuote)">
+            Polygon fallback · ~15 min delayed
+          </span>
+        )}
       </div>
 
       {periodWaiting && (

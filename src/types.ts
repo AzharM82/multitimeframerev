@@ -441,12 +441,13 @@ export interface RotStockInfo {
 export interface RotQuote {
   price: number;
   open: number;
-  high: number;
-  low: number;
   volume: number;
-  vwap: number;
   changePercent: number;          // vs previous close
   changeFromOpenPercent: number;  // vs today's open
+  /** Polygon-only — the FinViz real-time export has no such columns. */
+  high?: number;
+  low?: number;
+  vwap?: number;
 }
 
 export interface RotQuotesResponse {
@@ -454,6 +455,16 @@ export interface RotQuotesResponse {
   count: number;
   timestamp: string;              // ISO
   cached: boolean;
+  /**
+   * Which feed served these numbers. `finviz` is real-time; `polygon` is the
+   * ~15-min-delayed fallback used when FinViz is unconfigured or down. The UI
+   * labels freshness from this rather than hard-coding a delay.
+   */
+  source: "finviz" | "polygon";
+  /** Full universe size, so the UI can show real coverage (e.g. 864/878). */
+  universe: number;
+  /** Universe names the active source had no row for. */
+  missing?: string[];
   /** Universe + classification; omitted when requested with ?meta=0. */
   stocks?: RotStockInfo[];
 }
