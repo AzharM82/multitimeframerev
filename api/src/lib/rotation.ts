@@ -220,12 +220,20 @@ export async function findTradingDay(
 export interface Quote {
   price: number;
   open: number;
-  high: number;
-  low: number;
   volume: number;
-  vwap: number;
   changePercent: number;
   changeFromOpenPercent: number;
+  /**
+   * Intraday session extremes and VWAP. Polygon's snapshot carries them; the
+   * FinViz real-time export (`rotationFinviz.ts`) has no such columns, so they
+   * are absent — not zeroed — on that path. Same reasoning as the market-cap
+   * note on `fetchQuotes` below: a field the vendor did not supply should be
+   * missing, not faked into a number a caller might chart. Nothing in the
+   * Rotation UI reads them today.
+   */
+  high?: number;
+  low?: number;
+  vwap?: number;
 }
 
 /**
