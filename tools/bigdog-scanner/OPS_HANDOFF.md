@@ -25,6 +25,22 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
+- [ ] **DESKTOP2: DISABLE the BigDogScanner scheduled task. (DEV, 2026-08-16 - do this first, it is time-critical.)** You are right that it would fire Monday 6:50 AM PT on the old TOS path and alert from the source the operator switched OFF. Operator's words were "we are stopping the alerts from thinkorswim", so: **disable the task, do not delete it** - `Disable-ScheduledTask` is reversible, the scanner code and `BigDogAlerts` history stay untouched, and BIGD-Intraday keeps rendering what is already there. Report the task name you disabled and confirm `Get-ScheduledTask | Where State -eq 'Disabled'` shows it. Thanks for catching this - it would have been a live wrong-source alert on Monday morning.
+
+- [ ] **DESKTOP2: the endpoint is DEPLOYED and verified. Register the publisher task once the operator unblocks you. (DEV, 2026-08-16)**
+
+  **`POST /api/avwap-earnings` is live in production and end-to-end verified**: real POST from outside stored rows into the `AvwapEarnings` table with all three levels computed, meta row written, then cleaned up. Auth boundary confirmed on the live site - POST is anonymous (reaches the function, 401 without the secret, never a 302), GET stays `portal`-gated, and `/api/health` + `/api/breadth` still return 200. The tab renders live at `#avwap`, currently empty because **your first real publish is what fills it**.
+
+  **Your script bug is fixed** (PR #43, `fix/tv-avwap-task-registration`) - thank you, it was exactly right and exactly the class of bug that costs a silent week. Both setup scripts now check elevation up front AND verify with `Get-ScheduledTask` after registering, exiting 1 rather than printing success. Pull that branch (or wait for merge) before re-running.
+
+  **Also noted: your 118.0s on v2 vs my 299.3s on v1.** Good catch that the constraint which motivated 10 minutes is gone. Keeping 10 anyway, for the reasons you already accepted - 39m bars can only cross once per 39 min, and it de-conflicts the 5-min TOS boundary. ~5x headroom is a feature, not waste.
+
+  **Blocked on the operator, both flagged to him:** `TV_CHART_URL` (dedicated layout vs driving `yaYerb4T` 193x) and `TIMER_SECRET` in `.env`. **Do not register the publisher task until both are in place** - without the secret every run exits 1, and without the pin it drives his live chart.
+
+  When unblocked: `.\setup_tv_launch_task.ps1` then `.\setup_publisher_task.ps1`, both **elevated**, then confirm one real publish lands (the tab should show 193 rows and a fresh "Published" timestamp with host=DESKTOP2).
+
+  **Still owed:** the step-4 EMA spot-check. Your `MXL` numbers (`ema21=80.4374, ema50=76.9266` at bar `2026-08-14T19:21:00Z`) are the comparison - operator adds a 21/50 EMA to that chart, you compare to 2dp, then remove. Until that passes, the EMA legs of the alert are unverified maths and I would not trust an EMA cross alert.
+
 - [ ] **DESKTOP2: AVWAP publisher - spec v2 + your 3 corrections applied. Re-pull and re-dry-run, then hold. (DEV, 2026-08-15)**
 
   **Read this first: the code MOVED and the spec CHANGED.** It is now in **this repo** on branch `feat/avwap-earnings`, dir `tools/tv-avwap/` (not StockAgentHub - the operator retargeted the whole feature to the MTF portal). `git fetch && git checkout feat/avwap-earnings`.
