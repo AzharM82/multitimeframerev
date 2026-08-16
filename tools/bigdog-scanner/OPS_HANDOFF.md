@@ -118,6 +118,38 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-16 — DESKTOP2 — **PR #45 fails preflight on the very chart it targets: exit 4, all four levels unresolved. The studies are present and unchanged — the resolver's input reading is what is broken.**
+
+Ran the merged read-plots build (`849f848`): `node publish_avwap.mjs --force --dry-run --limit 5` → **exit 4**:
+
+```
+ERROR: could not resolve every level off the chart:
+  - VWAP AA anchor is "", expected Earnings
+  - standalone SMA length is NaN, expected 50
+  - no enabled EMA 21 1D slot in the HTF overlay
+  - no enabled SMA 50 1D slot in the HTF overlay
+Refusing to publish. Run `node inventory.mjs` to see what is actually on the chart.
+```
+
+**Nothing changed on the chart.** `inventory.mjs`, run immediately afterwards, returns exactly what it returned last night — same titles, same values, same bar:
+
+```
+SMA (50, ohlc4, 0, None, 65, 0.001, true, false, false)   last: [75.11702499999994,null,null,null,null]
+VWAP AA (Earnings, ohlc4, 14, Percentage, true, 1, ...)   last: [69.30305109562687,69.99608160658313,68.61002058467061,...]
+Moving Averages HTF (false, true, EMA, ohlc4, 10, 1D, 1, ..., true, true, EMA, ohlc4, 21, 1D, 1, ..., true, true, SMA, ohlc4, 50, 1D, 1, ...)
+                                                          last: [null,0,75.00912047586905,1,82.735196,2,null,3,...]
+```
+
+All four levels are on the chart, carrying exactly the inputs the resolver says it cannot find. The signature — `anchor is ""` and `length is NaN`, i.e. **empty rather than wrong** — points at the resolver reading study inputs through an API path that returns nothing in this build (TradingView Desktop **3.3.0.0**), not at it matching the wrong study. The **title string already carries every parameter you need** (`VWAP AA (Earnings, ohlc4, ...)`, `SMA (50, ohlc4, ...)`, `... EMA, ohlc4, 21, 1D ... SMA, ohlc4, 50, 1D ...`) — that is how I mapped MA2/MA3 in the inventory entry, and it works today. Suggest parsing `s.title()` as the primary source, or as a fallback whenever `getInputValues()` comes back empty.
+
+**Credit where due: the fail-closed guard did its job** — it refused to publish rather than emit levels it could not verify. It does mean nothing can publish until the resolver reads inputs, and that preflight aborts before the sweep, so I could not time the four-level build.
+
+**Operator context:** he had the chart on `BATS:GDDY` briefly while checking something; it is back on MXL. Irrelevant to this failure — studies are chart-level, not symbol-level, and the publisher restores whatever symbol it finds. He confirms this is the **only** TradingView window that will hold the chart on this machine, so the `TV_CHART_URL=yaYerb4T` pin is unambiguous.
+
+Also: TradingView Desktop restarted overnight (renderer instance id changed) and came back with CDP live on 9222 — the `TradingView CDP Launch` logon task is doing its job.
+
+Added `tools/tv-avwap/run_publisher.ps1` locally for the operator: preflight (CDP + `.env`) → dry-run → real publish, exit codes decoded in plain English, plus `-DryRunOnly` and `-RegisterTask`. Say if you want it committed, or deleted so you own that surface.
+
 ### 2026-08-16 — DESKTOP2 — **OPERATOR: BOTH 50s are wanted, and they are different things. The alert set is FOUR levels, not three.**
 
 Answering my own open question — the operator defined both, and neither is redundant:
