@@ -42,7 +42,9 @@
  *   TV_CHART_URL=                 # optional: bind only this chart URL/id
  *   TV_EXPECT_RESOLUTION=39
  *   TV_SYMBOL_TIMEOUT_MS=12000
- *   PUBLISHER_ID=DESKTOP2          # shown in the portal; defaults to the machine hostname
+ *   PUBLISHER_ID=DESKTOP2          # shown in the portal. Or put the name in
+ *                                  # publisher_id.txt (not a secret, so it does
+ *                                  # not belong in .env). Defaults to hostname.
  *
  * Run:  node publish_avwap.mjs [--force] [--dry-run] [--limit N]
  * Task Scheduler: setup_publisher_task.ps1 (every 5 min, market hours)
@@ -72,7 +74,27 @@ const WATCHLIST = process.env.TV_WATCHLIST || "MASTER";
 const CHART_URL = process.env.TV_CHART_URL || "";
 const EXPECT_RES = String(process.env.TV_EXPECT_RESOLUTION || "39");
 const SYMBOL_TIMEOUT_MS = Number(process.env.TV_SYMBOL_TIMEOUT_MS || 12000);
-const PUBLISHER_ID = process.env.PUBLISHER_ID || hostname();
+/**
+ * Logical publisher name shown in the portal.
+ *
+ * Resolution order: PUBLISHER_ID env -> publisher_id.txt next to this script ->
+ * machine hostname.
+ *
+ * The file exists because .env is a SECRETS file, and the agent running on the
+ * publishing machine is (correctly) blocked from editing it. A display label is
+ * not a secret, so requiring it to live beside the API token made a cosmetic
+ * setting depend on a human with an editor. Keeping identity separate from
+ * credentials means the machine can name itself.
+ */
+function resolvePublisherId() {
+  if (process.env.PUBLISHER_ID) return process.env.PUBLISHER_ID.trim();
+  try {
+    const v = readFileSync(join(HERE, "publisher_id.txt"), "utf8").trim();
+    if (v) return v;
+  } catch { /* not present - fall through to the hostname */ }
+  return hostname();
+}
+const PUBLISHER_ID = resolvePublisherId();
 const LOCK_PATH = join(HERE, ".sweep.lock");
 const LOCK_STALE_MS = 15 * 60 * 1000;
 

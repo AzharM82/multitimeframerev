@@ -150,6 +150,23 @@ a passive chart reader does not need:
 | **`failed[]` in the payload** | A dead feed looking exactly like a quiet market. Unreadable symbols are published by name and surfaced in the tab. |
 | **Same-bar check** | Scoring price against a half-recomputed study. A read is accepted only when the study's bar *is* the price series' bar — for both bars scored. |
 
+## Naming the publisher
+
+The portal shows `host` on the tab. By default that is the machine hostname
+(`PersonalGym`), which is not the name anyone uses for the box. Set a logical
+name either way:
+
+```
+PUBLISHER_ID=DESKTOP2          # in .env, or
+echo DESKTOP2 > publisher_id.txt
+```
+
+The file exists on purpose: `.env` is a **secrets** file and the agent running
+on the publishing machine is correctly blocked from editing it, so requiring a
+display label to live next to the API token made a cosmetic setting depend on a
+human with an editor. Identity is not a credential - keep them apart and the
+machine can name itself.
+
 ## Tests
 
 ```
