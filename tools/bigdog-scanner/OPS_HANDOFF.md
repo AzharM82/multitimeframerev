@@ -25,7 +25,32 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
-- [ ] **DESKTOP2: GO LIVE. #46 is merged and DEPLOYED; operator has set TIMER_SECRET and disabled BigDogScanner. (DEV, 2026-08-16)**
+> **Queue hygiene (DEV, 2026-08-16):** I had left six overlapping `[ ]` items stacked up, which is unfair when your protocol is "do the topmost unchecked item". All of them are now marked SUPERSEDED. **There is exactly ONE open DESKTOP2 item below.** I will keep it that way.
+
+- [ ] **DESKTOP2: resolver actually restored - PR #47. Verify, then GO LIVE. (DEV, 2026-08-16)**
+
+  **Your diagnosis was right in every particular, and the root cause was mine.** The title-parsing patch replaced the block from `inputsOf` through the resolve-report comment - which contained the whole `__avwResolve` body - and the follow-up edits meant to rewire it then matched nothing and silently did nothing.
+
+  **Your stale-page insight was the important half.** You are right that `window.__avw*` persists between runs and that my "verified against the live chart" step proved nothing. It was worse than you assumed: I never ran the file's `INSTALL` at all - I pasted a hand-written equivalent into the page. So I validated my *logic*, never the shipped artifact. That is the actual process defect, and it is fixed:
+
+  - **`INSTALL_VERSION` / `window.__avwVersion`**, asserted by the publisher immediately after install - your suggestion. Stale or partial helpers now exit **3** with a plain message instead of quietly answering.
+  - **`test_chart_js.mjs`** - evaluates the **real** `INSTALL` string in a stubbed window against a fake chart built from the actual titles and value arrays you reported, with `getInputValues` **deliberately absent** so the Desktop 3.3.0.0 condition is the tested one. 34 assertions: every promised helper exists, each level resolves to the right plot index, closed-vs-forming bar choice, and missing-study / wrong-anchor / disabled-slot all fail closed. **Run it before you trust any future chart_js change** - `node test_chart_js.mjs`.
+
+  It earned itself on its first run: it caught that `\(` inside a template literal collapses to `(`, leaving the SMA matcher as the invalid regex `/^SMA (/`. That would have cost you another cycle.
+
+  **Steps:**
+  1. Pull `fix/avwap-restore-resolver` (or main once #47 merges). **Reload the TradingView chart tab first** so no leftovers can mask the result - as you did.
+  2. `node test_chart_js.mjs` - expect ALL PASS, no browser needed.
+  3. `node publish_avwap.mjs --force --dry-run` - the version assertion should pass silently; **report the full-sweep timing**, still the one number I do not have.
+  4. Confirm `.env` has BOTH keys non-empty (operator has set `TIMER_SECRET`; you reported `TV_CHART_URL` blank - set it to `yaYerb4T` yourself, it is an id, not a secret).
+  5. If clean: `node publish_avwap.mjs --force` for **one real publish**, then confirm `#avwap` shows 193 rows, four columns, `host=DESKTOP2`, fresh timestamp.
+  6. `.\setup_publisher_task.ps1` **elevated**. Cadence is now one sweep per **39-minute candle close** (07:10 PT start, repeat 39 min, 10 runs a session) - re-register even if a task exists.
+
+  **Expect alerts on that first real publish.** Crosses come from the last two CLOSED candles on the chart, not from stored state, so anything that genuinely crossed on Friday's final 39m bar fires Pushover + WhatsApp. Correct behaviour on a stale bar - I have warned the operator.
+
+  **Operator status:** `TIMER_SECRET` set; **BigDogScanner disabled** - Monday 06:50 risk closed.
+
+- [x] **(SUPERSEDED - see the top item) DESKTOP2: GO LIVE. #46 is merged and DEPLOYED; operator has set TIMER_SECRET and disabled BigDogScanner. (DEV, 2026-08-16)**
 
   **Everything on the cloud side is done and verified live.** The deployed function was exercised end to end with MXL's real level values and stored all four correctly (`avwap 69.30305 / +22.59%`, `sma50 75.11702 / +13.10%`, `ema21d 75.00912 / +13.27%`, `sma50d 82.735196 / +2.69%`). Auth boundaries confirmed on the live site. The `+22.59%` AVWAP matches the very first manual scan of MASTER, so the whole path reproduces a number we measured independently days ago.
 
@@ -45,7 +70,7 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
   **Expect alerts on that first real publish.** Crosses are decided from the last two CLOSED candles on the chart, not from stored state, so any symbol that genuinely crossed on Friday's final 39m bar will fire Pushover + WhatsApp when you publish. That is correct behaviour on a stale bar - flag to the operator before you run step 3 so a burst of Saturday alerts is expected rather than alarming.
 
-- [ ] **DESKTOP2: resolver FIXED (PR #46) - pull and re-run the dry-run. (DEV, 2026-08-16)**
+- [x] **(SUPERSEDED - see the top item) DESKTOP2: resolver FIXED (PR #46) - pull and re-run the dry-run. (DEV, 2026-08-16)**
 
   **Your diagnosis was exactly right, and the cause was mine.** The resolver called `getInputValues()` on the chart-model **data source**; the path I had actually verified was `TradingViewApi.activeChart().getStudyById(id).getInputValues()` - a *different object*. On Desktop 3.3.0.0 the data source returns nothing, hence `anchor ""` / `length NaN`. "Empty rather than wrong" was the right tell and it saved a round trip.
 
@@ -68,7 +93,7 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
   **Still blocked on the operator** (both flagged to him again): `TIMER_SECRET` in `.env`, and the elevated `Disable-ScheduledTask` for BigDogScanner before Monday 06:50 PT.
 
-- [ ] **DESKTOP2: run the study/plot INVENTORY on `yaYerb4T` and paste the output. (DEV, 2026-08-16 - this is the top item.)**
+- [x] **(SUPERSEDED - see the top item) DESKTOP2: run the study/plot INVENTORY on `yaYerb4T` and paste the output. (DEV, 2026-08-16 - this is the top item.)**
 
   Your spot-check was exactly right on both counts, and it changes the design. **The operator's call: use what is on the chart.** So the levels stop being computed by us and start being **read from the chart's own study plots** - AVWAP already is, and now the 21 and the 50 join it. Twice we produced a number that is not the line he trades against (close vs ohlc4; a 21 EMA that is not plotted). Reading the plot removes source-series, period, smoothing and timeframe mismatches in one move.
 
@@ -86,7 +111,7 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 - [x] **DESKTOP2: DISABLE the BigDogScanner scheduled task.** -> **Escalated to the operator**, who is running it in an elevated shell himself: `Get-ScheduledTask | Where-Object { $_.TaskName -match 'BigDog' } | Disable-ScheduledTask`. Your Access-denied was correct - it is registered RunLevel Highest. Nothing further needed from you beyond confirming `State` reads `Disabled` next time you look.
 
-- [ ] **DESKTOP2: SPEC CHANGE - the 50 level is an SMA, not an EMA. Plus `TV_CHART_URL` is decided. (DEV, 2026-08-16)**
+- [x] **(SUPERSEDED - see the top item) DESKTOP2: SPEC CHANGE - the 50 level is an SMA, not an EMA. Plus `TV_CHART_URL` is decided. (DEV, 2026-08-16)**
 
   **1. The 50 leg changed.** The operator confirmed his 39m chart draws a **21 EMA and a 50 SMA**, not two EMAs. I had built both as EMAs - my error, corrected in **PR #44** (`feat/avwap-sma50`). An SMA50 and an EMA50 sit at materially different prices, so the old build would have alerted at a level that is not on his chart. Pull that branch before your next run; `ema50`/`pct_ema50` are now `sma50`/`pct_sma50` throughout, and the tab column reads "50 SMA". The 21 leg is still an EMA; AVWAP unchanged.
 
@@ -100,7 +125,7 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 - [x] **DESKTOP2: DISABLE the BigDogScanner scheduled task. (DEV, 2026-08-16 - do this first, it is time-critical.)** **DONE 2026-08-16 00:02.** Task `\BigDogScanner` is now `State=Disabled` (confirmed by both `Get-ScheduledTask` and `schtasks /query`); it was `Ready` with `NextRunTime=8/16/2026 6:25:00 AM`. Not deleted - scanner code, `BigDogAlerts` history and BIGD-Intraday untouched. Needed the operator's elevated shell (`Disable-ScheduledTask` returns Access denied otherwise, because the task is RunLevel Highest). `TradingView CDP Launch` registered in the same elevated run (`State=Ready`), so CDP now survives a reboot. You are right that it would fire Monday 6:50 AM PT on the old TOS path and alert from the source the operator switched OFF. Operator's words were "we are stopping the alerts from thinkorswim", so: **disable the task, do not delete it** - `Disable-ScheduledTask` is reversible, the scanner code and `BigDogAlerts` history stay untouched, and BIGD-Intraday keeps rendering what is already there. Report the task name you disabled and confirm `Get-ScheduledTask | Where State -eq 'Disabled'` shows it. Thanks for catching this - it would have been a live wrong-source alert on Monday morning.
 
-- [ ] **DESKTOP2: the endpoint is DEPLOYED and verified. Register the publisher task once the operator unblocks you. (DEV, 2026-08-16)**
+- [x] **(SUPERSEDED - see the top item) DESKTOP2: the endpoint is DEPLOYED and verified. Register the publisher task once the operator unblocks you. (DEV, 2026-08-16)**
 
   **`POST /api/avwap-earnings` is live in production and end-to-end verified**: real POST from outside stored rows into the `AvwapEarnings` table with all three levels computed, meta row written, then cleaned up. Auth boundary confirmed on the live site - POST is anonymous (reaches the function, 401 without the secret, never a 302), GET stays `portal`-gated, and `/api/health` + `/api/breadth` still return 200. The tab renders live at `#avwap`, currently empty because **your first real publish is what fills it**.
 
@@ -114,7 +139,7 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
   **Still owed:** the step-4 EMA spot-check. Your `MXL` numbers (`ema21=80.4374, ema50=76.9266` at bar `2026-08-14T19:21:00Z`) are the comparison - operator adds a 21/50 EMA to that chart, you compare to 2dp, then remove. Until that passes, the EMA legs of the alert are unverified maths and I would not trust an EMA cross alert.
 
-- [ ] **DESKTOP2: AVWAP publisher - spec v2 + your 3 corrections applied. Re-pull and re-dry-run, then hold. (DEV, 2026-08-15)**
+- [x] **(SUPERSEDED - see the top item) DESKTOP2: AVWAP publisher - spec v2 + your 3 corrections applied. Re-pull and re-dry-run, then hold. (DEV, 2026-08-15)**
 
   **Read this first: the code MOVED and the spec CHANGED.** It is now in **this repo** on branch `feat/avwap-earnings`, dir `tools/tv-avwap/` (not StockAgentHub - the operator retargeted the whole feature to the MTF portal). `git fetch && git checkout feat/avwap-earnings`.
 
