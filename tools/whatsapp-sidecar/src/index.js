@@ -25,6 +25,12 @@ const qrcode = require("qrcode-terminal");
 const QUEUE_NAME = process.env.WHATSAPP_QUEUE_NAME || "whatsapp-alerts";
 const POLL_INTERVAL_MS = 60_000;
 const VISIBILITY_TIMEOUT_S = 30;
+const MAX_CONSECUTIVE_SEND_FAILURES = 3;
+// Browser/page errors that mean the puppeteer session is unrecoverable. Retrying
+// against a dead page never heals (2026-07-08: a detached frame wedged delivery
+// silently for a full day), so on these we exit and let Task Scheduler relaunch
+// with a fresh browser — the same recovery the "disconnected" handler uses.
+const FATAL_SEND_ERROR = /detached Frame|Target closed|Session closed|Protocol error|Execution context was destroyed|page has been closed/i;
 
 const connStr = process.env.AZURE_STORAGE_CONNECTION_STRING;
 if (!connStr) {
@@ -72,6 +78,13 @@ async function sendOne(payload) {
   console.log(`Sent to ${to}: ${text.slice(0, 80)}`);
 }
 
+let consecutiveSendFailures = 0;
+
+function bailOut(reason) {
+  console.error(`FATAL: ${reason} — exiting so Task Scheduler restarts with a fresh browser.`);
+  process.exit(1);
+}
+
 async function drainOnce() {
   if (!waReady) return;
   const resp = await queue.receiveMessages({
@@ -81,13 +94,30 @@ async function drainOnce() {
   if (!resp.receivedMessageItems || resp.receivedMessageItems.length === 0) return;
 
   for (const msg of resp.receivedMessageItems) {
+    // A malformed payload can never succeed — drop it instead of leaving it to
+    // wedge the queue (and skew the consecutive-failure count) forever.
+    let payload;
     try {
-      const json = Buffer.from(msg.messageText, "base64").toString("utf-8");
-      const payload = JSON.parse(json);
+      payload = JSON.parse(Buffer.from(msg.messageText, "base64").toString("utf-8"));
+    } catch (err) {
+      console.error("Dropping malformed queue message:", err.message);
+      await queue.deleteMessage(msg.messageId, msg.popReceipt).catch(() => {});
+      continue;
+    }
+
+    try {
       await sendOne(payload);
       await queue.deleteMessage(msg.messageId, msg.popReceipt);
+      consecutiveSendFailures = 0;
     } catch (err) {
-      console.error("Send failed; leaving message visible to retry:", err);
+      consecutiveSendFailures += 1;
+      console.error(`Send failed (${consecutiveSendFailures} in a row); leaving message visible to retry:`, err);
+      if (FATAL_SEND_ERROR.test(String((err && err.message) || err))) {
+        bailOut("unrecoverable browser/page error");
+      }
+      if (consecutiveSendFailures >= MAX_CONSECUTIVE_SEND_FAILURES) {
+        bailOut(`${consecutiveSendFailures} consecutive send failures`);
+      }
     }
   }
 }

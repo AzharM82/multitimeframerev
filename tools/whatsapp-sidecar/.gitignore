@@ -2,3 +2,8 @@ node_modules/
 .env
 .wwebjs_auth/
 .wwebjs_cache/
+
+# Runtime logs. sidecar.log reached 48 MB in a day during the 2026-07-08
+# detached-frame retry loop; run_sidecar.bat now rotates it to sidecar.1.log.
+*.log
+qr.png
