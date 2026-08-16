@@ -12,13 +12,15 @@ import { JournalPage } from "./views/JournalPage.js";
 import { SpyConvictionPage } from "./views/SpyConvictionPage.js";
 import { ErrorBoundary } from "./views/ErrorBoundary.js";
 import { AboutPage } from "./views/AboutPage.js";
+import { AvwapEarningsPage } from "./views/AvwapEarningsPage.js";
 
-type Page = "gate" | "desk" | "atr" | "cve" | "rotation" | "chart" | "opening" | "spy" | "journal" | "about";
+type Page = "gate" | "desk" | "atr" | "avwap" | "cve" | "rotation" | "chart" | "opening" | "spy" | "journal" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "gate", label: "Gate" },
   { key: "desk", label: "Sector Desk" },
   { key: "atr", label: "ATR Matrix" },
+  { key: "avwap", label: "AVWAP from Earnings" },
   { key: "cve", label: "Catalyst Value Eval" },
   { key: "rotation", label: "Rotation" },
   { key: "chart", label: "Chart Analysis" },
@@ -115,6 +117,7 @@ function App() {
           {page === "gate" && <GatePage />}
           {page === "desk" && <SectorDeskPage />}
           {page === "atr" && <AtrMatrixPage />}
+          {page === "avwap" && <AvwapEarningsPage />}
           {page === "cve" && <CveEvalPage />}
           {page === "rotation" && <RotationPage />}
           {page === "chart" && <TradingViewPage />}

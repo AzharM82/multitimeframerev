@@ -204,6 +204,15 @@
       ]
     },
     {
+      "route": "/api/avwap-earnings",
+      "methods": [
+        "POST"
+      ],
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/*",
       "allowedRoles": [
         "portal"

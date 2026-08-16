@@ -125,4 +125,14 @@ export const TABLES = {
    * `TvTrendAlerts` table was archived to dev/spy-conviction/ and dropped.
    */
   SPY_CONVICTION: "SpyConviction",
+  /**
+   * AVWAP-from-Earnings: the MASTER TradingView watchlist swept on DESKTOP2
+   * against the 39-minute anchored-VWAP study.
+   *
+   * PK="current"/RK=ticker is the latest read (plus RK="__meta__" for the sweep
+   * header). History rows PK=YYYY-MM-DD/RK=HHMMSS-TICKER are written ONLY when a
+   * symbol crosses the line — 193 tickers every 5 min would otherwise be ~55k
+   * rows/day for data nobody queries.
+   */
+  AVWAP_EARNINGS: "AvwapEarnings",
 } as const;

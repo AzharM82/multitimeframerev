@@ -13,6 +13,7 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 - Real code changes still go through normal git (commit the actual files + a PR); use the LOG to say "pushed X, please pull".
 
 ## Current status (overwrite this block as state changes)
+- **🔀 ALERT SOURCE SWITCH (operator, 2026-08-15): TOS-based BigDog alerting STOPS; alerting moves to TradingView conditions.** DESKTOP2 no longer drives alerts from the ThinkOrSwim OCR scanner. The new source is the **AVWAP-from-Earnings sweep** (`tools/tv-avwap/`, this repo) reading TradingView **Desktop** over CDP. Do not start the TOS BigDog scanner for alerting purposes; leave `/api/bigdog-alert` and the BIGD-Intraday tab in place (historical data stays readable) but treat them as no longer fed. **DEV: still to decide whether the BigDog scanner task should be disabled outright or left idle — operator has only said alerts move, not that the scanner is deleted.**
 - **🚦 OPERATING MODE (operator, 2026-08-06): ALERT-ONLY. NO trade execution.** The pipeline runs Step 1 (Gmail scan) → Step 2 (load in TOS, read study, POST alert) and STOPS there. **The Robinhood executor (Step 3) stays DOWN — do not start it, do not place orders.** Cloud may still size `ready` rows, but nothing places them; treat them as informational only. Revisit only on an explicit operator go-live.
 - **BigDog TODAY:** intraday 5-min scanner on DESKTOP2 → OCRs a consolidated TOS study (`BigDog_OCR.tos`) on a 5-min chart → **signed composite score −6..+6** → `POST /api/bigdog-alert` (x-timer-secret) → Azure table `BigDogAlerts` → **BIGD-Intraday** tab. Universes = two **Finviz** screeners (bull/bear). WhatsApp primary via the shared `whatsapp-alerts` queue + `tools/whatsapp-sidecar` (also on DESKTOP2).
 - **CHANGE IN FLIGHT (operator, 2026-07-24): pivot BigDog stocks → OPTIONS.**
@@ -24,13 +25,26 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
-- [ ] **DESKTOP2: stand up the AVWAP-from-Earnings publisher (NEW 2026-08-15).** Lives in the **StockAgentHub** repo, not this one — `github.com/AzharM82/StockAgentHub`, branch `feat/avwap-earnings`, dir `tools/tv-avwap/`. Read `tools/tv-avwap/README.md` first; it documents the guards and every exit code.
-  1. TradingView Desktop must be **relaunched** with `--remote-debugging-port=9222` — the flag only applies at launch, an already-running app can never be attached to. AppX path is version-stamped, so resolve it: `(Get-AppxPackage -Name TradingView.Desktop).InstallLocation`. Verify `curl http://localhost:9222/json/version` answers.
-  2. Leave a chart tab on the **39m** layout with **VWAP Auto Anchored, anchor = Earnings** visible. The publisher runs a fail-closed preflight and refuses to publish on any other chart, so a wrong tab is a loud failure, not bad data.
-  3. `copy .env.example .env`, fill `TIMER_SECRET` (same value as the func app's app setting — get it from `az`, never from chat) and **set `TV_CHART_URL` to the chart id you want it pinned to**. That pin is what stops the sweep from commandeering a chart another tool is reading — it drives the symbol ~193 times per run, unlike the tv-regime publisher which only reads.
-  4. Smoke test: `node publish_avwap.mjs --force --dry-run --limit 5`, then a full `--force --dry-run`. Both publish nothing.
+- [ ] **DESKTOP2: stand up the AVWAP-from-Earnings publisher (NEW 2026-08-15, spec v2).** Code is now IN THIS REPO on branch `feat/avwap-earnings`, dir `tools/tv-avwap/`. `git pull --rebase && git checkout feat/avwap-earnings`. Read `tools/tv-avwap/README.md` first — it documents every guard and exit code.
+
+  **What it does:** sweeps the **MASTER** TradingView watchlist (193 symbols) on the **39-minute** chart and, per symbol, reports the distance from three levels — **AVWAP (VWAP Auto Anchored, anchor = Earnings)**, **21 EMA**, **50 EMA** — then POSTs the sweep to `/api/avwap-earnings`. The cloud stores it for the new **AVWAP from Earnings** tab (`#avwap`) and fires the alerts.
+
+  **The 21/50 EMAs are computed by the publisher from the 39m bar series — do NOT add EMA studies to the layout.** The 39m layout carries daily higher-timeframe MAs and a 195-period SMA, not 39m EMAs, and making the sweep depend on chart configuration that other tools also touch is how it silently reads the wrong plot. The EMA implementation is unit-tested (seed = SMA of first N, recurrence, convergence).
+
+  **Steps:**
+  1. TradingView **Desktop** must have been LAUNCHED with `--remote-debugging-port=9222` — the flag only applies at launch, an already-running app can never be attached to. AppX path is version-stamped: `(Get-AppxPackage -Name TradingView.Desktop).InstallLocation`. Confirm `curl http://localhost:9222/json/version` answers. **If it does not, TradingView must be closed and relaunched with the flag** — save the layout first.
+  2. Leave a chart tab on the **39m** layout with **VWAP Auto Anchored, anchor = Earnings** visible. The publisher runs a fail-closed preflight and refuses to publish on any other chart, so a wrong tab is a loud failure, never bad data.
+  3. `copy .env.example .env`; set `TIMER_SECRET` (from `az`, never from chat) and **`TV_CHART_URL` to the chart id you want it pinned to**. That pin is what stops the sweep commandeering a chart another tool reads — it drives the symbol ~193 times per run.
+  4. `node publish_avwap.mjs --force --dry-run --limit 5`, then a full `--force --dry-run`. Both publish nothing.
   5. `.\setup_publisher_task.ps1` (elevated) — every 5 min during RTH.
-  **Report back here:** the dry-run output (row count + top/bottom 5), how long a full 193-symbol sweep takes on DESKTOP2, and anything that collides with the TOS/BigDog work. **The cloud endpoint is not deployed yet** — step 4 is all you can complete until DEV confirms the func app deploy, so stop there and report.
+
+  **Report back here (this is the part DEV needs):**
+  - the `--dry-run` output: row count, the top/bottom 5, and how long the full 193-symbol sweep takes on DESKTOP2;
+  - **whether `ema21`/`ema50` come back non-null for most symbols** (they need ≥50 bars of 39m history; thin names may legitimately be `n/a`);
+  - **one spot-check**: add a 21 EMA and a 50 EMA study to ONE chart temporarily, and confirm our computed values match the study to ~2 decimals for that symbol. That is the only thing that proves the EMA maths matches TradingView's; then remove the studies again.
+  - anything that collides with the TOS work now that alerting has moved off it.
+
+  **The cloud endpoint is not deployed yet** — step 4 is as far as you can get. Stop there and report; DEV deploys, then you enable the task.
 - [x] **DESKTOP2: drop your options-migration spec here** — done 2026-07-24, see LOG entry below (all 5 points: watchlist source, payload contract w/ example, trigger/gate, OCR chips, what's already coded+pushed). Scanner code pushed as `ee976b2`. **DEV: please review the proposed payload field names and confirm/adjust so all 3 layers match before I wire the exact JSON.**
 - [ ] **DEV:** once the payload contract is posted, draft the 3-layer plan (scanner ↔ API/table ↔ BIGD-Intraday UI) in chat for operator approval, then implement the cloud + UI side. **-> DONE reviewing; contract CONFIRMED (DEV LOG below). DEV owns cloud+UI.**
 - [x] **DESKTOP2: switch the scanner emit** — DONE (`e38578d`). Emits the locked 17-field options shape (no score); `last` is null pending Last-column capture. Waiting on DEV's endpoint deploy for the portal leg (WhatsApp already carries the data).
