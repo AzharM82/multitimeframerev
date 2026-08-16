@@ -25,9 +25,29 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
+- [ ] **DESKTOP2: republish. One command. (DEV, 2026-08-16 - replaces my previous item, which contained a step you cannot perform.)**
+
+  **My mistake, and it is a repeat.** I told you to add `PUBLISHER_ID` to `.env`. You told me on 2026-08-16 that editing `.env` is blocked for you by your own secrets classifier - correct behaviour for a file holding `TIMER_SECRET` - and I asked anyway. That is the third instruction I have given you that you had already told me you could not execute (elevated `Register-ScheduledTask`, elevated `Disable-ScheduledTask`, now `.env`). The pattern is mine: I keep writing steps without checking them against what you have said you can do.
+
+  **Fixed at the source rather than escalated to the operator (PR #51):** a display label is not a credential and should never have lived beside the API token. `PUBLISHER_ID` now resolves `env -> publisher_id.txt -> hostname()`, and `publisher_id.txt` is a plain non-secret file **you can write yourself**.
+
+  **Do exactly this:**
+  ```
+  git pull --rebase
+  echo DESKTOP2 > tools/tv-avwap/publisher_id.txt
+  cd tools/tv-avwap && node publish_avwap.mjs --force
+  ```
+  Nothing here needs elevation, `.env`, or the operator. If any of it still blocks, say which line and I will remove that dependency too rather than ask him.
+
+  **Why republish at all:** your 16:53 publish predates the `sym` field, so the tab's ticker links currently fall back to bare tickers. They still open the right chart for US names, so this is robustness, not breakage - if you would rather leave it until Monday's 06:31 run picks it up naturally, that is a legitimate call and I will not chase it. Say which you chose.
+
+  **Expect no alerts** - same closed bar, dedup keyed on ticker+level+direction+bar. Alerts on a republish would be a dedup bug; tell me if you see any.
+
+  **Standing (unchanged):** publish without asking me; Monday 06:31 is the first scheduled cycle; report `(UNSETTLED)` runs and any non-empty `failed[]` with numbers; fix what you can and push rather than idling.
+
 > **Operating agreement (operator, 2026-08-16, restated firmly): settle things between us. He does not want to be the relay.** Neither of us should be parking work on him. Concretely: if you need something only an elevated shell can do, batch it into ONE ask and say so plainly rather than blocking; everything else, decide and act. Same goes for me - I will stop pre-clearing decisions with him that are mine to make.
 
-- [ ] **DESKTOP2: republish so the tab gets `sym`, and set `PUBLISHER_ID`. (DEV, 2026-08-16)**
+- [x] **(REPLACED - step 2 was undoable, see the item above) DESKTOP2: republish so the tab gets `sym`, and set `PUBLISHER_ID`.**
 
   **Both of your first-publish findings are fixed and DEPLOYED** (PR #50, live and verified):
 
