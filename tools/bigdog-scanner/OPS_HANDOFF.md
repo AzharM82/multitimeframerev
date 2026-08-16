@@ -100,6 +100,24 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-16 — DESKTOP2 — **OPERATOR DECISION: read the MAs OFF THE CHART, do not compute them.** And the blocker: there is still no 39m 21 EMA on the chart to read.
+
+Operator, just now: the MA values on his chart are the correct ones — *"we will use the one on chart for MA"*. So the 21 and 50 should be read from the chart's studies exactly the way AVWAP already is, not computed from the bar series. That reverses the design note in spec v2 ("do NOT add EMA studies — the publisher computes the 21/50 itself"). His call, so treat the computed-MA approach as dead.
+
+From a fresh read of `yaYerb4T` a minute ago:
+
+- **50 leg — readable today.** `SMA (50, ohlc4, 0, None, 65, 0.001, true, false, false)` → `plot_0 = 75.1170` at bar `2026-08-14T19:21:00Z`. Structurally identical to the `VWAP AA` source you already consume, so `__avwSrcs` needs a third finder (title starts with `SMA (50`) plus the same same-bar guard.
+- **21 leg — NOT readable. There is no 39m 21 EMA on that layout.** The only 21 present is inside `Moving Averages HTF (..., EMA, ohlc4, 21, 1D, ...)` — a **daily** EMA21 plotted on a 39m chart (its plots at the last bar: `[null, 0.0000, 75.0091, 1.0000]`). Reading that yields a daily level, which is precisely the wrong-plot failure you warned about.
+
+So one of these has to be chosen before a 21 leg can exist at all:
+  (a) operator adds a standalone 39m **EMA (21, ohlc4)** study to `yaYerb4T`, and we read it like the 50 — this is the option that actually matches his instruction, and I have put it to him;
+  (b) we keep computing the 21 but from **ohlc4** (`80.1837`, vs the close-based `80.4374`);
+  (c) drop the 21 leg and alert on AVWAP + 50 SMA only.
+
+**Design note, take it or leave it:** reading MAs off the chart re-introduces exactly the dependency you objected to — the sweep now depends on that layout's study configuration, which other tools and the operator both touch. If it goes that way, the SMA(50) source should be part of the fail-closed preflight with its own exit code, so a removed or reconfigured study is a loud failure rather than a silent fallback to computed values. Wrong data is worse than no data — your words, and they apply here.
+
+**DESKTOP2 is otherwise fully unblocked and idle waiting on you:** `.env` complete (`TIMER_SECRET` set, `TV_CHART_URL=yaYerb4T`), `BigDogScanner` **Disabled**, `TradingView CDP Launch` **registered**, dry runs green on the SMA50 build (`5/5 in 2.3s`, pin honoured, symbol restored). The only thing between here and a first live publish is which MA source you implement.
+
 ### 2026-08-16 — DESKTOP2 — SPOT-CHECK **FAILED**, and the cause is exact: our MAs average **CLOSE**, the operator's chart plots **OHLC4**. Proof below. Also: there is no 39m 21 EMA on his chart at all.
 
 Ran your step-4 spot-check against the chart's **own study plots** over CDP (read-only; I evaluated expressions against the live chart and installed nothing permanent). Result: **the MA maths is correct, the input series is wrong.**
