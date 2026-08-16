@@ -27,9 +27,9 @@
  *   - DEDICATED TAB  : binds the CDP target whose URL matches TV_CHART_URL when
  *                      set, so the sweep never commandeers the chart another
  *                      tool is reading.
- *   - FAIL CLOSED    : verifies resolution == 39 and that the anchored-VWAP
- *                      study really is anchored to Earnings BEFORE sweeping.
- *                      A misconfigured chart publishes nothing.
+ *   - FAIL CLOSED    : verifies the resolution AND that all four levels resolve
+ *                      to real study plots BEFORE sweeping. A misconfigured
+ *                      chart publishes nothing.
  *   - RESTORES SYMBOL: puts the original symbol back when done (even on error).
  *   - REPORTS FAILURES: symbols it could not read are published in `failed`, so
  *                      a dead feed can never look like a quiet market.
@@ -224,6 +224,10 @@ async function run() {
     await session.connect();
 
     // ── Preflight: fail closed on a misconfigured chart ────────────────
+    // INSTALL first: the preflight reports level resolution, which lives in the
+    // installed helpers. A level that will not resolve must stop the run here,
+    // not surface as a plausible number 193 symbols later.
+    await session.evaluate(INSTALL);
     const pre = await session.evaluate(jsPreflight(EXPECT_RES));
     if (!pre || pre.err) {
       console.error(`ERROR: chart preflight failed: ${pre?.err || "no response"}`);
@@ -235,12 +239,23 @@ async function run() {
                     "Refusing to publish — a wrong-timeframe sweep is worse than no sweep.");
       return 4;
     }
-    if (!/^earnings$/i.test(String(pre.anchor || ""))) {
-      console.error(`ERROR: "VWAP Auto Anchored" anchor is "${pre.anchor || "(study missing)"}", ` +
-                    'expected "Earnings". Refusing to publish.');
+    const resolved = pre.resolve;
+    if (!resolved || resolved.errors?.length) {
+      console.error("ERROR: could not resolve every level off the chart:");
+      for (const e of resolved?.errors || ["no resolution report"]) console.error(`  - ${e}`);
+      console.error("Refusing to publish. Run `node inventory.mjs` to see what is actually on the chart.");
       return 4;
     }
-    console.log(`Chart OK: ${pre.symbol} @ ${pre.resolution}m · VWAP AA anchor=${pre.anchor} source=${pre.source}`);
+    const missing = ["avwap", "sma50", "ema21d", "sma50d"].filter((k) => !resolved.levels[k]);
+    if (missing.length) {
+      console.error(`ERROR: levels unresolved: ${missing.join(", ")}. Refusing to publish.`);
+      return 4;
+    }
+    console.log(`Chart OK: ${pre.symbol} @ ${pre.resolution}m`);
+    for (const k of ["avwap", "sma50", "ema21d", "sma50d"]) {
+      const L = resolved.levels[k];
+      console.log(`  ${k.padEnd(7)} ${L.desc}  (plot idx ${L.valueIdx}) last=${L.lastValue}`);
+    }
 
     // ── Watchlist ──────────────────────────────────────────────────────
     const wl = await session.evaluate(jsWatchlist(WATCHLIST), 30000);
@@ -257,13 +272,18 @@ async function run() {
     console.log(`Watchlist ${wl.name} (${wl.id}): ${symbols.length} symbols`);
 
     // ── Sweep ──────────────────────────────────────────────────────────
-    await session.evaluate(INSTALL);
     const t0 = Date.now();
     // Generous ceiling: ~1.3s/symbol observed, plus slack for cold symbols.
     const sweepTimeout = Math.max(120000, symbols.length * (SYMBOL_TIMEOUT_MS + 2000));
     const resSeconds = Number(EXPECT_RES) * 60;
     const out = await session.evaluate(jsSweep(symbols, SYMBOL_TIMEOUT_MS, resSeconds), sweepTimeout);
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
+    if (out?.fatal) {
+      console.error("ERROR: sweep aborted - the CHART is wrong, so every remaining symbol " +
+                    "would be wrong the same way:");
+      for (const e of out.fatal) console.error(`  - ${e}`);
+      return 4;
+    }
     const rows = out?.rows || [];
     const failed = out?.failed || [];
     console.log(`Swept ${rows.length}/${symbols.length} in ${secs}s` +
@@ -282,28 +302,36 @@ async function run() {
     const barUtc = new Date(barTimes[barTimes.length - 1] * 1000).toISOString();
 
     const r4 = (v) => (typeof v === "number" && isFinite(v) ? Number(v.toFixed(4)) : null);
+    const LEVELS = ["avwap", "sma50", "ema21d", "sma50d"];
     const payload = {
       bar_utc: barUtc,
       published_at: new Date().toISOString(),
       host: hostname(),
       resolution: EXPECT_RES,
-      anchor: pre.anchor,
       watchlist: wl.name,
+      levels: LEVELS,
       failed,
-      // Every row carries BOTH the live bar (what the tab shows) and the last
-      // two CLOSED bars (what the alert is decided on). See chart_js.mjs.
-      rows: rows.map((r) => ({
-        ticker: r.ticker,
-        close: r.close,
-        avwap: r4(r.avwap), ema21: r4(r.ema21), sma50: r4(r.sma50),
-        pct_avwap: r.pctAvwap, pct_ema21: r.pctEma21, pct_sma50: r.pctSma50,
-        last_bar_closed: !!r.lastBarClosed,
-        closed_time: r.closedTime, prev_time: r.prevTime,
-        closed_close: r.closedClose, prev_close: r.prevClose,
-        c_pct_avwap: r.cPctAvwap, p_pct_avwap: r.pPctAvwap,
-        c_pct_ema21: r.cPctEma21, p_pct_ema21: r.pPctEma21,
-        c_pct_sma50: r.cPctSma50, p_pct_sma50: r.pPctSma50,
-      })),
+      // Each row carries the LIVE bar (what the tab shows) and, per level, the
+      // last two CLOSED bars (what the alert is decided on). See chart_js.mjs.
+      rows: rows.map((r) => {
+        const o = {
+          ticker: r.ticker,
+          close: r.close,
+          last_bar_closed: !!r.lastBarClosed,
+          closed_time: r.closedTime,
+          prev_time: r.prevTime,
+          closed_close: r.closedClose,
+          prev_close: r.prevClose,
+        };
+        for (const k of LEVELS) {
+          const L = r.levels[k];
+          o[k] = L ? r4(L.value) : null;
+          o["pct_" + k] = L ? L.pct : null;
+          o["c_pct_" + k] = L ? L.cPct : null;
+          o["p_pct_" + k] = L ? L.pPct : null;
+        }
+        return o;
+      }),
     };
 
     if (DRY) {

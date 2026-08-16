@@ -48,27 +48,33 @@ export const META_RK = "__meta__";
 const DEFAULT_CROSS_MIN_PCT = 0.25;
 const DEFAULT_STALE_MIN = 15;
 
-export const LEVELS = ["avwap", "ema21", "sma50"] as const;
+export const LEVELS = ["avwap", "sma50", "ema21d", "sma50d"] as const;
 export type Level = (typeof LEVELS)[number];
 export type CrossDirection = "CROSS_UP" | "TOUCH_DOWN";
 
 export const LEVEL_LABEL: Record<Level, string> = {
   avwap: "AVWAP(Earnings)",
-  ema21: "21 EMA",
-  sma50: "50 SMA",
+  sma50: "50 SMA (39m)",
+  ema21d: "21 EMA (D)",
+  sma50d: "50 SMA (D)",
 };
 
+/**
+ * One published row. Per level L the publisher sends four numbers:
+ *   L            the plotted level value on the live bar
+ *   pct_L        distance of the LIVE close from it   (display)
+ *   c_pct_L      distance of the last CLOSED candle   (alerting)
+ *   p_pct_L      distance of the candle before that   (alerting)
+ */
 export interface AvwapInputRow {
   ticker?: string;
   close?: number;
-  avwap?: number; ema21?: number | null; sma50?: number | null;
-  pct_avwap?: number; pct_ema21?: number | null; pct_sma50?: number | null;
   last_bar_closed?: boolean;
-  closed_time?: number; prev_time?: number;
-  closed_close?: number; prev_close?: number;
-  c_pct_avwap?: number | null; p_pct_avwap?: number | null;
-  c_pct_ema21?: number | null; p_pct_ema21?: number | null;
-  c_pct_sma50?: number | null; p_pct_sma50?: number | null;
+  closed_time?: number;
+  prev_time?: number;
+  closed_close?: number;
+  prev_close?: number;
+  [key: string]: unknown;
 }
 
 export interface CrossEvent {
@@ -85,9 +91,11 @@ export interface CrossEvent {
 export interface AvwapRow {
   ticker: string;
   close: number;
-  avwap: number; ema21: number | null; sma50: number | null;
-  pctAvwap: number; pctEma21: number | null; pctSma50: number | null;
-  lastCross: string;       // e.g. "ema21:CROSS_UP"
+  /** Plotted level value, per level key. */
+  levels: Record<string, number | null>;
+  /** Distance of the live close from each level, in percent. */
+  pct: Record<string, number | null>;
+  lastCross: string;       // e.g. "sma50d:CROSS_UP"
   lastCrossAt: string;
 }
 
@@ -180,43 +188,34 @@ export async function recordSnapshot(
   for (const raw of rows) {
     const ticker = String(raw.ticker ?? "").trim().toUpperCase();
     const close = num(raw.close);
-    const avwap = num(raw.avwap);
-    if (!ticker || close === null || avwap === null || avwap <= 0) {
-      skipped++;
-      continue;
-    }
+    if (!ticker || close === null) { skipped++; continue; }
 
-    const ema21 = num(raw.ema21);
-    const sma50 = num(raw.sma50);
-    const pctAvwap = num(raw.pct_avwap) ?? ((close - avwap) / avwap) * 100;
+    const barTime = num(raw.closed_time) ?? 0;
+    const closedClose = num(raw.closed_close) ?? close;
 
     const entity: Record<string, unknown> = {
       ticker,
       close,
-      avwap, ema21, sma50,
-      pctAvwap: Number(pctAvwap.toFixed(4)),
-      pctEma21: num(raw.pct_ema21),
-      pctSma50: num(raw.pct_sma50),
-      side: pctAvwap >= 0 ? "ABOVE" : "BELOW",
       barUtc: opts.barUtc,
       publishedAt: opts.publishedAt || nowIso,
       receivedAt: nowIso,
       host: opts.host,
     };
 
-    // ── crossings, decided from the publisher's two CLOSED bars ──────────
-    const barTime = num(raw.closed_time) ?? 0;
-    const closedClose = num(raw.closed_close) ?? close;
-    const perLevel: Record<Level, { c: number | null; p: number | null; value: number | null }> = {
-      avwap: { c: num(raw.c_pct_avwap), p: num(raw.p_pct_avwap), value: avwap },
-      ema21: { c: num(raw.c_pct_ema21), p: num(raw.p_pct_ema21), value: ema21 },
-      sma50: { c: num(raw.c_pct_sma50), p: num(raw.p_pct_sma50), value: sma50 },
-    };
+    // A row must carry at least the AVWAP to be worth storing; individual MA
+    // levels may legitimately be absent for a thin symbol.
+    if (num(raw.avwap) === null) { skipped++; continue; }
 
     let newestCross: { key: string; at: string } | null = null;
 
     for (const level of LEVELS) {
-      const { c, p, value } = perLevel[level];
+      const value = num(raw[level]);
+      const livePct = num(raw[`pct_${level}`]);
+      entity[level] = value;
+      entity[`pct_${level}`] = livePct;
+
+      const c = num(raw[`c_pct_${level}`]);
+      const p = num(raw[`p_pct_${level}`]);
       const dir = classifyCross(p, c, level === "avwap", minPct);
       if (!dir || barTime <= 0) continue;
       if (await alreadyAlerted(ticker, level, dir, barTime)) continue;
@@ -344,24 +343,24 @@ export async function getSnapshot(): Promise<AvwapSnapshot> {
       out.failed = String(e.failed ?? "").split(",").filter(Boolean);
       continue;
     }
-    const pctAvwap = num(e.pctAvwap) ?? 0;
-    const r21 = num(e.pctEma21);
-    const r50 = num(e.pctSma50);
+    const levels: Record<string, number | null> = {};
+    const pct: Record<string, number | null> = {};
+    for (const level of LEVELS) {
+      levels[level] = num(e[level]);
+      const v = num(e[`pct_${level}`]);
+      pct[level] = v === null ? null : Number(v.toFixed(2));
+    }
     out.rows.push({
       ticker: rk,
       close: num(e.close) ?? 0,
-      avwap: num(e.avwap) ?? 0,
-      ema21: num(e.ema21),
-      sma50: num(e.sma50),
-      pctAvwap: Number(pctAvwap.toFixed(2)),
-      pctEma21: r21 === null ? null : Number(r21.toFixed(2)),
-      pctSma50: r50 === null ? null : Number(r50.toFixed(2)),
+      levels,
+      pct,
       lastCross: String(e.lastCross ?? ""),
       lastCrossAt: String(e.lastCrossAt ?? ""),
     });
   }
 
-  out.rows.sort((a, b) => b.pctAvwap - a.pctAvwap);
+  out.rows.sort((a, b) => (b.pct.avwap ?? -Infinity) - (a.pct.avwap ?? -Infinity));
 
   if (out.publishedAt) {
     const t = Date.parse(out.publishedAt);

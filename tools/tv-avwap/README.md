@@ -1,44 +1,66 @@
 # AVWAP-from-Earnings publisher (runs on DESKTOP2)
 
 Sweeps the **MASTER** TradingView watchlist on the **39-minute** chart and, per
-symbol, reports how far price sits from three levels:
+symbol, reports how far price sits from **four levels that are READ OFF THE
+CHART** - never recomputed:
 
-| Level | Source |
+| Level | Study on the chart |
 |---|---|
-| **AVWAP** | the `VWAP Auto Anchored` study, **Anchor Period = Earnings** — chart truth, read off the same indicator the operator looks at |
-| **21 EMA** | computed by the publisher from the 39m closes |
-| **50 SMA** | computed by the publisher from the 39m closes |
+| **AVWAP** | `VWAP Auto Anchored`, Anchor Period = **Earnings** (chart timeframe) |
+| **50 SMA (39m)** | the standalone `Simple Moving Average`, length 50 |
+| **21 EMA (D)** | EMA 21 on **1D**, from the `Moving Averages based on higher Timeframes` overlay |
+| **50 SMA (D)** | SMA 50 on **1D**, from the same overlay |
 
 ```
 pct = (close - level) / level * 100        (+ above / - below)
 ```
 
-→ `POST {API_BASE}/api/avwap-earnings` (header `x-timer-secret`)
-→ Azure table `AvwapEarnings`
-→ portal tab **AVWAP from Earnings** (`#avwap`)
+-> `POST {API_BASE}/api/avwap-earnings` (header `x-timer-secret`)
+-> Azure table `AvwapEarnings`
+-> portal tab **AVWAP from Earnings** (`#avwap`)
 
-## Why the MAs are computed here, not read off a study
+## Why the levels are READ, not recomputed
 
-The sweep must not depend on chart configuration other tools also touch, and a
-silently-wrong plot read is indistinguishable from a correct one. The bar series
-is already in hand, so the MAs are derived from it.
+Earlier versions derived the moving averages from the bar series. That was wrong
+twice, in ways invisible without comparing against the chart itself:
 
-The two levels mirror what the operator actually draws on the 39m chart: a
-**21 EMA** and a **50 SMA** — *not* two EMAs. An SMA50 and an EMA50 sit at
-materially different prices, so alerting on an EMA50 would fire at a level that
-is not on his chart.
+- we averaged **close** where the operator's studies average **ohlc4**
+  (MXL 50 SMA: ours `75.1933`, the chart's plotted line `75.1170`)
+- we computed a 39m 21 EMA **that is not plotted on his chart at all** - his 21
+  is a *daily* EMA from a higher-timeframe overlay
 
-The EMA is seeded with an SMA of the first N closes (what TradingView does) and
-unit-tested for seeding, recurrence and convergence; the SMA is unit-tested
-against a naive recompute at every index, so the sliding-sum cannot drift.
+The line the operator trades against is the plotted one, so it is the only
+defensible source. Reading the plot removes source-series, period, smoothing and
+timeframe mismatch in a single move, and a study that is missing or reconfigured
+becomes a loud preflight failure instead of a plausible number.
+
+The HTF overlay's slots are located **by their own inputs** (`in_{8k}`=enabled,
+`+2`=type, `+4`=length, `+5`=timeframe; slot k plots at `plot_{2k}`), never by a
+hardcoded index - so reordering or re-enabling slots cannot silently point the
+sweep at a different line.
+
+## Cadence: one sweep per candle close
+
+Alerts are decided on **closed** 39-minute candles, so a new alert can only ever
+appear once every 39 minutes. A faster grid finds nothing the bar-keyed dedup
+does not immediately discard, and it is *slower* to alert: a 10-minute grid can
+sit up to 10 minutes behind a close, whereas firing just after each close means
+the only delay is the sweep itself (~2 min for 193 symbols on DESKTOP2).
+
+RTH 39m closes are 07:09, 07:48, 08:27, 09:06, 09:45, 10:24, 11:03, 11:42,
+12:21, 13:00 PT. The task starts 07:10 and repeats every 39 min - one minute
+after each close, enough to settle, well inside the next bar. 10 runs a session.
+
+The portal therefore shows the last **closed** candle's numbers, which are
+exactly the ones the alert was decided on.
 
 ## Live bar vs closed bar — the distinction that makes the alerts correct
 
 Every row carries **two** readings:
 
-- **live** (`close`, `pct_avwap`, `pct_ema21`, `pct_sma50`) — the forming bar.
+- **live** (`close`, `pct_<level>`) — the forming bar.
   This is what the tab displays, so the tab shows price *now*.
-- **closed** (`c_pct_*` and `p_pct_*`) — the last genuinely **closed** bar and
+- **closed** (`c_pct_<level>` and `p_pct_<level>`) — the last genuinely **closed** bar and
   the one before it. This is what the cloud decides alerts on.
 
 The operator's rule is *"the candle **closes** above the level and the previous
@@ -126,7 +148,7 @@ a passive chart reader does not need:
 | 1 | `TIMER_SECRET` missing |
 | 2 | TradingView CDP unreachable or no chart target |
 | 3 | Chart preflight failed |
-| 4 | **Wrong chart** — resolution ≠ 39, or anchor ≠ Earnings |
+| 4 | **Wrong chart** — resolution ≠ 39, or a level could not be resolved |
 | 5 | Watchlist not found or empty |
 | 6 | Sweep produced no readable rows |
 | 7 | Publish rejected by the cloud |
@@ -139,6 +161,8 @@ a passive chart reader does not need:
 - `chart_js.mjs` — the page-context expressions, kept separate so they can be
   exercised against a live chart independently of a publish cycle. These are the
   part most likely to break when TradingView changes their internals.
+- `inventory.mjs` — read-only dump of every study, its plot titles and values.
+  Use it to re-verify or re-wire a level without guessing indices.
 - `setup_publisher_task.ps1` — Task Scheduler registration for the sweep
 - `setup_tv_launch_task.ps1` — logon task that launches TradingView **with** the
   CDP flag, so a reboot cannot silently disable the publisher
@@ -160,7 +184,7 @@ the bar closing, with 2x headroom on the sweep itself.
 
 | Event | Condition | Levels |
 |---|---|---|
-| `CROSS_UP` | candle closes above the level, previous candle closed below | AVWAP, 21 EMA, 50 SMA |
+| `CROSS_UP` | candle closes above the level, previous candle closed below | **all four** |
 | `TOUCH_DOWN` | a name extended above the AVWAP comes back down and touches it | AVWAP only |
 
 Guards: a **0.25% deadband** (`AVWAP_CROSS_MIN_PCT`) on the previous candle, so

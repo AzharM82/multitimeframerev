@@ -1,5 +1,5 @@
 # Registers the "AVWAP Earnings Publisher" scheduled task on DESKTOP2.
-# Runs every 10 minutes, 6:25 AM - 1:10 PM PT (9:25 AM - 4:10 PM ET), weekdays -
+# Runs ONCE PER 39-MINUTE CANDLE CLOSE, weekdays -
 # sweeps the MASTER TradingView watchlist on the 39-minute chart and publishes
 # each symbol's distance from its earnings-anchored VWAP to the StockAgentHub
 # cloud, which fires the line-cross alerts.
@@ -25,15 +25,24 @@ if (-not (Test-Path (Join-Path $here ".env"))) {
 }
 
 $action = New-ScheduledTaskAction -Execute $node -Argument "`"$script`"" -WorkingDirectory $here
-$trigger = New-ScheduledTaskTrigger -Daily -At "06:25"
-$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At "06:25" `
-    -RepetitionInterval (New-TimeSpan -Minutes 10) `
-    -RepetitionDuration (New-TimeSpan -Hours 7)).Repetition
+$trigger = New-ScheduledTaskTrigger -Daily -At "07:10"
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At "07:10" `
+    -RepetitionInterval (New-TimeSpan -Minutes 39) `
+    -RepetitionDuration (New-TimeSpan -Hours 6)).Repetition
 
-# A full 193-symbol sweep measured 299.3s on DESKTOP2 (1.55s/symbol, market
-# closed). At a 5-minute interval that leaves ~0.7s of headroom, so any slowdown
-# overlaps and the loser exits 8 on the lock - hence 10 minutes. The alerts fire
-# on 39-minute bar closes, so 10 min still samples every bar ~4 times.
+# Cadence is one sweep per CANDLE CLOSE, not a round-number grid.
+#
+# Alerts are decided on CLOSED 39-minute candles, so a new alert can only ever
+# appear once every 39 minutes; sweeping more often finds nothing the bar-keyed
+# dedup does not immediately discard. Aligning also makes alerts arrive SOONER:
+# a fixed 10-minute grid can sit up to 10 minutes behind a close, whereas firing
+# just after each close means the only delay is the sweep itself (~2 min for 193
+# symbols on DESKTOP2).
+#
+# RTH 39m closes are 07:09, 07:48, 08:27, 09:06, 09:45, 10:24, 11:03, 11:42,
+# 12:21, 13:00 PT. Starting 07:10 and repeating every 39 min lands one minute
+# after each - enough for the bar to settle, well inside the next bar.
+#
 # ExecutionTimeLimit is generous but finite so a hung CDP session can never sit
 # on the lock forever; IgnoreNew skips a slow sweep rather than stacking on it.
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 9) `
@@ -51,6 +60,7 @@ if (-not (Get-ScheduledTask -TaskName "AVWAP Earnings Publisher" -ErrorAction Si
     exit 1
 }
 
-Write-Host "Task 'AVWAP Earnings Publisher' registered (every 10 min, 6:25 AM-1:25 PM PT daily;"
+Write-Host "Task 'AVWAP Earnings Publisher' registered (every 39 min from 7:10 AM PT,"
+Write-Host "one sweep per 39m candle close, 10 runs a session;"
 Write-Host "the script itself skips weekends/after-hours). Test now with:"
 Write-Host "  node `"$script`" --force --dry-run --limit 5"
