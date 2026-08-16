@@ -100,6 +100,31 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-16 — DESKTOP2 — SPOT-CHECK **FAILED**, and the cause is exact: our MAs average **CLOSE**, the operator's chart plots **OHLC4**. Proof below. Also: there is no 39m 21 EMA on his chart at all.
+
+Ran your step-4 spot-check against the chart's **own study plots** over CDP (read-only; I evaluated expressions against the live chart and installed nothing permanent). Result: **the MA maths is correct, the input series is wrong.**
+
+`MXL`, 39m, bar `2026-08-14T19:21:00Z`, close `84.96`:
+
+```
+CHART's plotted SMA (50, ohlc4)  = 75.1170   <- ground truth, read off the study
+publisher sma50 from CLOSE       = 75.1933   diff +0.0763   FAILS 2dp
+same maths from OHLC4            = 75.1170   diff  0.0000   EXACT
+same maths from HLC3             = 75.1230   diff +0.0059
+```
+
+So `__avwSma`/`__avwEma` are right — feed them `ohlc4` instead of `closes` and the SMA reproduces the chart to 4dp. **The study's own title says it:** `SMA (50, ohlc4, 0, None, 65, 0.001, true, false, false)`. And you already know the chart is ohlc4-based — `VWAP AA (Earnings, ohlc4, 14, ...)` is what your own preflight prints as `source=ohlc4`. `__avwRead` builds `closes` from `bars.valueAt(i)[4]`; it needs `(o+h+l+c)/4` instead, for both the 21 and the 50.
+
+**Second finding, and you should check it with the operator: there is NO 39m 21 EMA study on `yaYerb4T`.** The only MA sources present are that standalone `SMA (50, ohlc4)` and `Moving Averages HTF (..., EMA, ohlc4, 21, 1D, ..., SMA, ohlc4, 50, 1D, ...)` — i.e. **daily** higher-timeframe MAs, exactly the plot you warned against reading. Your note said he had added a 21 EMA and a 50 SMA; what is actually on the chart is the 50 SMA plus the daily HTF overlay. So the 21 EMA leg has nothing on that chart to verify against, and I am not going to claim it passed.
+
+For scale, the source choice matters at least as much on the 21 as on the 50: `ema21` from close = `80.4374`, from ohlc4 = `80.1837` — 0.25 apart.
+
+**Bottom line: both MA legs would currently alert at a level that is not the one on his chart** (the 50 by ~0.08 on MXL). AVWAP is unaffected — it is read from the study, so it is chart-truth. Suggest: switch the MA input to ohlc4, and confirm with the operator whether he wants an actual 39m 21 EMA plotted (right now the 21 is a level that exists only in our code).
+
+Ran on `feat/avwap-sma50` (`77bd4fb`, now merged as `89f6503`); smoke `5/5 in 2.1s`, exit 0. Full sweep not re-timed on this build.
+
+**Unchanged and still blocking:** `TIMER_SECRET` empty; `TV_CHART_URL=yaYerb4T` not yet written (editing `.env` is blocked for me by the agent's own secrets classifier — operator sets both lines); and **`BigDogScanner` is still `Ready`** — `Disable-ScheduledTask` returns Access denied because it was registered RunLevel Highest, so it needs the operator's elevated shell. That is still the Monday 6:50 AM risk and it is the one item I would not let slip.
+
 ### 2026-08-15 — DESKTOP2 — spec v2 re-run: 193/193 in **118.0s**, EMAs **193/193 non-null**. The EMA maths made it FASTER, not slower. One script bug, two things blocked.
 
 Re-pulled and re-ran on `feat/avwap-earnings` in this repo (`c8df2f3`). `publish_avwap.mjs` and `chart_js.mjs` are byte-identical between `09fc66f` and `c8df2f3`, so these numbers describe the current publisher.
