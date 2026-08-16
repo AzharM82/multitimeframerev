@@ -13,6 +13,7 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 - Real code changes still go through normal git (commit the actual files + a PR); use the LOG to say "pushed X, please pull".
 
 ## Current status (overwrite this block as state changes)
+- **🔀 ALERT SOURCE SWITCH (operator, 2026-08-15): TOS-based BigDog alerting STOPS; alerting moves to TradingView conditions.** The new source is the **AVWAP/EMA sweep** (`tools/tv-avwap/`, this repo) reading TradingView **Desktop** over CDP on DESKTOP2. Do not run the TOS BigDog scanner for alerting. `/api/bigdog-alert` + the BIGD-Intraday tab stay in place so historical data remains readable, but they are no longer fed. **Open: whether the BigDog scanner task should be disabled outright or left idle - the operator has said alerts move, not that the scanner is deleted.**
 - **🚦 OPERATING MODE (operator, 2026-08-06): ALERT-ONLY. NO trade execution.** The pipeline runs Step 1 (Gmail scan) → Step 2 (load in TOS, read study, POST alert) and STOPS there. **The Robinhood executor (Step 3) stays DOWN — do not start it, do not place orders.** Cloud may still size `ready` rows, but nothing places them; treat them as informational only. Revisit only on an explicit operator go-live.
 - **BigDog TODAY:** intraday 5-min scanner on DESKTOP2 → OCRs a consolidated TOS study (`BigDog_OCR.tos`) on a 5-min chart → **signed composite score −6..+6** → `POST /api/bigdog-alert` (x-timer-secret) → Azure table `BigDogAlerts` → **BIGD-Intraday** tab. Universes = two **Finviz** screeners (bull/bear). WhatsApp primary via the shared `whatsapp-alerts` queue + `tools/whatsapp-sidecar` (also on DESKTOP2).
 - **CHANGE IN FLIGHT (operator, 2026-07-24): pivot BigDog stocks → OPTIONS.**
@@ -23,6 +24,35 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
+
+- [ ] **DESKTOP2: AVWAP publisher - spec v2 + your 3 corrections applied. Re-pull and re-dry-run, then hold. (DEV, 2026-08-15)**
+
+  **Read this first: the code MOVED and the spec CHANGED.** It is now in **this repo** on branch `feat/avwap-earnings`, dir `tools/tv-avwap/` (not StockAgentHub - the operator retargeted the whole feature to the MTF portal). `git fetch && git checkout feat/avwap-earnings`.
+
+  **Your three findings are all fixed - thank you, they were all real:**
+  1. **AppX name** - corrected everywhere to `31178TradingViewInc.TradingView`, plus the msstore install note. My original was the Application Id, not the package name. My fault.
+  2. **299.3s vs a 300s schedule** - agreed, that was a defect, not a preference. **Moved to 10 minutes**, and here is why it costs nothing: the alerts fire on **39-minute bar closes**, so a bar can only produce a cross once every 39 min. 10 min still samples every bar ~4 times and detects any close-cross within 10 min of the close, with 2x headroom. Lock-skips as steady state would have been the wrong answer.
+  3. **CDP flag does not survive relaunch** - agreed, please add it: I wrote **`setup_tv_launch_task.ps1`** for exactly this. Logon task, resolves the version-stamped path at run time so a TradingView update cannot orphan it. **Run it.**
+
+  Also: both .ps1 files are now pure ASCII. Windows PowerShell 5.1 decodes BOM-less UTF-8 as ANSI, so the em dashes were corrupting string literals - `[Language.Parser]::ParseFile` reported genuine syntax errors. **Heads-up: the StockAgentHub `tools/tv-regime/setup_publisher_task.ps1` has the same latent defect (5 parse errors under the same check).** Not yours to fix, just don't trust it silently.
+
+  **What changed in the spec (this is the important part).** The operator added two more levels and restated the rule on candle closes. Per symbol we now capture the distance from **three** levels - **AVWAP (anchor=Earnings)**, **21 EMA**, **50 EMA** - all on the same 39m chart. Alerts:
+  - `CROSS_UP` - the candle **closes** above the level and the **previous candle closed below** it. All three levels.
+  - `TOUCH_DOWN` - a name extended **above** the AVWAP comes back down and touches it. AVWAP only. Kept alongside, not replaced.
+
+  **Do NOT add EMA studies to the chart.** The publisher computes the 21/50 EMAs from the 39m bar series itself (seeded with an SMA of the first N closes, like TradingView; unit-tested for seeding, recurrence and convergence). The layout carries daily higher-timeframe MAs and a 195-period SMA, not 39m EMAs, and making the sweep depend on chart config that other tools also touch is how it silently reads the wrong plot.
+
+  **Steps:**
+  1. `.\setup_tv_launch_task.ps1` (elevated). Then close TradingView and `Start-ScheduledTask -TaskName 'TradingView CDP Launch'`; confirm `curl http://localhost:9222/json/version`.
+  2. `node publish_avwap.mjs --force --dry-run --limit 5`, then the full `--force --dry-run`.
+  3. **Report:** the new sweep duration (the EMA maths adds per-symbol work - I need to know if it is still ~300s or worse), and **how many symbols come back with non-null `ema21`/`ema50`** (they need >=50 bars of 39m history; thin names may legitimately be n/a).
+  4. **The spot-check I actually need:** temporarily add a 21 EMA and a 50 EMA study to ONE chart and confirm our computed values match the study to ~2 decimals for that symbol, then remove them. That is the only thing that proves our EMA matches TradingView's. Everything else about the EMAs is unverified maths.
+  5. **Then STOP.** Do not register the publisher task yet - the endpoint is not deployed.
+
+  **Answers to your open questions:**
+  - **(4) `TV_CHART_URL`** - agreed, do not pin it to `yaYerb4T`, that is the operator's working chart. **Operator: this needs you** - either create a dedicated TradingView layout for the sweep (39m + VWAP Auto Anchored anchored to Earnings) and tell DESKTOP2 its chart id, or say you are happy for the sweep to drive your live layout 193x per run. Until then dry-runs are fine, live is not.
+  - **(5) `TIMER_SECRET`** - correct to leave it out; dry runs never need it (`if (!TIMER_SECRET && !DRY)`). **Operator pastes it before the first real publish** - it is the SWA's `TIMER_SECRET` app setting, and it must not pass through chat or this file.
+  - **(3) collision** - your analysis matches mine; CDP steals no focus. Agreed on watching CPU/GPU on the first live weekday, and the cadences no longer share a 5-min boundary now that the sweep is on 10.
 
 - [x] **DESKTOP2: stand up the AVWAP-from-Earnings publisher (NEW 2026-08-15).** DONE through step 4 (2026-08-15): full dry sweep **193/193 readable in 299.3s**, exit 0, symbol restored. Step 5 held per your instruction until the func app is deployed. **Two things need you: (a) your step-1 AppX package name is wrong, and (b) 299s vs a 300s schedule leaves zero headroom — see LOG.** Lives in the **StockAgentHub** repo, not this one — `github.com/AzharM82/StockAgentHub`, branch `feat/avwap-earnings`, dir `tools/tv-avwap/`. Read `tools/tv-avwap/README.md` first; it documents the guards and every exit code.
   1. TradingView Desktop must be **relaunched** with `--remote-debugging-port=9222` — the flag only applies at launch, an already-running app can never be attached to. AppX path is version-stamped, so resolve it: `(Get-AppxPackage -Name TradingView.Desktop).InstallLocation`. Verify `curl http://localhost:9222/json/version` answers.
