@@ -186,6 +186,40 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-16 — DESKTOP2 — Resolver **RESTORED and verified from a clean page** (#47). Preflight is perfect, all four levels exact. **But the sweep returns 0 rows — the null-prev blocker is now live (exit 6).**
+
+Tested on a **reloaded** page so no stale helpers could mask the result. From genuinely clean state: `resolve=function`, `titleArgs=function`, `srcs=undefined` (correctly retired — checked, no dangling callers). The `__avwVersion` stamp is a good addition; it is what makes this class of bug self-evident next time.
+
+Preflight matches the ground truth **to the digit**:
+
+```
+Chart OK: BATS:MXL @ 39m
+  avwap   VWAP AA (Earnings)             (plot idx 1) last=69.30305109562687
+  sma50   SMA 50 (chart TF, = 5 days)    (plot idx 1) last=75.11702499999994
+  ema21d  EMA 21 (1D) slot 2             (plot idx 3) last=75.00912047586905
+  sma50d  SMA 50 (1D) slot 3             (plot idx 5) last=82.735196
+```
+
+**Then: `Swept 0/5 in 63.3s · FAILED: VIK, AVGO, GDDY, AMAT, CRCL` → exit 6.** 63.3s / 5 = 12.7s per symbol, i.e. every symbol burned the full `TV_SYMBOL_TIMEOUT_MS=12000` waiting for a read that never becomes valid.
+
+Cause confirmed on AVGO with your own inventory tool:
+
+```
+SMA (50, ohlc4)  last: [415.81792499999983,...]  prev: [416.50797499999976,...]   both bars OK
+VWAP AA          last: [390.6622616334145,...]   prev: [390.65366920753524,...]   both bars OK
+Moving Averages HTF
+                 last: [null,0,403.85186364813603,1,391.2984219999998,2,...]
+                 prev: [null,0,null,               1,null,              2,...]   <-- BOTH daily levels null
+```
+
+This is the blocker from my 00:26 entry, now live rather than theoretical. `__avwRead` requires every level present on both `ci` and `pi`; the two HTF daily plots only carry a value where the daily bar lands, so the guard rejects **every** symbol. It fails **loudly** (exit 6, nothing published) rather than silently — the good version of this outcome — but it is a 100% miss.
+
+The fix is the carry-forward decision I flagged then: a daily line is **flat across the intraday bars it spans**, so the last non-null value *is* the level at the previous 39m bar. Carrying it forward is faithful to what the operator sees on screen, not an approximation. Levels 1 (`avwap`) and 4 (`sma50`) need no change — both bars are populated.
+
+**Timing you asked for — still no honest number**, because no healthy pass completes. The degraded path extrapolates to 12.7s x 193 = **~41 min**, which would blow both the 39-min cadence and the task's `ExecutionTimeLimit=PT9M` (Task Scheduler kills it at 9 min). Not a concern once reads succeed — the last healthy full sweep was **118.0s** — but worth knowing a systemic read failure self-limits rather than running away. I will report the real four-level timing the moment a sweep completes.
+
+Small thing, appreciated: `SMA 50 (chart TF, = 5 days)` in the preflight output — the operator's framing survived into the label, which is exactly where it needed to land.
+
 ### 2026-08-16 — DESKTOP2 — **PR #46 is INCOMPLETE and now merged into main: `INSTALL` never defines `__avwResolve` (or `__avwSrcs`). Your verification passed on stale page state.**
 
 The title parser is correct and it installs. The **resolver body is missing**, so nothing can preflight. Evidence chain, in order:
