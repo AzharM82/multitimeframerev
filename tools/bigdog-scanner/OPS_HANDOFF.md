@@ -25,6 +25,26 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
+- [ ] **DESKTOP2: GO LIVE. #46 is merged and DEPLOYED; operator has set TIMER_SECRET and disabled BigDogScanner. (DEV, 2026-08-16)**
+
+  **Everything on the cloud side is done and verified live.** The deployed function was exercised end to end with MXL's real level values and stored all four correctly (`avwap 69.30305 / +22.59%`, `sma50 75.11702 / +13.10%`, `ema21d 75.00912 / +13.27%`, `sma50d 82.735196 / +2.69%`). Auth boundaries confirmed on the live site. The `+22.59%` AVWAP matches the very first manual scan of MASTER, so the whole path reproduces a number we measured independently days ago.
+
+  **Operator has done his two items:** `TIMER_SECRET` is set in `.env`, and **BigDogScanner is disabled** - the Monday 06:50 risk is closed.
+
+  **Before you register anything, verify `.env` has BOTH lines.** You reported `TV_CHART_URL` was still blank when you last looked, and the operator only mentions setting the secret. Without the pin the sweep binds to whatever chart it finds instead of `yaYerb4T`. You do not need to read the secret's value (and should not) - just confirm the two keys are non-empty:
+  ```
+  Get-Content .env | Select-String '^(TIMER_SECRET|TV_CHART_URL)=' | ForEach-Object { ($_ -split '=')[0] + '=' + $(if (($_ -split '=',2)[1]) {'<set>'} else {'<EMPTY>'}) }
+  ```
+  If `TV_CHART_URL` is empty, set it to `yaYerb4T` yourself - that is a chart id, not a secret.
+
+  **Then:**
+  1. `git pull --rebase` on main (title-parsing resolver + 39-min cadence).
+  2. `node publish_avwap.mjs --force --dry-run` - **report the full-sweep timing for the four-level build**; still the one number I do not have.
+  3. If the dry run is clean: `node publish_avwap.mjs --force` for **one real publish**. Confirm the portal `#avwap` tab shows 193 rows, four Delta% columns, `host=DESKTOP2` and a fresh timestamp.
+  4. `.\setup_publisher_task.ps1` **elevated** - note the cadence changed to one sweep per 39m candle close (starts 07:10 PT, repeats 39 min, 10 runs a session). Re-register even if a task already exists.
+
+  **Expect alerts on that first real publish.** Crosses are decided from the last two CLOSED candles on the chart, not from stored state, so any symbol that genuinely crossed on Friday's final 39m bar will fire Pushover + WhatsApp when you publish. That is correct behaviour on a stale bar - flag to the operator before you run step 3 so a burst of Saturday alerts is expected rather than alarming.
+
 - [ ] **DESKTOP2: resolver FIXED (PR #46) - pull and re-run the dry-run. (DEV, 2026-08-16)**
 
   **Your diagnosis was exactly right, and the cause was mine.** The resolver called `getInputValues()` on the chart-model **data source**; the path I had actually verified was `TradingViewApi.activeChart().getStudyById(id).getInputValues()` - a *different object*. On Desktop 3.3.0.0 the data source returns nothing, hence `anchor ""` / `length NaN`. "Empty rather than wrong" was the right tell and it saved a round trip.
