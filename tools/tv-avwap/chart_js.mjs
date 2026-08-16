@@ -43,7 +43,14 @@
  */
 
 // Installs the sweep helpers. Idempotent - safe to re-evaluate.
+export const INSTALL_VERSION = "resolver-2026-08-16b";
+
 export const INSTALL = `(function () {
+  // Stamped so the publisher can prove the helpers it is about to use are the
+  // ones it just installed. window.__avw* survives run to run - nothing reloads
+  // the tab - so a half-installed build can otherwise keep running the PREVIOUS
+  // build's resident helpers and look healthy.
+  window.__avwVersion = 'resolver-2026-08-16b';
   window.__avwSleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   var T = function (s) { try { return s.title(); } catch (e) { return ''; } };
@@ -97,6 +104,69 @@ export const INSTALL = `(function () {
       for (const i of iv) map[String(i.id)] = i.value;
       return map;
     } catch (e) { return {}; }
+  };
+
+  /**
+   * Resolve every level to {source, valueIdx}. valueIdx indexes the array from
+   * data().valueAt(i), i.e. plot_N lives at index N+1.
+   * Returns { levels, errors } - a missing level is an error, never a null.
+   */
+  window.__avwResolve = function () {
+    const ds = window.__avwSources();
+    const errors = [];
+    const levels = {};
+
+    const vw = ds.find(s => T(s).indexOf('VWAP AA') === 0);
+    if (!vw) errors.push('VWAP AA study not on chart');
+    else {
+      const args = window.__avwTitleArgs(T(vw));
+      const anchor = String(args[0] || inputsOf(vw)['Anchor Period'] || '');
+      if (!/^earnings$/i.test(anchor)) errors.push('VWAP AA anchor is "' + anchor + '", expected Earnings');
+      else levels.avwap = { source: vw, valueIdx: 1, desc: 'VWAP AA (Earnings)' };
+    }
+
+    // Standalone SMA on the chart timeframe: title "SMA (50, ohlc4, ...)".
+    // The HTF overlay is excluded - its title starts "Moving Averages".
+    const sma = ds.find(s => /^SMA \\(/.test(T(s)));
+    if (!sma) errors.push('standalone SMA study not on chart');
+    else {
+      const args = window.__avwTitleArgs(T(sma));
+      const inp = inputsOf(sma);
+      const len = Number(args.length ? args[0]
+                         : (inp['Length'] !== undefined ? inp['Length'] : inp['in_0']));
+      if (len !== 50) errors.push('standalone SMA length is ' + len + ', expected 50');
+      else levels.sma50 = { source: sma, valueIdx: 1, desc: 'SMA 50 (chart TF, = 5 days)' };
+    }
+
+    // Higher-timeframe overlay: ten MA slots of eight arguments each,
+    //   [enabled, showLabel, type, source, length, timeframe, width, colour]
+    // with slot k plotted at plot_{2k}. Slots are located BY THEIR PARAMETERS,
+    // never by position, so reordering cannot silently repoint a level.
+    const htf = ds.find(s => T(s).indexOf('Moving Averages HTF') === 0);
+    if (!htf) errors.push('Moving Averages HTF study not on chart');
+    else {
+      const args = window.__avwTitleArgs(T(htf));
+      const inp = inputsOf(htf);
+      const arg = function (n) { return args.length > n ? args[n] : inp['in_' + n]; };
+      const findSlot = function (type, length, tf) {
+        for (let k = 0; k < 10; k++) {
+          if (String(arg(8 * k)) !== 'true') continue;
+          if (String(arg(8 * k + 2)).toUpperCase() !== type) continue;
+          if (Number(arg(8 * k + 4)) !== length) continue;
+          if (String(arg(8 * k + 5)) !== tf) continue;
+          return k;
+        }
+        return -1;
+      };
+      const k21 = findSlot('EMA', 21, '1D');
+      if (k21 < 0) errors.push('no enabled EMA 21 1D slot in the HTF overlay');
+      else levels.ema21d = { source: htf, valueIdx: 2 * k21 + 1, desc: 'EMA 21 (1D) slot ' + (k21 + 1) };
+      const k50 = findSlot('SMA', 50, '1D');
+      if (k50 < 0) errors.push('no enabled SMA 50 1D slot in the HTF overlay');
+      else levels.sma50d = { source: htf, valueIdx: 2 * k50 + 1, desc: 'SMA 50 (1D) slot ' + (k50 + 1) };
+    }
+
+    return { levels: levels, errors: errors };
   };
 
   // Human-readable resolution report, for preflight and the inventory tool.

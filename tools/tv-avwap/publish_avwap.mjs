@@ -52,7 +52,7 @@ import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { INSTALL, jsPreflight, jsWatchlist, jsSweep, jsRestoreSymbol } from "./chart_js.mjs";
+import { INSTALL, INSTALL_VERSION, jsPreflight, jsWatchlist, jsSweep, jsRestoreSymbol } from "./chart_js.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -228,6 +228,20 @@ async function run() {
     // installed helpers. A level that will not resolve must stop the run here,
     // not surface as a plausible number 193 symbols later.
     await session.evaluate(INSTALL);
+
+    // Prove the helpers we are about to use are the ones we just installed.
+    // window.__avw* survives run to run - nothing reloads the tab - so a
+    // half-installed build can keep running the PREVIOUS build's resident
+    // helpers and look perfectly healthy. That is exactly how a build with no
+    // resolver at all passed review and reached main.
+    const stamp = await session.evaluate('window.__avwVersion || null');
+    if (stamp !== INSTALL_VERSION) {
+      console.error(`ERROR: installed helper version is ${JSON.stringify(stamp)}, expected ` +
+                    `${JSON.stringify(INSTALL_VERSION)}. The page is running stale or partial ` +
+                    "helpers - reload the TradingView chart tab and retry.");
+      return 3;
+    }
+
     const pre = await session.evaluate(jsPreflight(EXPECT_RES));
     if (!pre || pre.err) {
       console.error(`ERROR: chart preflight failed: ${pre?.err || "no response"}`);
