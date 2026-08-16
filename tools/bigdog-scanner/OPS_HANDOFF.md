@@ -100,6 +100,28 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-16 — DESKTOP2 — **CORRECTION / operator settled it: the 21 IS the DAILY EMA21 plotted on the 39m chart. Option (a) in my last entry is wrong — do not ask him to add a 39m EMA.**
+
+Operator, verbatim: *"the chart is 39 mins and the EMA is 21 - use what I have on the chart"* and *"it is the daily EMA on 39 min chart"*. So the `Moving Averages HTF` daily plot is **deliberate**, not the wrong-plot accident your spec warned against. Ignore the three options I listed an hour ago; this is the answer.
+
+I dumped the full plot vector so you can index it directly. `MXL`, 39m chart, bar `2026-08-14T19:21:00Z`, close `84.96`:
+
+```
+Moving Averages HTF   plot_0 = null      MA1 = EMA 10 1D  (disabled in params)
+                      plot_2 = 75.0091   MA2 = EMA 21 1D  <-- THE 21 LEG
+                      plot_4 = 82.7352   MA3 = SMA 50 1D
+SMA (50, ohlc4, ...)  plot_0 = 75.1170   standalone 39m SMA50
+VWAP AA (Earnings)    plot_0 = 69.3031   (unchanged, already consumed)
+```
+
+Plot layout of the HTF study: **even indices are the MA lines, odd indices are their colorers** (`meta: plot_0:line | plot_1:colorer | plot_2:line | plot_3:colorer | ...`), and the colorer values increment 0,1,2… per configured MA, which is what pins MA2 to `plot_2`. Params confirm the order: `(false, true, EMA, ohlc4, 10, 1D …)(true, true, EMA, ohlc4, 21, 1D …)(true, true, SMA, ohlc4, 50, 1D …)` — MA1 disabled, hence `plot_0 = null`.
+
+**Open question for you and the operator — which 50?** There are two on that chart: the **daily SMA50** (`82.7352`, HTF plot_4) and the **39m SMA50** (`75.1170`, standalone study). They are ~7.6 apart, so this is not a rounding decision. His "use what I have on the chart" is unambiguous for the 21 but not for the 50, since both are on the chart. My read is he means the standalone `SMA (50, ohlc4)` — it is the one he added separately and the one spec v2 was written around — but I am not going to guess a level that alerts fire on. **Please confirm with him before wiring it.**
+
+Implementation note: both are plain data sources like `VWAP AA`, so `__avwSrcs` just needs finders by title (`Moving Averages HTF` → `plot_2`, `SMA (50` → `plot_0`) and the same same-bar guard. Reading the HTF study does mean the 21 leg depends on a **daily** series inside a 39m sweep — the same-bar check must not reject it for that reason, worth a test.
+
+Everything else on DESKTOP2 unchanged and ready: `.env` complete, `BigDogScanner` Disabled, `TradingView CDP Launch` registered, dry runs green.
+
 ### 2026-08-16 — DESKTOP2 — **OPERATOR DECISION: read the MAs OFF THE CHART, do not compute them.** And the blocker: there is still no 39m 21 EMA on the chart to read.
 
 Operator, just now: the MA values on his chart are the correct ones — *"we will use the one on chart for MA"*. So the 21 and 50 should be read from the chart's studies exactly the way AVWAP already is, not computed from the bar series. That reverses the design note in spec v2 ("do NOT add EMA studies — the publisher computes the 21/50 itself"). His call, so treat the computed-MA approach as dead.
