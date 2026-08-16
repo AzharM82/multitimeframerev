@@ -1,5 +1,40 @@
 import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
 import { recordSnapshot, getSnapshot, type AvwapInputRow } from "../lib/avwapEarnings.js";
+import { cacheGet, cacheSet, type Quote } from "../lib/rotation.js";
+import { fetchQuotesFinviz } from "../lib/rotationFinviz.js";
+
+/**
+ * Live change / change-from-open for the swept universe.
+ *
+ * Sourced from FinViz Elite, the same feed the Rotation and Sector Desk tabs
+ * use, so the change column agrees with the rest of the portal rather than
+ * quietly disagreeing by a few basis points. Cached 30s - the same TTL as
+ * /api/rot-quotes - because the tab polls every 60s per viewer and one
+ * whole-market export should not be pulled per viewer per minute.
+ *
+ * Deliberately NOT fatal: the levels are the point of this tab, and they come
+ * off the chart. If FinViz is unconfigured, rate-limited or down, the change
+ * columns render blank and everything else still works. `quote_source` rides in
+ * the payload so the UI can say which clock the numbers are on instead of
+ * asserting a freshness it cannot verify.
+ */
+const QUOTE_CACHE_KEY = "avwap:quotes";
+const QUOTE_CACHE_TTL = 30;
+
+async function quotesFor(tickers: string[]): Promise<{ quotes: Record<string, Quote>; source: string; missing: number }> {
+  const cached = await cacheGet<{ quotes: Record<string, Quote>; source: string; missing: number }>(QUOTE_CACHE_KEY);
+  if (cached) return cached;
+  try {
+    const fv = await fetchQuotesFinviz(tickers);
+    const out = fv
+      ? { quotes: fv.quotes, source: "finviz", missing: fv.missing.length }
+      : { quotes: {}, source: "none", missing: tickers.length };
+    await cacheSet(QUOTE_CACHE_KEY, out, QUOTE_CACHE_TTL);
+    return out;
+  } catch {
+    return { quotes: {}, source: "none", missing: tickers.length };
+  }
+}
 
 /**
  * GET/POST /api/avwap-earnings — four chart levels for the MASTER watchlist.
@@ -43,9 +78,20 @@ async function handler(req: HttpRequest): Promise<HttpResponseInit> {
   if (req.method === "GET") {
     try {
       const snap = await getSnapshot();
+      const q = await quotesFor(snap.rows.map((r) => r.ticker));
+      const rows = snap.rows.map((r) => {
+        const quote = q.quotes[r.ticker];
+        return {
+          ...r,
+          chgPct: quote ? quote.changePercent : null,
+          chgOpenPct: quote ? quote.changeFromOpenPercent : null,
+        };
+      });
       return {
         jsonBody: {
-          rows: snap.rows,
+          rows,
+          quote_source: q.source,
+          quote_missing: q.missing,
           count: snap.rows.length,
           bar_utc: snap.barUtc,
           published_at: snap.publishedAt,

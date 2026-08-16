@@ -54,9 +54,11 @@ export type CrossDirection = "CROSS_UP" | "TOUCH_DOWN";
 
 export const LEVEL_LABEL: Record<Level, string> = {
   avwap: "AVWAP(Earnings)",
-  sma50: "5D SMA (50x39m)",
-  ema21d: "21 EMA (D)",
-  sma50d: "50 SMA (D)",
+  // Spelled out in days: "5D SMA" and "50 SMA D" read almost identically in an
+  // alert on a phone, and they are ~7.6 apart on MXL. Worth the extra chars.
+  sma50: "5-Day SMA (50x39m)",
+  ema21d: "21-Day EMA",
+  sma50d: "50-Day SMA",
 };
 
 /**
@@ -90,6 +92,8 @@ export interface CrossEvent {
 
 export interface AvwapRow {
   ticker: string;
+  /** Exchange-qualified symbol for chart deep-links, e.g. "NASDAQ:MXL". */
+  sym: string;
   close: number;
   /** Plotted level value, per level key. */
   levels: Record<string, number | null>;
@@ -195,6 +199,10 @@ export async function recordSnapshot(
 
     const entity: Record<string, unknown> = {
       ticker,
+      // Fully-qualified TradingView symbol (NASDAQ:MXL). The portal deep-links
+      // the operator's own 39m layout with it, so it must be exchange-qualified
+      // - a bare ticker can resolve to a different listing.
+      sym: String(raw.sym ?? "") || null,
       close,
       barUtc: opts.barUtc,
       publishedAt: opts.publishedAt || nowIso,
@@ -352,6 +360,7 @@ export async function getSnapshot(): Promise<AvwapSnapshot> {
     }
     out.rows.push({
       ticker: rk,
+      sym: String(e.sym ?? ""),
       close: num(e.close) ?? 0,
       levels,
       pct,

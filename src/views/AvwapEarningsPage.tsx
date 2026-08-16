@@ -4,47 +4,61 @@ import { useEffect, useMemo, useState } from "react";
  * AVWAP from Earnings.
  *
  * The MASTER TradingView watchlist swept on DESKTOP2 against the 39-minute
- * chart. Per symbol, the distance from three levels:
+ * chart. Four levels, all READ off the operator's own studies rather than
+ * recomputed, so every number here is the line he trades against:
  *
- *   AVWAP  "VWAP Auto Anchored", Anchor Period = Earnings (chart truth)
- *   21 EMA / 50 SMA   of 39m closes, computed by the publisher from the bars.
- *                     These mirror what is actually drawn on the operator's
- *                     chart -- an SMA50 and an EMA50 sit at different prices.
+ *   AVWAP     VWAP Auto Anchored, Anchor Period = Earnings  (39m)
+ *   5D SMA    the standalone SMA(50) on 39m - 50 bars x 39m = 10 bars/session
+ *             x 5 sessions, i.e. one full week of candles
+ *   21 EMA D  daily EMA 21, from the higher-timeframe overlay
+ *   50 SMA D  daily SMA 50, from the same overlay
  *
- * Positive = price above the level, negative = below.
- *
- * The alert rules this tab exists to make legible:
- *   - a candle CLOSING above any of the three levels, having closed below it on
- *     the previous candle  -> cross-up alert
- *   - a name extended ABOVE the AVWAP coming back down to touch it -> touch alert
- *
- * Everything therefore turns on the distance from ZERO, which is why the
- * "closest to a cross" block is pinned above the full list: those are the names
- * that can actually trigger next, on whichever level they are nearest.
- *
- * Distinct from the portal's other AVWAP work — that is session/swing anchored,
- * this is anchored to the last earnings report.
+ * Alerts fire when a candle CLOSES on the far side of a level having closed on
+ * the near side of it the bar before. So the whole tab is organised around
+ * distance from zero: the closer a name sits to a level, the sooner it can
+ * trigger. Chg% / From Open come from FinViz, the same feed the Rotation and
+ * Sector Desk tabs use, so they agree with the rest of the portal.
  */
 
-const NEAR_PCT = 1.0;
+const NEAR_DEFAULT = 1.0;
+const NEAR_CHOICES = [0.5, 1.0, 2.0];
+
+/** The saved 39m layout every level is read from - deep-linked per ticker. */
+const CHART_ID = "yaYerb4T";
 
 type LevelKey = "avwap" | "sma50" | "ema21d" | "sma50d";
-
 const LEVELS: LevelKey[] = ["avwap", "sma50", "ema21d", "sma50d"];
-
+/**
+ * Labels spell the PERIOD out in days. "5D SMA" and "50 SMA D" were nearly
+ * indistinguishable in a dense table, and they are completely different lines:
+ * one is a week of 39m candles, the other is fifty daily candles. On MXL they
+ * sat ~7.6 apart. Reading the wrong column is a real trading error, so the
+ * labels carry the distinction rather than relying on the reader.
+ */
 const LEVEL_LABEL: Record<LevelKey, string> = {
   avwap: "AVWAP",
-  sma50: "5D SMA",
-  ema21d: "21 EMA D",
-  sma50d: "50 SMA D",
+  sma50: "5-Day SMA",
+  ema21d: "21-Day EMA",
+  sma50d: "50-Day SMA",
+};
+
+/** Shown on hover, so the column can explain itself without stealing width. */
+const LEVEL_HINT: Record<LevelKey, string> = {
+  avwap: "VWAP Auto Anchored, anchored to the last earnings report (39m chart)",
+  sma50: "SMA(50) on the 39-minute chart = 50 x 39m. A session is 390 min = 10 bars, so this is FIVE TRADING DAYS - one week of candles. Not the 50-day SMA.",
+  ema21d: "21-period EMA on the DAILY chart, plotted on the 39m via the higher-timeframe overlay",
+  sma50d: "50-period SMA on the DAILY chart - fifty daily candles. Not the 5-day line.",
 };
 
 interface Row {
   ticker: string;
+  sym: string;
   close: number;
   levels: Record<string, number | null>;
   pct: Record<string, number | null>;
-  lastCross: string;   // "<level>:<direction>", e.g. "sma50d:CROSS_UP"
+  chgPct: number | null;
+  chgOpenPct: number | null;
+  lastCross: string;
   lastCrossAt: string;
 }
 
@@ -53,36 +67,39 @@ interface Snapshot {
   barUtc: string;
   publishedAt: string;
   host: string;
-  ageMin: number;
   stale: boolean;
   failed: string[];
+  quoteSource: string;
   loaded: boolean;
 }
 
 const EMPTY: Snapshot = {
   rows: [], barUtc: "", publishedAt: "", host: "",
-  ageMin: -1, stale: true, failed: [], loaded: false,
+  stale: true, failed: [], quoteSource: "", loaded: false,
 };
 
-type SortKey = LevelKey | "ticker" | "close" | "nearest";
-type SideFilter = "all" | "above" | "below";
+type SortKey = LevelKey | "ticker" | "close" | "chg" | "chgOpen" | "nearest" | "cross";
+type Dir = "asc" | "desc";
 
 async function fetchSnapshot(): Promise<Snapshot> {
   try {
     const res = await fetch("/api/avwap-earnings");
     if (!res.ok) return EMPTY;
     const raw = (await res.json()) as Record<string, unknown>;
-    const nOrNull = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
     const rows = ((raw.rows ?? []) as Record<string, unknown>[]).map((r) => {
       const lv = (r.levels ?? {}) as Record<string, unknown>;
       const pc = (r.pct ?? {}) as Record<string, unknown>;
       const levels: Record<string, number | null> = {};
       const pct: Record<string, number | null> = {};
-      for (const k of LEVELS) { levels[k] = nOrNull(lv[k]); pct[k] = nOrNull(pc[k]); }
+      for (const k of LEVELS) { levels[k] = n(lv[k]); pct[k] = n(pc[k]); }
       return {
         ticker: String(r.ticker ?? ""),
+        sym: String(r.sym ?? ""),
         close: Number(r.close ?? 0),
         levels, pct,
+        chgPct: n(r.chgPct),
+        chgOpenPct: n(r.chgOpenPct),
         lastCross: String(r.lastCross ?? ""),
         lastCrossAt: String(r.lastCrossAt ?? ""),
       };
@@ -92,9 +109,9 @@ async function fetchSnapshot(): Promise<Snapshot> {
       barUtc: String(raw.bar_utc ?? ""),
       publishedAt: String(raw.published_at ?? ""),
       host: String(raw.host ?? ""),
-      ageMin: Number(raw.age_min ?? -1),
       stale: Boolean(raw.stale ?? true),
       failed: ((raw.failed ?? []) as unknown[]).map(String),
+      quoteSource: String(raw.quote_source ?? ""),
       loaded: true,
     };
   } catch {
@@ -102,11 +119,9 @@ async function fetchSnapshot(): Promise<Snapshot> {
   }
 }
 
-function pctOf(r: Row, k: LevelKey): number | null {
-  return r.pct[k] ?? null;
-}
+const pctOf = (r: Row, k: LevelKey) => r.pct[k] ?? null;
 
-/** Which level this symbol sits closest to, and how far. Drives the "closest to a cross" block. */
+/** Which level a symbol sits closest to, and how far. Drives ranking and highlight. */
 function nearest(r: Row): { level: LevelKey; pct: number } | null {
   let best: { level: LevelKey; pct: number } | null = null;
   for (const k of LEVELS) {
@@ -117,11 +132,26 @@ function nearest(r: Row): { level: LevelKey; pct: number } | null {
   return best;
 }
 
-function pctTone(pct: number): string {
-  if (pct >= 10) return "text-signal-bull";
-  if (pct > 0) return "text-signal-bull/80";
-  if (pct <= -10) return "text-signal-bear";
-  if (pct < 0) return "text-signal-bear/80";
+/** Daily regime: where the 21 EMA sits against the 50 SMA, both daily. */
+function dailyStack(r: Row): "BULL" | "BEAR" | null {
+  const e = r.levels.ema21d, s = r.levels.sma50d;
+  if (e === null || s === null || e === undefined || s === undefined) return null;
+  return e >= s ? "BULL" : "BEAR";
+}
+
+function above(r: Row, k: LevelKey): boolean | null {
+  const p = pctOf(r, k);
+  return p === null ? null : p >= 0;
+}
+const aboveAll = (r: Row) => LEVELS.every((k) => above(r, k) === true);
+const belowAll = (r: Row) => LEVELS.every((k) => above(r, k) === false);
+
+function tone(p: number | null): string {
+  if (p === null) return "text-dim";
+  if (p >= 10) return "text-signal-bull";
+  if (p > 0) return "text-signal-bull/80";
+  if (p <= -10) return "text-signal-bear";
+  if (p < 0) return "text-signal-bear/80";
   return "text-text-secondary";
 }
 
@@ -135,122 +165,50 @@ function fmtTime(iso: string): string {
   }) + " PT";
 }
 
+const pacificToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+const crossedToday = (r: Row) => !!r.lastCrossAt && r.lastCrossAt.slice(0, 10) === pacificToday();
+
 function CrossBadge({ row }: { row: Row }) {
   if (!row.lastCross) return null;
   const [level, dir] = row.lastCross.split(":");
   const label = LEVEL_LABEL[level as LevelKey] ?? level;
-  if (dir === "CROSS_UP") {
-    return (
-      <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-signal-bull/15 text-signal-bull">
-        ▲ {label}
-      </span>
-    );
-  }
-  if (dir === "TOUCH_DOWN") {
-    return (
-      <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-signal-bear/15 text-signal-bear">
-        ▼ TOUCHED
-      </span>
-    );
-  }
-  return null;
-}
-
-/** Half-width max on each side of a centre rule. */
-function DistanceBar({ pct, max }: { pct: number; max: number }) {
-  const frac = max > 0 ? Math.min(Math.abs(pct) / max, 1) : 0;
-  const width = `${(frac * 50).toFixed(1)}%`;
+  const cls = dir === "CROSS_UP"
+    ? "bg-signal-bull/15 text-signal-bull"
+    : "bg-signal-bear/15 text-signal-bear";
   return (
-    <div className="relative h-2 w-full bg-bg-secondary rounded-sm overflow-hidden">
-      <div className="absolute inset-y-0 left-1/2 w-px bg-border" />
-      <div
-        className={`absolute inset-y-0 ${pct >= 0 ? "bg-signal-bull/60" : "bg-signal-bear/60"}`}
-        style={pct >= 0 ? { left: "50%", width } : { right: "50%", width }}
-      />
-    </div>
+    <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap ${cls}`}>
+      {dir === "CROSS_UP" ? "▲" : "▼"} {label}
+    </span>
   );
 }
 
-function PctCell({ pct }: { pct: number | null }) {
-  if (pct === null) {
-    // Not enough 39m history to seed the EMA — say so rather than print a 0
-    // that reads as "sitting exactly on the level".
-    return <td className="px-3 py-1.5 text-right tabular-nums text-dim">n/a</td>;
-  }
+function PctCell({ p, bold = true }: { p: number | null; bold?: boolean }) {
+  if (p === null) return <td className="px-2 py-1.5 text-right tabular-nums text-dim">n/a</td>;
   return (
-    <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${pctTone(pct)}`}>
-      {pct > 0 ? "+" : ""}{pct.toFixed(2)}%
+    <td className={`px-2 py-1.5 text-right tabular-nums ${bold ? "font-bold" : ""} ${tone(p)}`}>
+      {p > 0 ? "+" : ""}{p.toFixed(2)}%
     </td>
   );
 }
 
-function Tile({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
+function Tile({ label, value, sub, active, onClick, tone: t }: {
+  label: string; value: string | number; sub?: string;
+  active?: boolean; onClick?: () => void; tone?: string;
+}) {
+  const clickable = !!onClick;
   return (
-    <div className="bg-bg-card border border-border rounded px-4 py-3 min-w-[110px]">
-      <div className="text-[11px] uppercase tracking-wide text-text-secondary">{label}</div>
-      <div className={`text-2xl font-bold leading-tight mt-0.5 ${tone || "text-text-primary"}`}>{value}</div>
-    </div>
-  );
-}
-
-/**
- * `barOn` picks which level the distance bar visualises, and each table scales
- * its bars to ITS OWN widest row: scaling the near-a-cross table against the
- * full dataset's ±46% extreme renders every bar in it as an invisible sliver,
- * and that is precisely the table where relative distance matters most.
- */
-function Table({ rows, barOn }: { rows: Row[]; barOn: LevelKey | "nearest" }) {
-  if (rows.length === 0) {
-    return <p className="text-sm text-text-secondary px-3 py-6">No symbols match.</p>;
-  }
-  const barPct = (r: Row): number | null =>
-    barOn === "nearest" ? (nearest(r)?.pct ?? null) : pctOf(r, barOn);
-  const max = rows.reduce((m, r) => Math.max(m, Math.abs(barPct(r) ?? 0)), 0);
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-[11px] uppercase tracking-wide text-text-secondary border-b border-border">
-            <th className="text-left font-semibold px-3 py-2">Ticker</th>
-            <th className="text-right font-semibold px-3 py-2">Close</th>
-            {LEVELS.map((k) => (
-              <th key={k} className="text-right font-semibold px-3 py-2 whitespace-nowrap">
-                Δ% {LEVEL_LABEL[k]}
-              </th>
-            ))}
-            {barOn === "nearest" && (
-              <th className="text-left font-semibold px-3 py-2">Nearest</th>
-            )}
-            <th className="text-left font-semibold px-3 py-2 w-[22%]">Distance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const n = nearest(r);
-            const bp = barPct(r);
-            return (
-              <tr key={r.ticker} className="border-b border-border/50 hover:bg-bg-secondary/50">
-                <td className="px-3 py-1.5 font-bold text-text-primary whitespace-nowrap">
-                  {r.ticker}<CrossBadge row={r} />
-                </td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-text-primary">{r.close.toFixed(2)}</td>
-                {LEVELS.map((k) => <PctCell key={k} pct={pctOf(r, k)} />)}
-                {barOn === "nearest" && (
-                  <td className="px-3 py-1.5 text-[11px] text-text-secondary whitespace-nowrap">
-                    {n ? LEVEL_LABEL[n.level] : "—"}
-                  </td>
-                )}
-                <td className="px-3 py-1.5">
-                  {bp === null ? <span className="text-dim text-xs">n/a</span>
-                               : <DistanceBar pct={bp} max={max} />}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!clickable}
+      className={`text-left bg-bg-card border rounded px-3 py-2 min-w-[104px] transition-colors ${
+        active ? "border-text-primary ring-1 ring-text-primary" : "border-border"
+      } ${clickable ? "hover:bg-bg-secondary cursor-pointer" : "cursor-default"}`}
+    >
+      <div className="text-[10px] uppercase tracking-wide text-text-secondary">{label}</div>
+      <div className={`text-xl font-bold leading-tight ${t || "text-text-primary"}`}>{value}</div>
+      {sub && <div className="text-[10px] text-dim">{sub}</div>}
+    </button>
   );
 }
 
@@ -258,49 +216,114 @@ export function AvwapEarningsPage() {
   const [snap, setSnap] = useState<Snapshot>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [side, setSide] = useState<SideFilter>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("avwap");
+  const [sortKey, setSortKey] = useState<SortKey>("nearest");
+  const [dir, setDir] = useState<Dir>("asc");
+  const [near, setNear] = useState(NEAR_DEFAULT);
+  const [nearFilter, setNearFilter] = useState<LevelKey | "any" | null>(null);
+  const [trendFilter, setTrendFilter] = useState<"aboveAll" | "belowAll" | null>(null);
+  const [crossFilter, setCrossFilter] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    const load = () => {
-      void fetchSnapshot().then((s) => { if (alive) { setSnap(s); setLoading(false); } });
-    };
+    const load = () => { void fetchSnapshot().then((s) => { if (alive) { setSnap(s); setLoading(false); } }); };
     load();
     const id = setInterval(load, 60_000);
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  const filtered = useMemo(() => {
+  const isNear = (r: Row, k: LevelKey | "any") => {
+    if (k === "any") return LEVELS.some((l) => { const p = pctOf(r, l); return p !== null && Math.abs(p) <= near; });
+    const p = pctOf(r, k);
+    return p !== null && Math.abs(p) <= near;
+  };
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { any: 0 };
+    for (const k of LEVELS) c[k] = 0;
+    for (const r of snap.rows) {
+      if (isNear(r, "any")) c.any++;
+      for (const k of LEVELS) if (isNear(r, k)) c[k]++;
+    }
+    return c;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.rows, near]);
+
+  const trendCounts = useMemo(() => ({
+    aboveAll: snap.rows.filter(aboveAll).length,
+    belowAll: snap.rows.filter(belowAll).length,
+    crossed: snap.rows.filter(crossedToday).length,
+  }), [snap.rows]);
+
+  const rows = useMemo(() => {
     const q = query.trim().toUpperCase();
-    let rows = snap.rows;
-    if (q) rows = rows.filter((r) => r.ticker.includes(q));
-    if (side === "above") rows = rows.filter((r) => (r.pct.avwap ?? 0) >= 0);
-    if (side === "below") rows = rows.filter((r) => (r.pct.avwap ?? 0) < 0);
-    const sorted = [...rows];
-    const byLevel = (k: LevelKey) => (a: Row, b: Row) =>
-      (pctOf(b, k) ?? -Infinity) - (pctOf(a, k) ?? -Infinity);
-    if (sortKey === "ticker") sorted.sort((a, b) => a.ticker.localeCompare(b.ticker));
-    else if (sortKey === "close") sorted.sort((a, b) => b.close - a.close);
-    else if (sortKey === "nearest") {
-      sorted.sort((a, b) =>
-        Math.abs(nearest(a)?.pct ?? Infinity) - Math.abs(nearest(b)?.pct ?? Infinity));
-    } else sorted.sort(byLevel(sortKey as LevelKey));
+    let out = snap.rows;
+    if (q) out = out.filter((r) => r.ticker.includes(q));
+    if (nearFilter) out = out.filter((r) => isNear(r, nearFilter));
+    if (trendFilter === "aboveAll") out = out.filter(aboveAll);
+    if (trendFilter === "belowAll") out = out.filter(belowAll);
+    if (crossFilter) out = out.filter(crossedToday);
+
+    const sign = dir === "asc" ? 1 : -1;
+    const num = (v: number | null) => (v === null ? (dir === "asc" ? Infinity : -Infinity) : v);
+    const sorted = [...out];
+    sorted.sort((a, b) => {
+      switch (sortKey) {
+        case "ticker": return sign * a.ticker.localeCompare(b.ticker);
+        case "close": return sign * (a.close - b.close);
+        case "chg": return sign * (num(a.chgPct) - num(b.chgPct));
+        case "chgOpen": return sign * (num(a.chgOpenPct) - num(b.chgOpenPct));
+        case "cross": return sign * a.lastCrossAt.localeCompare(b.lastCrossAt);
+        case "nearest": {
+          const av = Math.abs(nearest(a)?.pct ?? Infinity), bv = Math.abs(nearest(b)?.pct ?? Infinity);
+          return sign * (av - bv);
+        }
+        default: return sign * (num(pctOf(a, sortKey)) - num(pctOf(b, sortKey)));
+      }
+    });
     return sorted;
-  }, [snap.rows, query, side, sortKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.rows, query, sortKey, dir, near, nearFilter, trendFilter, crossFilter]);
 
-  const near = useMemo(
-    () => snap.rows
-      .filter((r) => {
-        const n = nearest(r);
-        return n !== null && Math.abs(n.pct) <= NEAR_PCT;
-      })
-      .sort((a, b) => Math.abs(nearest(a)!.pct) - Math.abs(nearest(b)!.pct)),
-    [snap.rows],
+  /** Click a header: same column flips direction, new column starts sensibly. */
+  const sortBy = (k: SortKey) => {
+    if (k === sortKey) { setDir(dir === "asc" ? "desc" : "asc"); return; }
+    setSortKey(k);
+    setDir(k === "ticker" || k === "nearest" ? "asc" : "desc");
+  };
+  const arrow = (k: SortKey) => (k === sortKey ? (dir === "asc" ? " ▲" : " ▼") : "");
+
+  const clearFilters = () => { setNearFilter(null); setTrendFilter(null); setCrossFilter(false); setQuery(""); };
+  const anyFilter = !!nearFilter || !!trendFilter || crossFilter || !!query;
+
+  const exportCsv = () => {
+    const head = ["ticker", "sym", "close", "chg_pct", "chg_open_pct",
+                  ...LEVELS.flatMap((k) => [`${k}`, `pct_${k}`]), "nearest", "last_cross", "last_cross_at"];
+    const lines = rows.map((r) => [
+      r.ticker, r.sym, r.close, r.chgPct ?? "", r.chgOpenPct ?? "",
+      ...LEVELS.flatMap((k) => [r.levels[k] ?? "", r.pct[k] ?? ""]),
+      nearest(r) ? LEVEL_LABEL[nearest(r)!.level] : "", r.lastCross, r.lastCrossAt,
+    ].join(","));
+    const blob = new Blob([[head.join(","), ...lines].join("\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `avwap-earnings-${pacificToday()}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const Th = ({ k, children, right, hint }: {
+    k: SortKey; children: React.ReactNode; right?: boolean; hint?: string;
+  }) => (
+    <th
+      title={hint}
+      onClick={() => sortBy(k)}
+      className={`px-2 py-2 font-semibold whitespace-nowrap cursor-pointer select-none hover:text-text-primary ${
+        right ? "text-right" : "text-left"
+      } ${k === sortKey ? "text-text-primary" : ""}`}
+    >
+      {children}{arrow(k)}
+    </th>
   );
-
-  const above = snap.rows.filter((r) => (r.pct.avwap ?? 0) >= 0).length;
-  const below = snap.rows.length - above;
 
   return (
     <div className="space-y-3">
@@ -308,26 +331,27 @@ export function AvwapEarningsPage() {
         <div>
           <h2 className="text-xl font-black text-text-primary">AVWAP from Earnings</h2>
           <p className="text-xs text-text-secondary mt-0.5">
-            MASTER watchlist · 39-minute chart · VWAP Auto Anchored (anchor = Earnings) + 5D SMA (50x39m) + 21 EMA / 50 SMA (daily)
+            MASTER · 39-minute chart · AVWAP (anchor = Earnings) · 5-Day SMA (50×39m ≡ 1 week) · 21-Day EMA · 50-Day SMA
           </p>
         </div>
         <div className="text-right text-[11px] text-text-secondary">
           <div>Bar: <span className="text-text-primary font-semibold">{fmtTime(snap.barUtc)}</span></div>
           <div>
-            Published: {fmtTime(snap.publishedAt)}
-            {snap.host && <span className="ml-1">· {snap.host}</span>}
+            Published: {fmtTime(snap.publishedAt)}{snap.host && <span className="ml-1">· {snap.host}</span>}
             {snap.stale && snap.loaded && (
               <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-signal-bear/15 text-signal-bear">STALE</span>
             )}
           </div>
+          {snap.loaded && snap.quoteSource !== "finviz" && (
+            <div className="text-signal-bear">Chg% unavailable ({snap.quoteSource || "no quote feed"})</div>
+          )}
         </div>
       </div>
 
-      {/* A feed that is down must never read as a quiet market. */}
       {!loading && !snap.loaded && (
         <div className="bg-signal-bear/10 border border-signal-bear/30 rounded px-3 py-2 text-xs text-signal-bear">
-          Could not reach <code>/api/avwap-earnings</code>. This is a feed failure, not an empty
-          market — nothing below is current.
+          Could not reach <code>/api/avwap-earnings</code>. This is a feed failure, not an empty market —
+          nothing below is current.
         </div>
       )}
       {snap.loaded && snap.failed.length > 0 && (
@@ -336,63 +360,115 @@ export function AvwapEarningsPage() {
         </div>
       )}
 
-      <div className="flex gap-2 flex-wrap">
+      {/* Near-a-level counts, each a one-click filter. */}
+      <div className="flex gap-2 flex-wrap items-center">
         <Tile label="Symbols" value={snap.rows.length} />
-        <Tile label="Above AVWAP" value={above} tone="text-signal-bull" />
-        <Tile label="Below AVWAP" value={below} tone="text-signal-bear" />
-        <Tile label={`Near a level (±${NEAR_PCT}%)`} value={near.length} />
+        <Tile label={`Near any ±${near}%`} value={counts.any}
+              sub={snap.rows.length ? `${Math.round((counts.any / snap.rows.length) * 100)}% of universe` : ""}
+              active={nearFilter === "any"} onClick={() => setNearFilter(nearFilter === "any" ? null : "any")} />
+        {LEVELS.map((k) => (
+          <Tile key={k} label={`Near ${LEVEL_LABEL[k]}`} value={counts[k]}
+                sub={snap.rows.length ? `${Math.round((counts[k] / snap.rows.length) * 100)}%` : ""}
+                active={nearFilter === k} onClick={() => setNearFilter(nearFilter === k ? null : k)} />
+        ))}
+        <Tile label="Above all 4" value={trendCounts.aboveAll} tone="text-signal-bull"
+              active={trendFilter === "aboveAll"}
+              onClick={() => setTrendFilter(trendFilter === "aboveAll" ? null : "aboveAll")} />
+        <Tile label="Below all 4" value={trendCounts.belowAll} tone="text-signal-bear"
+              active={trendFilter === "belowAll"}
+              onClick={() => setTrendFilter(trendFilter === "belowAll" ? null : "belowAll")} />
+        <Tile label="Crossed today" value={trendCounts.crossed}
+              active={crossFilter} onClick={() => setCrossFilter(!crossFilter)} />
       </div>
 
-      <div className="bg-bg-card border border-border rounded">
-        <div className="px-3 py-2 border-b border-border">
-          <h3 className="text-sm font-bold text-text-primary">Closest to a cross (±{NEAR_PCT}%)</h3>
-          <p className="text-[11px] text-text-secondary">
-            Within {NEAR_PCT}% of any of the four levels — a close on the far side of that level
-            alerts. Ranked by the nearest level.
-          </p>
-        </div>
-        {loading ? <p className="text-sm text-text-secondary px-3 py-6">Loading…</p>
-                 : <Table rows={near} barOn="nearest" />}
+      {/* Controls */}
+      <div className="flex items-center gap-2 flex-wrap text-xs">
+        <span className="text-text-secondary">Near band:</span>
+        {NEAR_CHOICES.map((b) => (
+          <button key={b} type="button" onClick={() => setNear(b)}
+            className={`px-2 py-1 rounded border ${b === near
+              ? "bg-text-primary text-bg-primary border-text-primary"
+              : "border-border text-text-secondary hover:text-text-primary"}`}>
+            ±{b}%
+          </button>
+        ))}
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter ticker…"
+          className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary w-32" />
+        {anyFilter && (
+          <button type="button" onClick={clearFilters}
+            className="px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary">
+            Clear filters
+          </button>
+        )}
+        <button type="button" onClick={exportCsv}
+          className="px-2 py-1 rounded border border-border text-text-secondary hover:text-text-primary">
+          Export CSV ({rows.length})
+        </button>
+        <span className="text-dim ml-auto">{rows.length} of {snap.rows.length}</span>
       </div>
 
-      <div className="bg-bg-card border border-border rounded">
-        <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-          <h3 className="text-sm font-bold text-text-primary">All symbols</h3>
-          <div className="flex items-center gap-2 flex-wrap">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter ticker…"
-              className="bg-bg-secondary border border-border rounded px-2 py-1 text-xs text-text-primary w-32"
-            />
-            <select
-              value={side}
-              onChange={(e) => setSide(e.target.value as SideFilter)}
-              className="bg-bg-secondary border border-border rounded px-2 py-1 text-xs text-text-primary"
-            >
-              <option value="all">All</option>
-              <option value="above">Above AVWAP</option>
-              <option value="below">Below AVWAP</option>
-            </select>
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="bg-bg-secondary border border-border rounded px-2 py-1 text-xs text-text-primary"
-            >
-              {LEVELS.map((k) => (
-                <option key={k} value={k}>Sort: Δ% {LEVEL_LABEL[k]}</option>
-              ))}
-              <option value="nearest">Sort: nearest level</option>
-              <option value="ticker">Sort: Ticker</option>
-              <option value="close">Sort: Close</option>
-            </select>
-          </div>
-        </div>
-        {loading ? <p className="text-sm text-text-secondary px-3 py-6">Loading…</p>
-                 : <Table rows={filtered}
-                          barOn={sortKey === "nearest" ? "nearest"
-                                 : (LEVELS as string[]).includes(sortKey) ? (sortKey as LevelKey)
-                                 : "avwap"} />}
+      <div className="bg-bg-card border border-border rounded overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[11px] uppercase tracking-wide text-text-secondary border-b border-border">
+              <Th k="ticker">Ticker</Th>
+              <Th k="close" right>Close</Th>
+              <Th k="chg" right>Chg %</Th>
+              <Th k="chgOpen" right>From Open</Th>
+              {LEVELS.map((k) => <Th key={k} k={k} right hint={LEVEL_HINT[k]}>Δ% {LEVEL_LABEL[k]}</Th>)}
+              <Th k="nearest">Nearest</Th>
+              <th className="px-2 py-2 font-semibold text-left">Daily</th>
+              <Th k="cross">Last cross</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td colSpan={11} className="px-3 py-6 text-text-secondary">Loading…</td></tr>
+            )}
+            {!loading && rows.length === 0 && (
+              <tr><td colSpan={11} className="px-3 py-6 text-text-secondary">No symbols match.</td></tr>
+            )}
+            {rows.map((r) => {
+              const nr = nearest(r);
+              // Highlight the whole row when it is within the band of ANY level:
+              // those are the names a single candle close can trigger.
+              const hot = nr !== null && Math.abs(nr.pct) <= near;
+              const stack = dailyStack(r);
+              return (
+                <tr key={r.ticker}
+                    className={`border-b border-border/50 hover:bg-bg-secondary/50 ${
+                      hot ? "bg-signal-bull/5 border-l-2 border-l-signal-bull" : ""}`}>
+                  <td className="px-2 py-1.5 font-bold whitespace-nowrap">
+                    <a href={`https://www.tradingview.com/chart/${CHART_ID}/?symbol=${encodeURIComponent(r.sym || r.ticker)}`}
+                       target="_blank" rel="noopener noreferrer"
+                       title={`Open ${r.sym || r.ticker} on the 39m layout`}
+                       className="text-text-primary hover:underline">
+                      {r.ticker}
+                    </a>
+                    <CrossBadge row={r} />
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-text-primary">{r.close.toFixed(2)}</td>
+                  <PctCell p={r.chgPct} />
+                  <PctCell p={r.chgOpenPct} bold={false} />
+                  {LEVELS.map((k) => <PctCell key={k} p={pctOf(r, k)} />)}
+                  <td className="px-2 py-1.5 text-[11px] text-text-secondary whitespace-nowrap">
+                    {nr ? `${LEVEL_LABEL[nr.level]} ${nr.pct > 0 ? "+" : ""}${nr.pct.toFixed(2)}%` : "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-[10px] whitespace-nowrap">
+                    {stack === null ? <span className="text-dim">—</span> : (
+                      <span className={stack === "BULL" ? "text-signal-bull" : "text-signal-bear"}>
+                        {stack === "BULL" ? "21>50" : "21<50"}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 text-[10px] text-text-secondary whitespace-nowrap">
+                    {r.lastCrossAt ? fmtTime(r.lastCrossAt) : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
