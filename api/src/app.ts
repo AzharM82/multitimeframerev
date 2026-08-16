@@ -19,6 +19,7 @@ import "./functions/screenerScan.js";
 import "./functions/scannerAlert.js";
 
 // BigDog Trades — intraday OCR alert ingestion (POST) + read (GET) for the tab
+import "./functions/avwapEarnings.js";
 import "./functions/bigdogAlert.js";
 import "./functions/bigdogAlerts.js";
 
