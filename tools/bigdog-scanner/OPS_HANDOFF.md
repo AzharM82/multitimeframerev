@@ -24,7 +24,7 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
-- [ ] **DESKTOP2: stand up the AVWAP-from-Earnings publisher (NEW 2026-08-15).** Lives in the **StockAgentHub** repo, not this one — `github.com/AzharM82/StockAgentHub`, branch `feat/avwap-earnings`, dir `tools/tv-avwap/`. Read `tools/tv-avwap/README.md` first; it documents the guards and every exit code.
+- [x] **DESKTOP2: stand up the AVWAP-from-Earnings publisher (NEW 2026-08-15).** DONE through step 4 (2026-08-15): full dry sweep **193/193 readable in 299.3s**, exit 0, symbol restored. Step 5 held per your instruction until the func app is deployed. **Two things need you: (a) your step-1 AppX package name is wrong, and (b) 299s vs a 300s schedule leaves zero headroom — see LOG.** Lives in the **StockAgentHub** repo, not this one — `github.com/AzharM82/StockAgentHub`, branch `feat/avwap-earnings`, dir `tools/tv-avwap/`. Read `tools/tv-avwap/README.md` first; it documents the guards and every exit code.
   1. TradingView Desktop must be **relaunched** with `--remote-debugging-port=9222` — the flag only applies at launch, an already-running app can never be attached to. AppX path is version-stamped, so resolve it: `(Get-AppxPackage -Name TradingView.Desktop).InstallLocation`. Verify `curl http://localhost:9222/json/version` answers.
   2. Leave a chart tab on the **39m** layout with **VWAP Auto Anchored, anchor = Earnings** visible. The publisher runs a fail-closed preflight and refuses to publish on any other chart, so a wrong tab is a loud failure, not bad data.
   3. `copy .env.example .env`, fill `TIMER_SECRET` (same value as the func app's app setting — get it from `az`, never from chat) and **set `TV_CHART_URL` to the chart id you want it pinned to**. That pin is what stops the sweep from commandeering a chart another tool is reading — it drives the symbol ~193 times per run, unlike the tv-regime publisher which only reads.
@@ -41,6 +41,35 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 - [ ] **DEV:** build cloud+UI to the confirmed contract — extend `/api/bigdog-alert` + `BigDogAlerts` (accept options shape, no score) and rework the BIGD-Intraday tab. Plan to operator first, then build/deploy/verify.
 
 ## LOG (newest first)
+
+### 2026-08-15 — DESKTOP2 — AVWAP publisher: steps 1–4 DONE. 193/193 in 299.3s. Two corrections you need, and a timing problem.
+
+Ran it end to end through step 4. **Full dry sweep: `Swept 193/193 in 299.3s`, exit 0, `failed[]` empty, symbol restored to `BATS:MXL`.** Preflight passed first try: `Chart OK: BATS:MXL @ 39m · VWAP AA anchor=Earnings source=ohlc4`. Bar `2026-08-14T19:21:00Z` (Friday's last closed 39m bar — ran Saturday night).
+
+```
+top:    P 46.31%, WDAY 34.63%, MDB 30.22%, VEEV 29.56%, RBRK 27.95%
+bottom: W -7.16%, BIDU -11.83%, PL -11.97%, FPS -14.04%, MRVL -14.74%
+```
+Smoke test (`--limit 5`) first: `Swept 5/5 in 4.7s`, exit 0. Watchlist resolved as `MASTER (329232812): 193 symbols`.
+
+**1. Step 1's AppX name is wrong — nobody can follow it as written.** `Get-AppxPackage -Name TradingView.Desktop` returns **nothing**. `TradingView.Desktop` is the *Application Id* inside AppxManifest.xml, not the package Name. The package is **`31178TradingViewInc.TradingView`** (v3.3.0.0). Working version:
+```powershell
+$tv = (Get-AppxPackage -Name 31178TradingViewInc.TradingView).InstallLocation
+Start-Process "$tv\TradingView.exe" -ArgumentList "--remote-debugging-port=9222"
+```
+Also worth noting TradingView Desktop **was not installed on DESKTOP2 at all** — this machine had only the web app in Chrome. Installed it from the Store (`winget install --id 9NDJWKSTBT25 --source msstore`). Use the **msstore** package, not `TradingView.TradingViewDesktop` from the winget source, or `Get-AppxPackage` will never see it. `/json/version` answers `Chrome/140.0.7339.133`, protocol 1.3. Please fix the README + step 1.
+
+**2. ⚠️ 299.3s sweep vs a 300s schedule — that is zero headroom, and your README budgets ~4 min.** At every-5-min, run N finishes ~0.7s before run N+1 fires. Any slowdown (more symbols, slower feed, market-hours load — and this measurement was taken on a *closed* market) means overlap, and overlap means the loser exits 8 on `.sweep.lock`. It degrades safely, but "every 5 min" will not actually be every 5 min. **Suggest either widening the interval (10 min?) or confirming you're happy with lock-skips as the steady state.** Tell me which and I'll register step 5 accordingly.
+
+**3. Collision with the TOS/BigDog work — low, and less than you'd fear.** The AVWAP sweep drives TradingView over **CDP**, which needs no foreground and steals no focus. BigDogScanner drives TOS with **synthetic foreground clicks/keystrokes** every 5 min, 6:50 AM–1:00 PM PT, and needs the session unlocked with TOS visible. Those don't contend for focus. Residual risks are CPU/GPU contention (TradingView Desktop is a full Chromium) and the two 5-minute cadences overlapping — worth watching on the first live weekday.
+
+**4. `TV_CHART_URL` is still unset, and that's deliberate — needs your call.** The only chart tab open in TV Desktop is **`yaYerb4T`**, which is the operator's live "Half" layout (also open in his Chrome). Leaving the pin empty means the sweep binds to exactly that chart and drives its symbol 193× per run. It restores afterward, but it's the operator's working chart. **Recommend a dedicated layout for the sweep before step 5**; I did not create one, since choosing/creating layouts is the operator's call.
+
+**5. `TIMER_SECRET` is NOT set in `.env`.** The `az functionapp config appsettings list` call is blocked for the agent by the permission classifier, so the operator has to paste it. Not a blocker for step 4 — `publish_avwap.mjs:202` gates it as `if (!TIMER_SECRET && !DRY)`, so dry runs never need it. It must be in place before the first real publish.
+
+**6. Operational gap for the "default setup": the CDP flag does not survive a relaunch.** `--remote-debugging-port` only applies at launch, so any normal Start-Menu launch (or a reboot) silently produces a TradingView with **no CDP**, and the publisher then exits 2. Nothing currently guarantees the flagged launch. If this is the standing DESKTOP2 setup, it needs a logon task that starts TradingView with the flag — say the word and I'll add one alongside the step-5 registration.
+
+Everything above is dry-run only; **nothing was published and the executor remains down** (ALERT-ONLY still stands). Standing by for the func app deploy before step 5.
 
 ### 2026-08-06 — DESKTOP2 — OPERATOR DECISION: ALERT-ONLY mode. Executor stays down; we do NOT place trades.
 Operator: "we are not placing any trades only alerting." So DESKTOP2 runs Step 1→2 only (Gmail scan → load in TOS → read study → POST alert + WhatsApp). **The Robinhood executor is NOT started and will NOT be started** absent an explicit operator go-live. DEV: you can keep sizing `ready` entries in the cloud, but understand nothing on DESKTOP2 will place them — they're informational, not orders. No `[broker] FIRST RAW ORDER` / `avgFillPrice` validation will happen while in this mode; please stop treating "executor must be UP" as an open action item. Scanner itself is healthy (load fix live, warmup + gate working).
