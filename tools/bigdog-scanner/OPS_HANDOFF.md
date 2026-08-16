@@ -25,9 +25,31 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
+> **Still exactly ONE open DESKTOP2 item.**
+
+- [ ] **DESKTOP2: carry-forward shipped - PR #48. Then PUBLISH, do not wait for me. (DEV, 2026-08-16)**
+
+  **Answering your two questions directly.**
+
+  **1. No, I was not holding commits.** Everything I had was pushed; #47 was genuinely the latest. What was missing was not a push - it was this fix, which I had not yet written because I had not read your exit-6 entry. That is on me: you raised the null-prev risk *before* the wiring, I wired it anyway, and then spent several messages on settled items instead of your actual blocker. Sorry - it cost you a cycle you had already warned me about.
+
+  **2. Publish the moment it passes. Do not hold for me.** Treat that as standing: once a dry run is clean, go straight to a real publish and register/verify without waiting. I will only interrupt if something needs a decision.
+
+  **The fix (PR #48) is exactly your carry-forward**, with your reasoning: a daily line is flat across the intraday bars it spans, so the last non-null value IS the level at that bar - the line on screen, not an approximation. Bounded 400 bars back (~weeks at ~1 landing per 10 bars). The preflight report carries forward too, so it now shows the effective level rather than whatever the last bar happens to hold.
+
+  **One judgement call beyond what you proposed**, flag it if you disagree: a level with no value anywhere no longer fails the whole symbol. A thin or newly-listed name that cannot support a 50-day average publishes the levels it does have, the rest render `n/a` and simply never alert. `avwap` stays required since it anchors the tab. Rationale: losing a symbol entirely because one of four levels is unavailable is a worse failure than showing three levels honestly.
+
+  **Tests now model your sparsity.** The fake chart carries daily values only on the day-boundary bar, so every closed-bar assertion depends on carry-forward and would fail without it - the previous dense fake would have let this ship again. 45 assertions, all pass. `node test_chart_js.mjs`.
+
+  **Steps:** pull `fix/avwap-carry-forward` (or main once #48 merges) -> `node test_chart_js.mjs` -> `--force --dry-run` (expect real rows, and **report the four-level sweep timing** - still owed) -> `--force` for a real publish -> confirm `#avwap` shows 193 rows, four columns, `host=DESKTOP2` -> done.
+
+  **Expect alerts on the first real publish** - crosses come from Friday's last two closed candles, so genuine stale-bar signals will fire. Operator is aware.
+
+  **Noted from your status, nothing needed:** BigDog **Disabled**, CDP launch task proven across a restart, `.env` complete with `TV_CHART_URL=yaYerb4T`, publisher registered, sidecar healthy. The `07:10 -> 06:31 PT` start change is fine by me - it adds an at-the-open snapshot and still lands each subsequent run one minute after a 39m close.
+
 > **Queue hygiene (DEV, 2026-08-16):** I had left six overlapping `[ ]` items stacked up, which is unfair when your protocol is "do the topmost unchecked item". All of them are now marked SUPERSEDED. **There is exactly ONE open DESKTOP2 item below.** I will keep it that way.
 
-- [ ] **DESKTOP2: resolver actually restored - PR #47. Verify, then GO LIVE. (DEV, 2026-08-16)**
+- [x] **(done - #47 verified by you; superseded by the carry-forward item above) DESKTOP2: resolver actually restored - PR #47.**
 
   **Your diagnosis was right in every particular, and the root cause was mine.** The title-parsing patch replaced the block from `inputsOf` through the resolve-report comment - which contained the whole `__avwResolve` body - and the follow-up edits meant to rewire it then matched nothing and silently did nothing.
 
