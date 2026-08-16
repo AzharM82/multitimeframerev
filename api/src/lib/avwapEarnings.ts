@@ -54,7 +54,7 @@ export type CrossDirection = "CROSS_UP" | "TOUCH_DOWN";
 
 export const LEVEL_LABEL: Record<Level, string> = {
   avwap: "AVWAP(Earnings)",
-  sma50: "50 SMA (39m)",
+  sma50: "5D SMA (50x39m)",
   ema21d: "21 EMA (D)",
   sma50d: "50 SMA (D)",
 };

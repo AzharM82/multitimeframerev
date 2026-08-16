@@ -34,7 +34,7 @@ const LEVELS: LevelKey[] = ["avwap", "sma50", "ema21d", "sma50d"];
 
 const LEVEL_LABEL: Record<LevelKey, string> = {
   avwap: "AVWAP",
-  sma50: "50 SMA 39m",
+  sma50: "5D SMA",
   ema21d: "21 EMA D",
   sma50d: "50 SMA D",
 };
@@ -308,7 +308,7 @@ export function AvwapEarningsPage() {
         <div>
           <h2 className="text-xl font-black text-text-primary">AVWAP from Earnings</h2>
           <p className="text-xs text-text-secondary mt-0.5">
-            MASTER watchlist · 39-minute chart · VWAP Auto Anchored (anchor = Earnings) + 50 SMA (39m) + 21 EMA / 50 SMA (daily)
+            MASTER watchlist · 39-minute chart · VWAP Auto Anchored (anchor = Earnings) + 5D SMA (50x39m) + 21 EMA / 50 SMA (daily)
           </p>
         </div>
         <div className="text-right text-[11px] text-text-secondary">
