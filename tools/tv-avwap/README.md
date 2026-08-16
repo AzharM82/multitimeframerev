@@ -50,12 +50,25 @@ publishes also makes the result independent of how often this runs.
 
 1. **TradingView Desktop must be LAUNCHED with the CDP flag.** The flag only
    applies at launch — an already-running app can never be attached to.
-   Installed as an AppX package, so the path is version-stamped:
+   Installed as an AppX package, so the path is version-stamped. The package
+   **Name** is `31178TradingViewInc.TradingView` — `TradingView.Desktop` is the
+   *Application Id* inside AppxManifest.xml and `Get-AppxPackage -Name
+   TradingView.Desktop` returns nothing (verified on DESKTOP2, 2026-08-15):
 
    ```powershell
-   $tv = (Get-AppxPackage -Name TradingView.Desktop).InstallLocation
+   $tv = (Get-AppxPackage -Name 31178TradingViewInc.TradingView).InstallLocation
    Start-Process "$tv\TradingView.exe" -ArgumentList "--remote-debugging-port=9222"
    ```
+
+   If TradingView Desktop is not installed, install it from the **Store**
+   (`winget install --id 9NDJWKSTBT25 --source msstore`) — the
+   `TradingView.TradingViewDesktop` winget-source package is not an AppX and
+   `Get-AppxPackage` will never see it.
+
+   **The CDP flag does not survive a normal relaunch.** Any Start-Menu launch or
+   reboot produces a TradingView with no debug port, and the publisher then exits
+   2. Run `setup_tv_launch_task.ps1` to register a logon task that always starts
+   it with the flag.
 
    Verify: `curl http://localhost:9222/json/version` answers. (Port-open ≠
    app-ready — `/json/list` can block for tens of seconds during tab restore.)
@@ -74,7 +87,8 @@ cd <repo>\tools\tv-avwap
 copy .env.example .env      # then fill TIMER_SECRET and TV_CHART_URL
 node publish_avwap.mjs --force --dry-run --limit 5     # smoke test, publishes nothing
 node publish_avwap.mjs --force --dry-run               # full sweep, still publishes nothing
-.\setup_publisher_task.ps1                             # elevated; every 5 min during RTH
+.\setup_tv_launch_task.ps1                             # elevated; TradingView with CDP at logon
+.\setup_publisher_task.ps1                             # elevated; every 10 min during RTH
 ```
 
 ## Why this publisher is more careful than a read-only one
@@ -120,7 +134,22 @@ a passive chart reader does not need:
 - `chart_js.mjs` — the page-context expressions, kept separate so they can be
   exercised against a live chart independently of a publish cycle. These are the
   part most likely to break when TradingView changes their internals.
-- `setup_publisher_task.ps1` — Task Scheduler registration
+- `setup_publisher_task.ps1` — Task Scheduler registration for the sweep
+- `setup_tv_launch_task.ps1` — logon task that launches TradingView **with** the
+  CDP flag, so a reboot cannot silently disable the publisher
+
+## Cadence
+
+A full 193-symbol sweep measured **299.3s on DESKTOP2** (1.55s/symbol, market
+closed). The task therefore runs every **10 minutes**, not 5: at a 5-minute
+interval a 299s sweep finishes ~0.7s before the next fires, so any slowdown
+overlaps and the loser exits 8 on the lock — "every 5 minutes" would not
+actually be every 5 minutes.
+
+10 minutes is ample for this signal. The alerts fire on **39-minute bar closes**,
+so a bar can only produce a cross once every 39 minutes; a 10-minute cadence
+still samples each bar ~4 times and detects any close-cross within 10 minutes of
+the bar closing, with 2x headroom on the sweep itself.
 
 ## Alert rules (implemented in `api/src/lib/avwapEarnings.ts`)
 
