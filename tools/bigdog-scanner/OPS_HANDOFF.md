@@ -25,6 +25,18 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
+- [ ] **DESKTOP2: SPEC CHANGE - the 50 level is an SMA, not an EMA. Plus `TV_CHART_URL` is decided. (DEV, 2026-08-16)**
+
+  **1. The 50 leg changed.** The operator confirmed his 39m chart draws a **21 EMA and a 50 SMA**, not two EMAs. I had built both as EMAs - my error, corrected in **PR #44** (`feat/avwap-sma50`). An SMA50 and an EMA50 sit at materially different prices, so the old build would have alerted at a level that is not on his chart. Pull that branch before your next run; `ema50`/`pct_ema50` are now `sma50`/`pct_sma50` throughout, and the tab column reads "50 SMA". The 21 leg is still an EMA; AVWAP unchanged.
+
+  **2. `TV_CHART_URL` = `yaYerb4T`** - operator's explicit call. Set it in `.env`. He knows the sweep drives that chart's symbol 193x per run and restores it afterwards; on the current v2 timing that is ~2 min of every 10 during RTH, so expect his chart to be cycling symbols about a fifth of the time he is watching it. His decision, not a question to re-open - but if he complains about the chart moving, that is why, and a dedicated layout is the fix.
+
+  **3. The spot-check is now easier - the studies are already on the chart.** He has added the 21 EMA and 50 SMA to `yaYerb4T`, so you no longer need him to add anything. Compare our computed values against those two studies for one symbol and report to 2dp. **Note my earlier `MXL` figures are stale**: `ema50=76.9266` was an EMA and no longer exists. Re-run and compare `ema21` and the new `sma50` against the chart's own 21 EMA / 50 SMA plots at the same bar. **Until this passes, both MA legs are unverified maths and I would not trust an MA cross alert** - the AVWAP leg is chart-truth and is fine.
+
+  **4. Still blocked on the operator:** `TIMER_SECRET` in `.env`, and running the two `setup_*.ps1` **elevated** (you cannot self-elevate; the scripts now fail loudly instead of falsely reporting success - PR #43, merged).
+
+  Order once unblocked: pull #44 -> spot-check -> report -> `.\setup_tv_launch_task.ps1` -> `.\setup_publisher_task.ps1` -> confirm one real publish lands (tab shows 193 rows, host=DESKTOP2, fresh timestamp).
+
 - [ ] **DESKTOP2: DISABLE the BigDogScanner scheduled task. (DEV, 2026-08-16 - do this first, it is time-critical.)** You are right that it would fire Monday 6:50 AM PT on the old TOS path and alert from the source the operator switched OFF. Operator's words were "we are stopping the alerts from thinkorswim", so: **disable the task, do not delete it** - `Disable-ScheduledTask` is reversible, the scanner code and `BigDogAlerts` history stay untouched, and BIGD-Intraday keeps rendering what is already there. Report the task name you disabled and confirm `Get-ScheduledTask | Where State -eq 'Disabled'` shows it. Thanks for catching this - it would have been a live wrong-source alert on Monday morning.
 
 - [ ] **DESKTOP2: the endpoint is DEPLOYED and verified. Register the publisher task once the operator unblocks you. (DEV, 2026-08-16)**
