@@ -11,7 +11,8 @@
  *          same indicator the operator looks at. The cloud never re-derives it:
  *          the anchor is TradingView's own earnings-date series.
  *   ema21  21-period EMA of 39m closes, computed by the publisher from the bar
- *   ema50  50-period EMA of 39m closes    series (the layout has no 39m EMAs).
+ *   sma50  50-period SMA of 39m closes    -- these mirror what the operator
+ *          actually draws on the chart: a 21 EMA and a 50 SMA, not two EMAs.
  *
  * ── Alert rules (operator, 2026-08-15) ────────────────────────────────────
  *
@@ -47,27 +48,27 @@ export const META_RK = "__meta__";
 const DEFAULT_CROSS_MIN_PCT = 0.25;
 const DEFAULT_STALE_MIN = 15;
 
-export const LEVELS = ["avwap", "ema21", "ema50"] as const;
+export const LEVELS = ["avwap", "ema21", "sma50"] as const;
 export type Level = (typeof LEVELS)[number];
 export type CrossDirection = "CROSS_UP" | "TOUCH_DOWN";
 
 export const LEVEL_LABEL: Record<Level, string> = {
   avwap: "AVWAP(Earnings)",
   ema21: "21 EMA",
-  ema50: "50 EMA",
+  sma50: "50 SMA",
 };
 
 export interface AvwapInputRow {
   ticker?: string;
   close?: number;
-  avwap?: number; ema21?: number | null; ema50?: number | null;
-  pct_avwap?: number; pct_ema21?: number | null; pct_ema50?: number | null;
+  avwap?: number; ema21?: number | null; sma50?: number | null;
+  pct_avwap?: number; pct_ema21?: number | null; pct_sma50?: number | null;
   last_bar_closed?: boolean;
   closed_time?: number; prev_time?: number;
   closed_close?: number; prev_close?: number;
   c_pct_avwap?: number | null; p_pct_avwap?: number | null;
   c_pct_ema21?: number | null; p_pct_ema21?: number | null;
-  c_pct_ema50?: number | null; p_pct_ema50?: number | null;
+  c_pct_sma50?: number | null; p_pct_sma50?: number | null;
 }
 
 export interface CrossEvent {
@@ -84,8 +85,8 @@ export interface CrossEvent {
 export interface AvwapRow {
   ticker: string;
   close: number;
-  avwap: number; ema21: number | null; ema50: number | null;
-  pctAvwap: number; pctEma21: number | null; pctEma50: number | null;
+  avwap: number; ema21: number | null; sma50: number | null;
+  pctAvwap: number; pctEma21: number | null; pctSma50: number | null;
   lastCross: string;       // e.g. "ema21:CROSS_UP"
   lastCrossAt: string;
 }
@@ -186,16 +187,16 @@ export async function recordSnapshot(
     }
 
     const ema21 = num(raw.ema21);
-    const ema50 = num(raw.ema50);
+    const sma50 = num(raw.sma50);
     const pctAvwap = num(raw.pct_avwap) ?? ((close - avwap) / avwap) * 100;
 
     const entity: Record<string, unknown> = {
       ticker,
       close,
-      avwap, ema21, ema50,
+      avwap, ema21, sma50,
       pctAvwap: Number(pctAvwap.toFixed(4)),
       pctEma21: num(raw.pct_ema21),
-      pctEma50: num(raw.pct_ema50),
+      pctSma50: num(raw.pct_sma50),
       side: pctAvwap >= 0 ? "ABOVE" : "BELOW",
       barUtc: opts.barUtc,
       publishedAt: opts.publishedAt || nowIso,
@@ -209,7 +210,7 @@ export async function recordSnapshot(
     const perLevel: Record<Level, { c: number | null; p: number | null; value: number | null }> = {
       avwap: { c: num(raw.c_pct_avwap), p: num(raw.p_pct_avwap), value: avwap },
       ema21: { c: num(raw.c_pct_ema21), p: num(raw.p_pct_ema21), value: ema21 },
-      ema50: { c: num(raw.c_pct_ema50), p: num(raw.p_pct_ema50), value: ema50 },
+      sma50: { c: num(raw.c_pct_sma50), p: num(raw.p_pct_sma50), value: sma50 },
     };
 
     let newestCross: { key: string; at: string } | null = null;
@@ -345,16 +346,16 @@ export async function getSnapshot(): Promise<AvwapSnapshot> {
     }
     const pctAvwap = num(e.pctAvwap) ?? 0;
     const r21 = num(e.pctEma21);
-    const r50 = num(e.pctEma50);
+    const r50 = num(e.pctSma50);
     out.rows.push({
       ticker: rk,
       close: num(e.close) ?? 0,
       avwap: num(e.avwap) ?? 0,
       ema21: num(e.ema21),
-      ema50: num(e.ema50),
+      sma50: num(e.sma50),
       pctAvwap: Number(pctAvwap.toFixed(2)),
       pctEma21: r21 === null ? null : Number(r21.toFixed(2)),
-      pctEma50: r50 === null ? null : Number(r50.toFixed(2)),
+      pctSma50: r50 === null ? null : Number(r50.toFixed(2)),
       lastCross: String(e.lastCross ?? ""),
       lastCrossAt: String(e.lastCrossAt ?? ""),
     });

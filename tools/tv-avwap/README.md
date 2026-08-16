@@ -7,7 +7,7 @@ symbol, reports how far price sits from three levels:
 |---|---|
 | **AVWAP** | the `VWAP Auto Anchored` study, **Anchor Period = Earnings** — chart truth, read off the same indicator the operator looks at |
 | **21 EMA** | computed by the publisher from the 39m closes |
-| **50 EMA** | computed by the publisher from the 39m closes |
+| **50 SMA** | computed by the publisher from the 39m closes |
 
 ```
 pct = (close - level) / level * 100        (+ above / - below)
@@ -17,21 +17,26 @@ pct = (close - level) / level * 100        (+ above / - below)
 → Azure table `AvwapEarnings`
 → portal tab **AVWAP from Earnings** (`#avwap`)
 
-## Why the EMAs are computed here, not read off a study
+## Why the MAs are computed here, not read off a study
 
-The operator's 39m layout carries **daily** higher-timeframe MAs and a
-195-period SMA — not 39m EMA 21/50. Adding studies to that shared chart would
-make the sweep depend on chart configuration other tools also touch, and a
+The sweep must not depend on chart configuration other tools also touch, and a
 silently-wrong plot read is indistinguishable from a correct one. The bar series
-is already in hand, so the EMAs are derived from it. Seeded with an SMA of the
-first N closes (what TradingView does) and unit-tested for seeding, recurrence
-and convergence.
+is already in hand, so the MAs are derived from it.
+
+The two levels mirror what the operator actually draws on the 39m chart: a
+**21 EMA** and a **50 SMA** — *not* two EMAs. An SMA50 and an EMA50 sit at
+materially different prices, so alerting on an EMA50 would fire at a level that
+is not on his chart.
+
+The EMA is seeded with an SMA of the first N closes (what TradingView does) and
+unit-tested for seeding, recurrence and convergence; the SMA is unit-tested
+against a naive recompute at every index, so the sliding-sum cannot drift.
 
 ## Live bar vs closed bar — the distinction that makes the alerts correct
 
 Every row carries **two** readings:
 
-- **live** (`close`, `pct_avwap`, `pct_ema21`, `pct_ema50`) — the forming bar.
+- **live** (`close`, `pct_avwap`, `pct_ema21`, `pct_sma50`) — the forming bar.
   This is what the tab displays, so the tab shows price *now*.
 - **closed** (`c_pct_*` and `p_pct_*`) — the last genuinely **closed** bar and
   the one before it. This is what the cloud decides alerts on.
@@ -155,7 +160,7 @@ the bar closing, with 2x headroom on the sweep itself.
 
 | Event | Condition | Levels |
 |---|---|---|
-| `CROSS_UP` | candle closes above the level, previous candle closed below | AVWAP, 21 EMA, 50 EMA |
+| `CROSS_UP` | candle closes above the level, previous candle closed below | AVWAP, 21 EMA, 50 SMA |
 | `TOUCH_DOWN` | a name extended above the AVWAP comes back down and touches it | AVWAP only |
 
 Guards: a **0.25% deadband** (`AVWAP_CROSS_MIN_PCT`) on the previous candle, so

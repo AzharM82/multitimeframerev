@@ -295,14 +295,14 @@ async function run() {
       rows: rows.map((r) => ({
         ticker: r.ticker,
         close: r.close,
-        avwap: r4(r.avwap), ema21: r4(r.ema21), ema50: r4(r.ema50),
-        pct_avwap: r.pctAvwap, pct_ema21: r.pctEma21, pct_ema50: r.pctEma50,
+        avwap: r4(r.avwap), ema21: r4(r.ema21), sma50: r4(r.sma50),
+        pct_avwap: r.pctAvwap, pct_ema21: r.pctEma21, pct_sma50: r.pctSma50,
         last_bar_closed: !!r.lastBarClosed,
         closed_time: r.closedTime, prev_time: r.prevTime,
         closed_close: r.closedClose, prev_close: r.prevClose,
         c_pct_avwap: r.cPctAvwap, p_pct_avwap: r.pPctAvwap,
         c_pct_ema21: r.cPctEma21, p_pct_ema21: r.pPctEma21,
-        c_pct_ema50: r.cPctEma50, p_pct_ema50: r.pPctEma50,
+        c_pct_sma50: r.cPctSma50, p_pct_sma50: r.pPctSma50,
       })),
     };
 

@@ -2,7 +2,7 @@ import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
 import { recordSnapshot, getSnapshot, type AvwapInputRow } from "../lib/avwapEarnings.js";
 
 /**
- * GET/POST /api/avwap-earnings — AVWAP(Earnings) + 21/50 EMA for the MASTER watchlist.
+ * GET/POST /api/avwap-earnings — AVWAP(Earnings) + 21 EMA / 50 SMA for the MASTER watchlist.
  *
  * POST (publisher: tools/tv-avwap/publish_avwap.mjs on DESKTOP2) — x-timer-secret.
  * Anonymous in staticwebapp.config.json for POST ONLY; the secret is the real
@@ -17,13 +17,13 @@ import { recordSnapshot, getSnapshot, type AvwapInputRow } from "../lib/avwapEar
  *   "host": "DESKTOP2",
  *   "resolution": "39", "anchor": "Earnings", "watchlist": "MASTER",
  *   "failed": ["ABC"],                       symbols the sweep could not read
- *   "rows": [{ ticker, close, avwap, ema21, ema50,
- *              pct_avwap, pct_ema21, pct_ema50,          <- live bar (display)
+ *   "rows": [{ ticker, close, avwap, ema21, sma50,
+ *              pct_avwap, pct_ema21, pct_sma50,          <- live bar (display)
  *              last_bar_closed, closed_time, prev_time,
  *              closed_close, prev_close,
  *              c_pct_avwap, p_pct_avwap,                 <- last two CLOSED
  *              c_pct_ema21, p_pct_ema21,                    bars (alerting)
- *              c_pct_ema50, p_pct_ema50 }]
+ *              c_pct_sma50, p_pct_sma50 }]
  * }
  *
  * Response echoes any line crossings the sweep produced, so the publisher log
