@@ -7,7 +7,7 @@ CHART** - never recomputed:
 | Level | Study on the chart |
 |---|---|
 | **AVWAP** | `VWAP Auto Anchored`, Anchor Period = **Earnings** (chart timeframe) |
-| **50 SMA (39m)** | the standalone `Simple Moving Average`, length 50 |
+| **5D SMA (50x39m)** | the standalone `Simple Moving Average`, length 50 on the 39m chart - a **five-day** average, see below |
 | **21 EMA (D)** | EMA 21 on **1D**, from the `Moving Averages based on higher Timeframes` overlay |
 | **50 SMA (D)** | SMA 50 on **1D**, from the same overlay |
 
@@ -18,6 +18,13 @@ pct = (close - level) / level * 100        (+ above / - below)
 -> `POST {API_BASE}/api/avwap-earnings` (header `x-timer-secret`)
 -> Azure table `AvwapEarnings`
 -> portal tab **AVWAP from Earnings** (`#avwap`)
+
+### The 39m SMA(50) is a FIVE-day average, not a 50-day one
+
+A 6.5-hour session is 390 minutes = exactly **10 bars of 39m**, so 50 bars is
+**one full week of candles**. That is why the period is 50, and it is emphatically
+not the daily 50 SMA - the two sit ~7.6 apart on MXL (75.12 vs 82.74). Both are
+alerted on, separately.
 
 ## Why the levels are READ, not recomputed
 
@@ -33,6 +40,17 @@ The line the operator trades against is the plotted one, so it is the only
 defensible source. Reading the plot removes source-series, period, smoothing and
 timeframe mismatch in a single move, and a study that is missing or reconfigured
 becomes a loud preflight failure instead of a plausible number.
+
+Study parameters are parsed from the study **title**, not from
+`getInputValues()`: that method exists on the chart-model data source but
+returns nothing in TradingView Desktop 3.3.0.0, and answers only on the study
+objects handed out by `TradingViewApi.activeChart().getStudyById()`. Reading it
+off the source we already hold made every level fail to resolve on DESKTOP2
+(`anchor ""`, `length NaN`) while the studies were present and correct. The
+title carries every parameter needed. `getInputValues()` remains a fallback.
+
+Title parsing splits on **top-level commas only** - a naive `split(',')` tears
+`rgba(0, 0, 0, 1)` colours apart and shifts every argument after them.
 
 The HTF overlay's slots are located **by their own inputs** (`in_{8k}`=enabled,
 `+2`=type, `+4`=length, `+5`=timeframe; slot k plots at `plot_{2k}`), never by a

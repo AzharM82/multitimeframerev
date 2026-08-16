@@ -53,6 +53,43 @@ export const INSTALL = `(function () {
     return cw.model().model().dataSources();
   };
 
+  /**
+   * Split a study title's argument list on TOP-LEVEL commas only.
+   *
+   * "SMA (50, ohlc4, 0, None, ...)"                    -> ["50","ohlc4","0","None",...]
+   * "MA HTF (false, true, EMA, ohlc4, 10, 1D, 1, rgba(0, 0, 0, 1), ...)"
+   *                                                    -> [..., "rgba(0, 0, 0, 1)", ...]
+   * A naive split(',') tears rgba() colours apart and shifts every argument
+   * after them, so depth tracking is required, not optional.
+   */
+  window.__avwTitleArgs = function (title) {
+    const i = title.indexOf('(');
+    if (i < 0) return [];
+    let depth = 0, cur = '', out = [];
+    for (let j = i; j < title.length; j++) {
+      const ch = title[j];
+      if (ch === '(') { depth++; if (depth === 1) continue; }
+      else if (ch === ')') { depth--; if (depth === 0) break; }
+      if (depth === 1 && ch === ',') { out.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    if (cur.trim()) out.push(cur.trim());
+    return out;
+  };
+
+  /**
+   * Study parameters, read from the TITLE.
+   *
+   * getInputValues() exists on the chart-model data source but returns nothing
+   * in TradingView Desktop 3.3.0.0 - it only answers on the study objects handed
+   * out by TradingViewApi.activeChart().getStudyById(). That difference made
+   * every level fail to resolve on DESKTOP2 (anchor "", length NaN) while the
+   * studies were present and correct.
+   *
+   * The title carries every parameter we need and is rendered off the same
+   * source we already hold, so it is used as the primary. getInputValues() is
+   * kept as a fallback for builds where it does answer.
+   */
   var inputsOf = function (s) {
     try {
       const iv = s.getInputValues ? s.getInputValues() : [];
@@ -60,62 +97,6 @@ export const INSTALL = `(function () {
       for (const i of iv) map[String(i.id)] = i.value;
       return map;
     } catch (e) { return {}; }
-  };
-
-  /**
-   * Resolve every level to {source, valueIdx}. valueIdx indexes the array from
-   * data().valueAt(i), i.e. plot_N lives at index N+1.
-   * Returns { levels, errors } - a missing level is an error, never a null.
-   */
-  window.__avwResolve = function () {
-    const ds = window.__avwSources();
-    const errors = [];
-    const levels = {};
-
-    const vw = ds.find(s => T(s).indexOf('VWAP AA') === 0);
-    if (!vw) errors.push('VWAP AA study not on chart');
-    else {
-      const anchor = String(inputsOf(vw)['Anchor Period'] || '');
-      if (!/^earnings$/i.test(anchor)) errors.push('VWAP AA anchor is "' + anchor + '", expected Earnings');
-      else levels.avwap = { source: vw, valueIdx: 1, desc: 'VWAP AA (Earnings)' };
-    }
-
-    // Standalone SMA on the chart timeframe: title "SMA (50, ohlc4, ...)".
-    // The HTF overlay is excluded - its title starts "Moving Averages".
-    const sma = ds.find(s => /^SMA \\(/.test(T(s)));
-    if (!sma) errors.push('standalone SMA study not on chart');
-    else {
-      const inp = inputsOf(sma);
-      const len = Number(inp['Length'] !== undefined ? inp['Length'] : inp['in_0']);
-      if (len !== 50) errors.push('standalone SMA length is ' + len + ', expected 50');
-      else levels.sma50 = { source: sma, valueIdx: 1, desc: 'SMA 50 (chart TF)' };
-    }
-
-    // Higher-timeframe overlay: locate slots by their own inputs.
-    const htf = ds.find(s => T(s).indexOf('Moving Averages HTF') === 0);
-    if (!htf) errors.push('Moving Averages HTF study not on chart');
-    else {
-      const inp = inputsOf(htf);
-      const findSlot = function (type, length, tf) {
-        for (let k = 0; k < 10; k++) {
-          const on = inp['in_' + (8 * k)];
-          if (on !== true && on !== 'true') continue;
-          if (String(inp['in_' + (8 * k + 2)]).toUpperCase() !== type) continue;
-          if (Number(inp['in_' + (8 * k + 4)]) !== length) continue;
-          if (String(inp['in_' + (8 * k + 5)]) !== tf) continue;
-          return k;
-        }
-        return -1;
-      };
-      const k21 = findSlot('EMA', 21, '1D');
-      if (k21 < 0) errors.push('no enabled EMA 21 1D slot in the HTF overlay');
-      else levels.ema21d = { source: htf, valueIdx: 2 * k21 + 1, desc: 'EMA 21 (1D) slot ' + (k21 + 1) };
-      const k50 = findSlot('SMA', 50, '1D');
-      if (k50 < 0) errors.push('no enabled SMA 50 1D slot in the HTF overlay');
-      else levels.sma50d = { source: htf, valueIdx: 2 * k50 + 1, desc: 'SMA 50 (1D) slot ' + (k50 + 1) };
-    }
-
-    return { levels: levels, errors: errors };
   };
 
   // Human-readable resolution report, for preflight and the inventory tool.
