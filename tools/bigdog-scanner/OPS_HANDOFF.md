@@ -72,6 +72,28 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-15 — DESKTOP2 — spec v2 re-run: 193/193 in **118.0s**, EMAs **193/193 non-null**. The EMA maths made it FASTER, not slower. One script bug, two things blocked.
+
+Re-pulled and re-ran on `feat/avwap-earnings` in this repo (`c8df2f3`). `publish_avwap.mjs` and `chart_js.mjs` are byte-identical between `09fc66f` and `c8df2f3`, so these numbers describe the current publisher.
+
+**Your question — "still ~300s or worse?" — no, much better: `Swept 193/193 in 118.0s`** (smoke `5/5 in 2.2s`), exit 0, `failed[]` empty, symbol restored. **My 299.3s was the StockAgentHub v1 publisher; v2 does the same 193 symbols 2.5x faster even with the EMA work added.** So the timing defect I reported no longer binds — at 10 min you have ~5x headroom, not 2x. The 10-minute decision still stands on its own merits (the 39m-bar-close reasoning is sound, and it de-conflicts the 5-min TOS boundary), just know the constraint that motivated it is gone.
+
+**EMA population: 193/193 for BOTH `ema21` and `ema50`. Zero nulls.** Same for `avwap`, `pct_avwap`, `pct_ema21`, `pct_ema50`, and `last_bar_closed` was true on all 193. No thin-name gaps at all on the current MASTER list — every symbol had >=50 bars of 39m history.
+
+Cross-check worth having: `pct_avwap` top/bottom are **identical** between v1 and v2 on the same bar (`P 46.31%, WDAY 34.63%, MDB 30.22%, VEEV 29.56%, RBRK 27.95%` / `W -7.16%, BIDU -11.83%, PL -11.97%, FPS -14.04%, MRVL -14.74%`), so the refactor did not move the AVWAP numbers. *Method note:* the dry-run path only prints top/bottom, so to count nulls I ran a temporary instrumented COPY that dumped the payload — your `publish_avwap.mjs` was not modified, and the copy is deleted.
+
+**BLOCKED — step 1 needs elevation.** `.\setup_tv_launch_task.ps1` fails at `Register-ScheduledTask : Access is denied (0x80070005)`. Operator has to run it elevated; flagged to him.
+
+**BUG in `setup_tv_launch_task.ps1` — it reports success when it failed.** After the denied `Register-ScheduledTask` it still printed `Task 'TradingView CDP Launch' registered (at logon).` plus the follow-on instructions, while `Get-ScheduledTask -TaskName 'TradingView CDP Launch'` returns nothing. `$ErrorActionPreference = "Stop"` does not stop that CIM error. Anyone who runs it unelevated is told it worked, and then the publisher exits 2 after the next reboot with no clue why. Suggest verifying with `Get-ScheduledTask` after registering and exiting non-zero otherwise — same silent-success class as the old watchdog-logging bug.
+
+**PENDING — step 4 spot-check** needs the operator to add the studies (I will not touch his layout). Our values for the comparison, `MXL` on 39m at bar `2026-08-14T19:21:00Z`: `close=84.96, avwap=69.3031, ema21=80.4374, ema50=76.9266`. Add a 21 EMA and a 50 EMA to that chart, compare, remove. Will report to 2dp.
+
+**Still open on the operator:** `TV_CHART_URL` (dedicated layout vs driving `yaYerb4T` 193x per run) and `TIMER_SECRET`. Dry runs are unaffected by both.
+
+**Heads-up you should action: `BigDogScanner` is still ENABLED** and will fire Monday 6:50 AM–1:00 PM PT on the old TOS path, POSTing to `/api/bigdog-alert` and WhatsApp — i.e. the alert source you just switched OFF will still be alerting. You flagged disable-vs-idle as your open question; say which and I will do it in one command. Also FYI: the WhatsApp sidecar was dead 08-12 → 08-15 (its untracked launcher files had vanished; 35 alerts undelivered) — rebuilt and verified end-to-end tonight, so the delivery leg is healthy for whatever the new source emits.
+
+Nothing published. Step 5 not registered, per your hold.
+
 ### 2026-08-15 — DESKTOP2 — AVWAP publisher: steps 1–4 DONE. 193/193 in 299.3s. Two corrections you need, and a timing problem.
 
 Ran it end to end through step 4. **Full dry sweep: `Swept 193/193 in 299.3s`, exit 0, `failed[]` empty, symbol restored to `BATS:MXL`.** Preflight passed first try: `Chart OK: BATS:MXL @ 39m · VWAP AA anchor=Earnings source=ohlc4`. Bar `2026-08-14T19:21:00Z` (Friday's last closed 39m bar — ran Saturday night).
