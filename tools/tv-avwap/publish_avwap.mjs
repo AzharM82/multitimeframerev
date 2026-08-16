@@ -42,6 +42,7 @@
  *   TV_CHART_URL=                 # optional: bind only this chart URL/id
  *   TV_EXPECT_RESOLUTION=39
  *   TV_SYMBOL_TIMEOUT_MS=12000
+ *   PUBLISHER_ID=DESKTOP2          # shown in the portal; defaults to the machine hostname
  *
  * Run:  node publish_avwap.mjs [--force] [--dry-run] [--limit N]
  * Task Scheduler: setup_publisher_task.ps1 (every 5 min, market hours)
@@ -71,6 +72,7 @@ const WATCHLIST = process.env.TV_WATCHLIST || "MASTER";
 const CHART_URL = process.env.TV_CHART_URL || "";
 const EXPECT_RES = String(process.env.TV_EXPECT_RESOLUTION || "39");
 const SYMBOL_TIMEOUT_MS = Number(process.env.TV_SYMBOL_TIMEOUT_MS || 12000);
+const PUBLISHER_ID = process.env.PUBLISHER_ID || hostname();
 const LOCK_PATH = join(HERE, ".sweep.lock");
 const LOCK_STALE_MS = 15 * 60 * 1000;
 
@@ -242,7 +244,18 @@ async function run() {
       return 3;
     }
 
-    const pre = await session.evaluate(jsPreflight(EXPECT_RES));
+    // Wait for the chart to SETTLE before reading levels. Preflight used to
+    // print values captured while the studies were still recomputing for the
+    // symbol the previous sweep restored, reporting another instrument's levels
+    // under this symbol's name. Published rows were never affected - they go
+    // through __avwRead's same-bar guard - but preflight is the human sanity
+    // check, so a confidently wrong number here is worse than none.
+    let pre = null;
+    for (let i = 0; i < 40; i++) {
+      pre = await session.evaluate(jsPreflight(EXPECT_RES));
+      if (pre && !pre.err && pre.resolve && pre.resolve.settled) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
     if (!pre || pre.err) {
       console.error(`ERROR: chart preflight failed: ${pre?.err || "no response"}`);
       return 3;
@@ -265,7 +278,12 @@ async function run() {
       console.error(`ERROR: levels unresolved: ${missing.join(", ")}. Refusing to publish.`);
       return 4;
     }
-    console.log(`Chart OK: ${pre.symbol} @ ${pre.resolution}m`);
+    if (!resolved.settled) {
+      console.warn(`WARN: chart did not settle within 20s - the level values below were read ` +
+                   "while studies were still recomputing and may belong to another symbol. " +
+                   "The sweep itself is unaffected (every row is same-bar guarded).");
+    }
+    console.log(`Chart OK: ${pre.symbol} @ ${pre.resolution}m` + (resolved.settled ? " (settled)" : " (UNSETTLED)"));
     for (const k of ["avwap", "sma50", "ema21d", "sma50d"]) {
       const L = resolved.levels[k];
       console.log(`  ${k.padEnd(7)} ${L.desc}  (plot idx ${L.valueIdx}) last=${L.lastValue}`);
@@ -320,7 +338,7 @@ async function run() {
     const payload = {
       bar_utc: barUtc,
       published_at: new Date().toISOString(),
-      host: hostname(),
+      host: PUBLISHER_ID,
       resolution: EXPECT_RES,
       watchlist: wl.name,
       levels: LEVELS,
@@ -330,6 +348,7 @@ async function run() {
       rows: rows.map((r) => {
         const o = {
           ticker: r.ticker,
+          sym: r.sym || null,
           close: r.close,
           last_bar_closed: !!r.lastBarClosed,
           closed_time: r.closedTime,

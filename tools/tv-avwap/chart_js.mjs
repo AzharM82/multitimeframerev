@@ -169,18 +169,37 @@ export const INSTALL = `(function () {
     return { levels: levels, errors: errors };
   };
 
-  // Human-readable resolution report, for preflight and the inventory tool.
+  /**
+   * Human-readable resolution report, for preflight and the inventory tool.
+   *
+   * Carries a "settled" flag. Preflight previously printed level values read
+   * while the studies were still recomputing for a newly-restored symbol, and
+   * reported ANOTHER instrument's levels under this symbol's name (observed on
+   * MXL: 67.69/70.32/67.17/69.99 against the settled 69.30/75.12/75.01/82.74).
+   * Published rows were never affected - every one goes through __avwRead's
+   * same-bar guard - but preflight is the human sanity check, so a confidently
+   * wrong number there is worse than no number. "settled" is true only when
+   * every level's last bar IS the price series' last bar.
+   */
   window.__avwResolveReport = function () {
     const r = window.__avwResolve();
-    const out = { errors: r.errors, levels: {} };
+    const ds = window.__avwSources();
+    const px = ds.find(s => T(s).indexOf(' \\u00b7 ') > -1 && T(s).indexOf('(') === -1);
+    let priceBar = null;
+    try { const b = px.data().bars(); const a = b.valueAt(b.lastIndex()); priceBar = a ? a[0] : null; } catch (e) {}
+    const out = { errors: r.errors, levels: {}, priceBar: priceBar,
+                  symbol: px ? T(px).split(' \\u00b7 ')[0].trim() : null, settled: true };
     for (const k of Object.keys(r.levels)) {
       const L = r.levels[k];
       let v = null, t = null;
       try { const d = L.source.data(); const li = d.lastIndex(); const a = d.valueAt(li);
             t = a ? a[0] : null; v = carryBack(d, li, L.valueIdx); } catch (e) {}
+      if (t === null || priceBar === null || t !== priceBar) out.settled = false;
       out.levels[k] = { desc: L.desc, valueIdx: L.valueIdx, lastValue: v,
-                        lastBar: t ? new Date(t * 1000).toISOString() : null };
+                        lastBar: t ? new Date(t * 1000).toISOString() : null,
+                        onPriceBar: t !== null && t === priceBar };
     }
+    if (r.errors.length) out.settled = false;
     return out;
   };
 
@@ -239,7 +258,7 @@ export const INSTALL = `(function () {
    * Deciding the cross from two adjacent BARS rather than two successive
    * publishes also makes the answer independent of how often this runs.
    */
-  window.__avwRead = function (ticker, resSeconds) {
+  window.__avwRead = function (ticker, resSeconds, sym) {
     const ds = window.__avwSources();
     const px = ds.find(s => T(s).indexOf(' \\u00b7 ') > -1 && T(s).indexOf('(') === -1);
     if (!px) return null;
@@ -268,6 +287,7 @@ export const INSTALL = `(function () {
 
     const out = {
       ticker: ticker,
+      sym: sym || null,
       time: bLive[0], close: liveClose,
       lastBarClosed: lastBarClosed,
       closedTime: bC[0], prevTime: bP[0],
@@ -317,7 +337,7 @@ export const INSTALL = `(function () {
     });
     const t0 = Date.now();
     while (Date.now() - t0 < timeoutMs) {
-      const r = window.__avwRead(ticker, resSeconds);
+      const r = window.__avwRead(ticker, resSeconds, sym);
       if (r && r.fatal) return r;          // chart misconfigured - stop the sweep
       if (r) return r;
       await window.__avwSleep(250);
