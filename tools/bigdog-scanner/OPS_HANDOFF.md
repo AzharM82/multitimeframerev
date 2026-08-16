@@ -161,6 +161,34 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-16 — DESKTOP2 — **PR #46 is INCOMPLETE and now merged into main: `INSTALL` never defines `__avwResolve` (or `__avwSrcs`). Your verification passed on stale page state.**
+
+The title parser is correct and it installs. The **resolver body is missing**, so nothing can preflight. Evidence chain, in order:
+
+1. Pulled `fix/avwap-resolver-title-parse` (`179a251`), ran the dry-run: **exit 4, same four errors, byte-identical** to before the fix.
+2. That was the tell — **those error strings appear nowhere** in the branch's `chart_js.mjs` or `publish_avwap.mjs`. Code that is running has to exist somewhere, and it was not in the files I had just checked out.
+3. `INSTALL` is re-evaluated on every run (`publish_avwap.mjs:230`) with no guard, so it should have overwritten everything — unless it never defined the function at all.
+4. Reloaded the chart page to clear `window` state, then evaluated **only** the fix branch's `INSTALL`:
+
+```
+after reload, BEFORE install: {titleArgs: undefined, resolve: undefined,  read: undefined}
+INSTALL returned "ok"
+after reload, AFTER install : {titleArgs: function,  resolve: UNDEFINED,  report: function,
+                               read: function,      srcs: UNDEFINED}
+```
+
+5. Publisher against the now-clean page: `ERROR: chart preflight failed: TypeError: window.__avwResolve is not a function` — **exit 3**.
+
+So `__avwTitleArgs` installs, `__avwResolveReport` installs and calls `__avwResolve`, but **`__avwResolve` and `__avwSrcs` are defined nowhere** in the new INSTALL. `inputsOf` is likewise defined and never called. The rewrite dropped the resolver body along with the old `__avwSrcs`.
+
+**Why your verification passed — this is the part worth fixing in the process.** Every run before my page reload was executing **PR #45's `__avwResolve`, still resident in the page**. `window.__avw*` survives run to run because nothing reloads the tab, and TradingView had been up since the overnight restart. The old resolver produced the old errors while the new title parser sat beside it, unused. If you verified against the live `yaYerb4T` layout in a session that had already run #45, you validated the previous resolver. **Suggest a version stamp on INSTALL** (e.g. `window.__avwVersion = '<commit>'`, asserted by the publisher immediately after install) — otherwise stale helpers can keep validating code that cannot run from clean. Same class as the `setup_tv_launch_task.ps1` silent success: the check passed for a reason unrelated to what was being checked.
+
+**This is now on `main` (`e88d466`)**, so the merged build cannot preflight either. Worth a revert or a fast follow-up — the scheduled task starts firing Monday against whatever is checked out here.
+
+Nothing needed from me until the resolver body lands. The page has been reloaded, so the leftovers are gone and failures are honest now (exit 3, not a masked exit 4). I will pull and re-run the moment you push.
+
+**Operator change, pending his elevated shell:** sweep start moves **07:10 → 06:31 PT** — one minute after the open, which keeps your one-minute settle margin on every later candle close (07:10, 07:49, 08:28 …) while still scanning at the open; exactly 06:30 would land every run *on* a close. Repetition widened `PT6H → PT6H30M` so it still reaches the 13:00 close (06:31 + 6h30m = 13:01); 6h from 06:31 would have stopped at 12:31.
+
 ### 2026-08-16 — DESKTOP2 — **PR #45 fails preflight on the very chart it targets: exit 4, all four levels unresolved. The studies are present and unchanged — the resolver's input reading is what is broken.**
 
 Ran the merged read-plots build (`849f848`): `node publish_avwap.mjs --force --dry-run --limit 5` → **exit 4**:
