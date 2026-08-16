@@ -57,6 +57,22 @@ export const INSTALL = `(function () {
     return out;
   };
 
+  // Simple moving average over the same closes. The operator's chart draws a
+  // 50 SMA (not an EMA) alongside the 21 EMA, and an SMA50 and an EMA50 sit at
+  // materially different prices -- alerting on the EMA would fire at a level
+  // that is not on his chart.
+  window.__avwSma = function (closes, period) {
+    if (closes.length < period) return null;
+    const out = new Array(closes.length).fill(null);
+    let sum = 0;
+    for (let i = 0; i < closes.length; i++) {
+      sum += closes[i];
+      if (i >= period) sum -= closes[i - period];
+      if (i >= period - 1) out[i] = sum / period;
+    }
+    return out;
+  };
+
   var pctFrom = function (price, level) {
     if (typeof level !== 'number' || !isFinite(level) || level <= 0) return null;
     return +(((price - level) / level) * 100).toFixed(2);
@@ -119,7 +135,7 @@ export const INSTALL = `(function () {
     if (closes.some(isNaN)) return null;
 
     const e21 = window.__avwEma(closes, 21);
-    const e50 = window.__avwEma(closes, 50);
+    const s50 = window.__avwSma(closes, 50);
     const at = (arr, i) => (arr && typeof arr[i] === 'number' ? arr[i] : null);
 
     const liveClose = closes[li], cClose = closes[ci], pClose = closes[pi];
@@ -131,17 +147,17 @@ export const INSTALL = `(function () {
       ticker: ticker,
       // live (display)
       time: bLive[0], close: liveClose,
-      avwap: liveAvwap, ema21: at(e21, li), ema50: at(e50, li),
+      avwap: liveAvwap, ema21: at(e21, li), sma50: at(s50, li),
       pctAvwap: pctFrom(liveClose, liveAvwap),
       pctEma21: pctFrom(liveClose, at(e21, li)),
-      pctEma50: pctFrom(liveClose, at(e50, li)),
+      pctSma50: pctFrom(liveClose, at(s50, li)),
       // closed (alerting)
       lastBarClosed: lastBarClosed,
       closedTime: bC[0], prevTime: bP[0],
       closedClose: cClose, prevClose: pClose,
       cPctAvwap: pctFrom(cClose, cAvwap), pPctAvwap: pctFrom(pClose, pAvwap),
       cPctEma21: pctFrom(cClose, at(e21, ci)), pPctEma21: pctFrom(pClose, at(e21, pi)),
-      cPctEma50: pctFrom(cClose, at(e50, ci)), pPctEma50: pctFrom(pClose, at(e50, pi)),
+      cPctSma50: pctFrom(cClose, at(s50, ci)), pPctSma50: pctFrom(pClose, at(s50, pi)),
       bars: closes.length,
     };
     if (out.pctAvwap === null || out.cPctAvwap === null || out.pPctAvwap === null) return null;
@@ -219,7 +235,7 @@ export function jsSweep(symbols, timeoutMs, resSeconds) {
   })()`;
 }
 
-// Self-check: verify the EMA implementation against a known series.
+// Self-check: verify the MA implementations against a known series.
 export const EMA_SELFTEST = `(function () {
   const closes = [];
   for (let i = 1; i <= 60; i++) closes.push(i);

@@ -7,7 +7,9 @@ import { useEffect, useMemo, useState } from "react";
  * chart. Per symbol, the distance from three levels:
  *
  *   AVWAP  "VWAP Auto Anchored", Anchor Period = Earnings (chart truth)
- *   21 EMA / 50 EMA   of 39m closes, computed by the publisher from the bars
+ *   21 EMA / 50 SMA   of 39m closes, computed by the publisher from the bars.
+ *                     These mirror what is actually drawn on the operator's
+ *                     chart -- an SMA50 and an EMA50 sit at different prices.
  *
  * Positive = price above the level, negative = below.
  *
@@ -26,12 +28,12 @@ import { useEffect, useMemo, useState } from "react";
 
 const NEAR_PCT = 1.0;
 
-type LevelKey = "avwap" | "ema21" | "ema50";
+type LevelKey = "avwap" | "ema21" | "sma50";
 
 const LEVEL_LABEL: Record<LevelKey, string> = {
   avwap: "AVWAP",
   ema21: "21 EMA",
-  ema50: "50 EMA",
+  sma50: "50 SMA",
 };
 
 interface Row {
@@ -39,10 +41,10 @@ interface Row {
   close: number;
   avwap: number;
   ema21: number | null;
-  ema50: number | null;
+  sma50: number | null;
   pctAvwap: number;
   pctEma21: number | null;
-  pctEma50: number | null;
+  pctSma50: number | null;
   lastCross: string;   // "<level>:<direction>", e.g. "ema21:CROSS_UP"
   lastCrossAt: string;
 }
@@ -63,7 +65,7 @@ const EMPTY: Snapshot = {
   ageMin: -1, stale: true, failed: [], loaded: false,
 };
 
-type SortKey = "avwap" | "ema21" | "ema50" | "ticker" | "close" | "nearest";
+type SortKey = "avwap" | "ema21" | "sma50" | "ticker" | "close" | "nearest";
 type SideFilter = "all" | "above" | "below";
 
 async function fetchSnapshot(): Promise<Snapshot> {
@@ -77,10 +79,10 @@ async function fetchSnapshot(): Promise<Snapshot> {
       close: Number(r.close ?? 0),
       avwap: Number(r.avwap ?? 0),
       ema21: nOrNull(r.ema21),
-      ema50: nOrNull(r.ema50),
+      sma50: nOrNull(r.sma50),
       pctAvwap: Number(r.pctAvwap ?? 0),
       pctEma21: nOrNull(r.pctEma21),
-      pctEma50: nOrNull(r.pctEma50),
+      pctSma50: nOrNull(r.pctSma50),
       lastCross: String(r.lastCross ?? ""),
       lastCrossAt: String(r.lastCrossAt ?? ""),
     }));
@@ -100,13 +102,13 @@ async function fetchSnapshot(): Promise<Snapshot> {
 }
 
 function pctOf(r: Row, k: LevelKey): number | null {
-  return k === "avwap" ? r.pctAvwap : k === "ema21" ? r.pctEma21 : r.pctEma50;
+  return k === "avwap" ? r.pctAvwap : k === "ema21" ? r.pctEma21 : r.pctSma50;
 }
 
 /** Which level this symbol sits closest to, and how far. Drives the "closest to a cross" block. */
 function nearest(r: Row): { level: LevelKey; pct: number } | null {
   let best: { level: LevelKey; pct: number } | null = null;
-  for (const k of ["avwap", "ema21", "ema50"] as LevelKey[]) {
+  for (const k of ["avwap", "ema21", "sma50"] as LevelKey[]) {
     const p = pctOf(r, k);
     if (p === null) continue;
     if (!best || Math.abs(p) < Math.abs(best.pct)) best = { level: k, pct: p };
@@ -214,7 +216,7 @@ function Table({ rows, barOn }: { rows: Row[]; barOn: LevelKey | "nearest" }) {
             <th className="text-right font-semibold px-3 py-2">AVWAP</th>
             <th className="text-right font-semibold px-3 py-2">Δ% AVWAP</th>
             <th className="text-right font-semibold px-3 py-2">Δ% 21 EMA</th>
-            <th className="text-right font-semibold px-3 py-2">Δ% 50 EMA</th>
+            <th className="text-right font-semibold px-3 py-2">Δ% 50 SMA</th>
             {barOn === "nearest" && (
               <th className="text-left font-semibold px-3 py-2">Nearest</th>
             )}
@@ -234,7 +236,7 @@ function Table({ rows, barOn }: { rows: Row[]; barOn: LevelKey | "nearest" }) {
                 <td className="px-3 py-1.5 text-right tabular-nums text-text-secondary">{r.avwap.toFixed(2)}</td>
                 <PctCell pct={r.pctAvwap} />
                 <PctCell pct={r.pctEma21} />
-                <PctCell pct={r.pctEma50} />
+                <PctCell pct={r.pctSma50} />
                 {barOn === "nearest" && (
                   <td className="px-3 py-1.5 text-[11px] text-text-secondary whitespace-nowrap">
                     {n ? LEVEL_LABEL[n.level] : "—"}
@@ -307,7 +309,7 @@ export function AvwapEarningsPage() {
         <div>
           <h2 className="text-xl font-black text-text-primary">AVWAP from Earnings</h2>
           <p className="text-xs text-text-secondary mt-0.5">
-            MASTER watchlist · 39-minute chart · VWAP Auto Anchored (anchor = Earnings) + 21/50 EMA
+            MASTER watchlist · 39-minute chart · VWAP Auto Anchored (anchor = Earnings) + 21 EMA / 50 SMA
           </p>
         </div>
         <div className="text-right text-[11px] text-text-secondary">
@@ -346,7 +348,7 @@ export function AvwapEarningsPage() {
         <div className="px-3 py-2 border-b border-border">
           <h3 className="text-sm font-bold text-text-primary">Closest to a cross (±{NEAR_PCT}%)</h3>
           <p className="text-[11px] text-text-secondary">
-            Within {NEAR_PCT}% of AVWAP, 21 EMA or 50 EMA — a close on the far side of that level
+            Within {NEAR_PCT}% of AVWAP, 21 EMA or 50 SMA — a close on the far side of that level
             alerts. Ranked by the nearest level.
           </p>
         </div>
@@ -380,7 +382,7 @@ export function AvwapEarningsPage() {
             >
               <option value="avwap">Sort: Δ% AVWAP</option>
               <option value="ema21">Sort: Δ% 21 EMA</option>
-              <option value="ema50">Sort: Δ% 50 EMA</option>
+              <option value="sma50">Sort: Δ% 50 SMA</option>
               <option value="nearest">Sort: nearest level</option>
               <option value="ticker">Sort: Ticker</option>
               <option value="close">Sort: Close</option>
@@ -389,7 +391,7 @@ export function AvwapEarningsPage() {
         </div>
         {loading ? <p className="text-sm text-text-secondary px-3 py-6">Loading…</p>
                  : <Table rows={filtered} barOn={sortKey === "ema21" ? "ema21"
-                                                : sortKey === "ema50" ? "ema50"
+                                                : sortKey === "sma50" ? "sma50"
                                                 : sortKey === "nearest" ? "nearest" : "avwap"} />}
       </div>
     </div>
