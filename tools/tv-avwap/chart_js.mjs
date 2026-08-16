@@ -244,6 +244,49 @@ export const EMA_SELFTEST = `(function () {
   return { last: e[59], expectApprox: 60 - 10, seeded: e[20], nullBefore: e[19] };
 })()`;
 
+/**
+ * Study/plot inventory for the bound chart.
+ *
+ * We read levels off the chart's own study plots rather than recomputing them:
+ * deriving them ourselves was wrong twice (averaging close where the chart
+ * averages ohlc4; and a 21 EMA that is not plotted on the chart at all). The
+ * plotted line is the one the operator trades against, so it is the only
+ * defensible source of truth.
+ *
+ * This dumps every study, its plot titles in metaInfo plot order, and the value
+ * of each plot on the last two bars -- everything needed to wire an exact,
+ * title-based matcher without guessing indices.
+ */
+export const STUDY_INVENTORY = `(function () {
+  const cw = window._exposed_chartWidgetCollection.activeChartWidget.value();
+  const ds = cw.model().model().dataSources();
+  const T = s => { try { return s.title(); } catch (e) { return ''; } };
+  const out = [];
+  for (const s of ds) {
+    let title = T(s);
+    if (!title || title.indexOf(' · ') > -1) continue;
+    let meta = null;
+    try { meta = s.metaInfo(); } catch (e) { continue; }
+    if (!meta || !meta.styles) continue;
+    const plots = (meta.plots || []).map(p => p.id);
+    const styles = {};
+    for (const k of Object.keys(meta.styles)) styles[k] = meta.styles[k].title;
+    let last = null, prev = null, lastTime = null;
+    try {
+      const d = s.data(); const li = d.lastIndex();
+      const v1 = d.valueAt(li), v0 = d.valueAt(li - 1);
+      lastTime = v1 ? v1[0] : null;
+      last = v1 ? v1.slice(1) : null;
+      prev = v0 ? v0.slice(1) : null;
+    } catch (e) {}
+    let inputs = null;
+    try { inputs = s.getInputValues ? s.getInputValues() : null; } catch (e) {}
+    out.push({ title, shortDesc: meta.shortDescription || '', plotOrder: plots,
+               styles, lastTime, last, prev, inputs });
+  }
+  return out;
+})()`;
+
 export function jsRestoreSymbol(symbol) {
   return `(function(){ try { window.TradingViewApi.activeChart().setSymbol(${JSON.stringify(symbol)}); return 'ok'; } catch(e) { return String(e); } })()`;
 }
