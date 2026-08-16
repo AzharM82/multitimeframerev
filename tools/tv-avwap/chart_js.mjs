@@ -176,7 +176,8 @@ export const INSTALL = `(function () {
     for (const k of Object.keys(r.levels)) {
       const L = r.levels[k];
       let v = null, t = null;
-      try { const d = L.source.data(); const a = d.valueAt(d.lastIndex()); t = a ? a[0] : null; v = a ? a[L.valueIdx] : null; } catch (e) {}
+      try { const d = L.source.data(); const li = d.lastIndex(); const a = d.valueAt(li);
+            t = a ? a[0] : null; v = carryBack(d, li, L.valueIdx); } catch (e) {}
       out.levels[k] = { desc: L.desc, valueIdx: L.valueIdx, lastValue: v,
                         lastBar: t ? new Date(t * 1000).toISOString() : null };
     }
@@ -186,6 +187,35 @@ export const INSTALL = `(function () {
   var pctFrom = function (price, level) {
     if (typeof level !== 'number' || !isFinite(level) || level <= 0) return null;
     return +(((price - level) / level) * 100).toFixed(2);
+  };
+
+  /**
+   * The value of a plot at bar \`idx\`, carrying the last real value forward.
+   *
+   * HIGHER-TIMEFRAME PLOTS ARE SPARSE. A daily MA drawn on a 39m chart only
+   * carries a number on the bars where the daily value lands; every other bar
+   * is null. Requiring a value on both scored bars rejected every symbol
+   * (Swept 0/193, exit 6) even though the levels were perfectly readable.
+   *
+   * Carrying forward is not an approximation: a daily line is FLAT across the
+   * intraday bars it spans, so the last non-null value IS the level at this bar
+   * - exactly the horizontal line the operator sees on screen and trades
+   * against. A day boundary lands a new value, so a genuine level change is
+   * picked up on the bar where it happens.
+   *
+   * Bounded: a daily plot on 39m lands ~once per 10 bars, so 400 covers weeks.
+   * Returns null when there is genuinely no value to carry (a symbol too new to
+   * have the average), which the caller treats per level rather than as a
+   * whole-symbol failure.
+   */
+  var carryBack = function (d, idx, valueIdx) {
+    for (var j = 0; j < 400 && idx - j >= 0; j++) {
+      var a = d.valueAt(idx - j);
+      if (!a) continue;
+      var v = a[valueIdx];
+      if (typeof v === 'number' && isFinite(v) && v > 0) return v;
+    }
+    return null;
   };
 
   /**
@@ -251,17 +281,28 @@ export const INSTALL = `(function () {
       let d;
       try { d = L.source.data(); } catch (e) { return null; }
       const lv = d.lastIndex();
-      const aLive = d.valueAt(lv);
-      const aC = d.valueAt(lv - (li - ci));
-      const aP = d.valueAt(lv - (li - pi));
+      const iLive = lv, iC = lv - (li - ci), iP = lv - (li - pi);
+      const aLive = d.valueAt(iLive), aC = d.valueAt(iC), aP = d.valueAt(iP);
       if (!aLive || !aC || !aP) return null;
+      // Bar alignment still holds for every series: the entries exist on every
+      // bar, it is only their VALUES that can be sparse.
       if (aLive[0] !== bLive[0] || aC[0] !== bC[0] || aP[0] !== bP[0]) return null;
-      const vLive = aLive[L.valueIdx], vC = aC[L.valueIdx], vP = aP[L.valueIdx];
-      if (typeof vLive !== 'number' || !isFinite(vLive) || vLive <= 0) return null;
-      const rec = { value: vLive, pct: pctFrom(liveClose, vLive),
-                    cPct: pctFrom(cClose, vC), pPct: pctFrom(pClose, vP) };
-      if (rec.pct === null || rec.cPct === null || rec.pPct === null) return null;
-      out.levels[key] = rec;
+
+      const vLive = carryBack(d, iLive, L.valueIdx);
+      const vC = carryBack(d, iC, L.valueIdx);
+      const vP = carryBack(d, iP, L.valueIdx);
+
+      // AVWAP anchors the whole tab, so its absence rejects the symbol. A
+      // missing MA does not: a thin or newly-listed name that cannot support a
+      // 50-day average should still publish the levels it does have, with the
+      // rest rendering n/a and simply never alerting.
+      if (vLive === null || vC === null || vP === null) {
+        if (key === 'avwap') return null;
+        out.levels[key] = { value: null, pct: null, cPct: null, pPct: null };
+        continue;
+      }
+      out.levels[key] = { value: vLive, pct: pctFrom(liveClose, vLive),
+                          cPct: pctFrom(cClose, vC), pPct: pctFrom(pClose, vP) };
     }
 
     return out;
