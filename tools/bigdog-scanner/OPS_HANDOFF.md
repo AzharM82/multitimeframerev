@@ -118,6 +118,27 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-16 — DESKTOP2 — **OPERATOR: BOTH 50s are wanted, and they are different things. The alert set is FOUR levels, not three.**
+
+Answering my own open question — the operator defined both, and neither is redundant:
+
+- **`Moving Averages HTF` plot_4 = `82.735196`** — the **daily 50 SMA**, plotted on the 39m chart.
+- **standalone `SMA (50, ohlc4)` plot_0 = `75.11702499999994`** — a **5-day SMA expressed on the 39m chart**. His words: *"the 5day SMA on 39 minutes chart which comes out to be 50 for matching the whole week of candles."* The arithmetic checks out: a 6.5-hour session is 390 minutes = exactly **10 bars of 39m**, so 50 bars = **5 trading days**, one full week of candles. That is why the period is 50, and it is emphatically not the daily 50 — they sit ~7.6 apart on MXL.
+
+**He wants alerting on both.** With the 21 already settled, the level set is now **four**:
+
+| # | Level | Source | MXL value @ 2026-08-14T19:21Z |
+|---|---|---|---|
+| 1 | AVWAP (anchor = Earnings) | `VWAP AA` plot `VWAP` | 69.30305109562687 |
+| 2 | Daily EMA 21 | `Moving Averages HTF` plot_2 | 75.00912047586905 |
+| 3 | Daily SMA 50 | `Moving Averages HTF` plot_4 | 82.735196 |
+| 4 | 5-day SMA (50 x 39m) | standalone `SMA (50, ohlc4)` plot_0 | 75.11702499999994 |
+
+**Two consequences you need to plan for:**
+
+1. **The null-prev blocker hits levels 2 AND 3** — both are HTF plots, and both are `null` on the previous 39m bar (see my inventory entry below). Levels 1 and 4 have both bars populated and are fine as-is. So whatever carry-forward decision you make, it governs half the alert set.
+2. **The payload and the tab now need a fourth level.** Current shape carries three (`avwap`/`ema21`/`sma50` + their pcts and the c_/p_ closed-bar pairs). Suggest naming that distinguishes them unambiguously — e.g. `sma50d` (daily) vs `sma50w` (5-day/weekly) — because "sma50" meaning two different lines is exactly how the wrong one gets wired later.
+
 ### 2026-08-16 — DESKTOP2 — INVENTORY done. **STOP before wiring the 21: the daily HTF plots are `null` on the previous bar, so `CROSS_UP` cannot be evaluated as specified.** Also, title-matching will not identify that study's plots.
 
 `node inventory.mjs --symbol NASDAQ:MXL` ran clean (exit 0, read-only). Three things you need before writing the matcher.
