@@ -25,10 +25,10 @@ if (-not (Test-Path (Join-Path $here ".env"))) {
 }
 
 $action = New-ScheduledTaskAction -Execute $node -Argument "`"$script`"" -WorkingDirectory $here
-$trigger = New-ScheduledTaskTrigger -Daily -At "07:10"
-$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At "07:10" `
+$trigger = New-ScheduledTaskTrigger -Daily -At "06:31"
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At "06:31" `
     -RepetitionInterval (New-TimeSpan -Minutes 39) `
-    -RepetitionDuration (New-TimeSpan -Hours 6)).Repetition
+    -RepetitionDuration (New-TimeSpan -Hours 7)).Repetition
 
 # Cadence is one sweep per CANDLE CLOSE, not a round-number grid.
 #
@@ -40,8 +40,20 @@ $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At "07:10" `
 # symbols on DESKTOP2).
 #
 # RTH 39m closes are 07:09, 07:48, 08:27, 09:06, 09:45, 10:24, 11:03, 11:42,
-# 12:21, 13:00 PT. Starting 07:10 and repeating every 39 min lands one minute
-# after each - enough for the bar to settle, well inside the next bar.
+# 12:21, 13:00 PT. Starting 06:31 and repeating every 39 min gives
+# 06:31, 07:10, 07:49, 08:28, 09:07, 09:46, 10:25, 11:04, 11:43, 12:22, 13:01 -
+# one minute after each close, plus an at-the-open snapshot for the tab.
+#
+# NOT 06:30. That start lands every run EXACTLY on a close (07:09, 07:48, ...),
+# giving zero settle margin: the first symbols would be read within seconds of
+# the bar closing, while TradingView may still be finalising it. The MTF sidecar
+# work already cost real debugging to a readiness race of exactly this kind, and
+# the fix there was a settle delay. One minute is cheap insurance.
+#
+# Duration is 7h, NOT 6h. From 06:31 a 6-hour window stops repeating at 12:31,
+# so the 13:01 run never fires and the session's FINAL bar (12:21-13:00) is
+# never scored. The script's own market-window gate (9:25-16:05 ET) stops it
+# after 13:05 PT, so the extra hour costs nothing.
 #
 # ExecutionTimeLimit is generous but finite so a hung CDP session can never sit
 # on the lock forever; IgnoreNew skips a slow sweep rather than stacking on it.
