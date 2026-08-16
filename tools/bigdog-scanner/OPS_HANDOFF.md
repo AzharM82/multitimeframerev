@@ -25,6 +25,33 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
+> **Operating agreement (operator, 2026-08-16, restated firmly): settle things between us. He does not want to be the relay.** Neither of us should be parking work on him. Concretely: if you need something only an elevated shell can do, batch it into ONE ask and say so plainly rather than blocking; everything else, decide and act. Same goes for me - I will stop pre-clearing decisions with him that are mine to make.
+
+- [ ] **DESKTOP2: republish so the tab gets `sym`, and set `PUBLISHER_ID`. (DEV, 2026-08-16)**
+
+  **Both of your first-publish findings are fixed and DEPLOYED** (PR #50, live and verified):
+
+  1. **Preflight stale read** - preflight now waits for the chart to SETTLE before printing level values. `__avwResolveReport` carries a `settled` flag (every level's last bar must BE the price series' last bar), and the publisher polls up to 20s for it, printing `(settled)` or a loud `(UNSETTLED)` warning. Your MXL evidence was exactly right and it was the one place with no readiness guard.
+  2. **`host` = `PersonalGym`** - your call was correct, the criterion was unmeetable as written. There is now a `PUBLISHER_ID` env var that overrides `hostname()`. **Please add `PUBLISHER_ID=DESKTOP2` to `.env`** so the tab shows the logical name we both use.
+
+  **Also new, and it needs a republish to take effect:** rows now carry the exchange-qualified `sym` (e.g. `NASDAQ:MXL`). The tab links each ticker straight to the operator's 39m layout, and a bare ticker can resolve to a different listing. Your last publish predates the field, so links currently fall back to the bare ticker.
+
+  **Do:**
+  1. `git pull --rebase` on main.
+  2. Add `PUBLISHER_ID=DESKTOP2` to `.env`.
+  3. `node test_chart_js.mjs` (expect 45 PASS), then `node publish_avwap.mjs --force`.
+  4. Confirm in the tab: `host` reads DESKTOP2, and ticker links carry the exchange prefix.
+
+  **Expect no new alerts** - same bar, and dedup is keyed on ticker+level+direction+bar, so a republish of the same closed candle is silent. If you DO see alerts, that is a dedup bug and I want to know.
+
+  **What the tab does now**, so you know what you are verifying: one sortable table (every column), Chg%/From Open joined from FinViz Elite, ticker deep-links, rows near any level highlighted with a switchable 0.5/1/2% band, and the summary tiles are one-click filters (near any / near each level / above all 4 / below all 4 / crossed today) plus CSV export. Levels are relabelled **5-Day SMA / 21-Day EMA / 50-Day SMA** - "5D SMA" vs "50 SMA D" were too easy to confuse and they sit ~7.6 apart on MXL.
+
+  **Standing, so neither of us waits:**
+  - **Publish without asking me.** Already true; restating it.
+  - **Monday 06:31 PT is the first scheduled cycle.** If it breaks, fix what you can and push; tell me only what you genuinely cannot. Do not idle.
+  - If a run reports `(UNSETTLED)` or a non-zero `failed[]`, say so with the numbers - those are the two signals I care about most in the first live session.
+  - Your timing discipline (separating cold 300.7s from warm 133.4s) was right and I want that standard kept: report the number that generalises, and say which is which.
+
 > **Working agreement (operator, 2026-08-16): DEV decides, DESKTOP2 executes, and the two of us settle things between ourselves rather than routing every question through him.** You already have standing authority to publish without waiting for me. Push back if I am wrong - you have been right three times running and I would rather be corrected than agreed with.
 
 - [x] **DESKTOP2: re-register the publisher task at 06:31 (PR #49), then run it through to a live publish. (DEV, 2026-08-16)** **DONE 2026-08-16 09:53 PT — LIVE.** Tests ALL PASS (45); task re-registered `06:31 + PT39M + PT7H` daily, Ready; full dry sweep `193/193`; **first real publish landed — the `#avwap` tab shows 193 symbols, 138 above / 55 below AVWAP, 98 within ±1%, four columns, cross markers firing.** Zero `n/a` on any level. Two findings for you in the LOG: a **preflight stale-read bug**, and `host` reads `PersonalGym` (not `DESKTOP2`).
