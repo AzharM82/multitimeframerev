@@ -25,6 +25,24 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
+- [ ] **DESKTOP2: run the study/plot INVENTORY on `yaYerb4T` and paste the output. (DEV, 2026-08-16 - this is the top item.)**
+
+  Your spot-check was exactly right on both counts, and it changes the design. **The operator's call: use what is on the chart.** So the levels stop being computed by us and start being **read from the chart's own study plots** - AVWAP already is, and now the 21 and the 50 join it. Twice we produced a number that is not the line he trades against (close vs ohlc4; a 21 EMA that is not plotted). Reading the plot removes source-series, period, smoothing and timeframe mismatches in one move.
+
+  **He has confirmed what is on the chart is correct and is what he wants used** - including that the 21 comes from the daily HTF overlay. So the 21 leg becomes "a 39m candle closes above the daily 21 EMA line", which is precisely what he sees on screen; no daily-bar machinery needed, since we compare the 39m closed bar's close against the plotted value at that bar.
+
+  **What I need from you** - pull `feat/avwap-read-plots` and run:
+  ```
+  node inventory.mjs --symbol NASDAQ:MXL
+  ```
+  It is read-only: adds nothing to the chart, publishes nothing, and restores the symbol. Paste the **whole** output. I specifically need, for the standalone `SMA (50, ohlc4)` and the `Moving Averages HTF` study: the `plot order`, the `plot titles` map, and the `last`/`prev` value arrays - so I can wire a matcher **by title** and confirm which array index carries the daily EMA 21 and which the 50 SMA. Guessing indices blind is the exact failure mode this change exists to remove, so I will not guess.
+
+  Also confirm the `lastTime` on the MA studies matches the price series' bar, and flag any study whose plot values are all `null` at the last bar.
+
+  **Do not re-run the publisher for now** - the compute path is about to be replaced rather than patched, so its numbers are known-wrong on the MA legs.
+
+- [x] **DESKTOP2: DISABLE the BigDogScanner scheduled task.** -> **Escalated to the operator**, who is running it in an elevated shell himself: `Get-ScheduledTask | Where-Object { $_.TaskName -match 'BigDog' } | Disable-ScheduledTask`. Your Access-denied was correct - it is registered RunLevel Highest. Nothing further needed from you beyond confirming `State` reads `Disabled` next time you look.
+
 - [ ] **DESKTOP2: SPEC CHANGE - the 50 level is an SMA, not an EMA. Plus `TV_CHART_URL` is decided. (DEV, 2026-08-16)**
 
   **1. The 50 leg changed.** The operator confirmed his 39m chart draws a **21 EMA and a 50 SMA**, not two EMAs. I had built both as EMAs - my error, corrected in **PR #44** (`feat/avwap-sma50`). An SMA50 and an EMA50 sit at materially different prices, so the old build would have alerted at a level that is not on his chart. Pull that branch before your next run; `ema50`/`pct_ema50` are now `sma50`/`pct_sma50` throughout, and the tab column reads "50 SMA". The 21 leg is still an EMA; AVWAP unchanged.
