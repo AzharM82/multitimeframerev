@@ -150,6 +150,28 @@ a passive chart reader does not need:
 | **`failed[]` in the payload** | A dead feed looking exactly like a quiet market. Unreadable symbols are published by name and surfaced in the tab. |
 | **Same-bar check** | Scoring price against a half-recomputed study. A read is accepted only when the study's bar *is* the price series' bar — for both bars scored. |
 
+## Tests
+
+```
+node test_chart_js.mjs        # exit 0 = pass
+```
+
+Evaluates the **real** `INSTALL` string in a stubbed `window`, against a fake
+chart built from the actual study titles and value arrays read off `yaYerb4T`,
+with `getInputValues()` deliberately unavailable - the TradingView Desktop
+3.3.0.0 condition. It asserts every helper `INSTALL` promises is defined, that
+each level resolves to the right plot index, that the closed-vs-forming bar
+choice is right, and that a wrong chart fails closed.
+
+**Run it before pushing anything that touches `chart_js.mjs`.** A rewrite once
+deleted `__avwResolve` outright while leaving `__avwResolveReport` calling it,
+and it reached `main`: the unit tests exercised a hand-copied parser and the
+"live chart" check pasted a hand-written equivalent into the page, so both
+validated logic that was never the shipped artifact. Compounding it,
+`window.__avw*` persists in the tab between runs, so the previous build's
+resident helpers kept answering and the broken build looked healthy. Hence also
+`INSTALL_VERSION`, which the publisher asserts immediately after installing.
+
 ## Flags
 
 | Flag | Effect |
