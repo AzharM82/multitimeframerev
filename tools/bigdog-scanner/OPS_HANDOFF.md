@@ -118,6 +118,53 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-16 — DESKTOP2 — INVENTORY done. **STOP before wiring the 21: the daily HTF plots are `null` on the previous bar, so `CROSS_UP` cannot be evaluated as specified.** Also, title-matching will not identify that study's plots.
+
+`node inventory.mjs --symbol NASDAQ:MXL` ran clean (exit 0, read-only). Three things you need before writing the matcher.
+
+**1. The blocker. `Moving Averages HTF` has a value on the LAST bar and `null` on the PREVIOUS bar:**
+
+```
+Moving Averages HTF
+  last values: [null,0,75.00912047586905,1,82.735196,2,null,3,null,4, ...]
+  prev values: [null,0,null,             1,null,     2,null,3,null,4, ...]
+```
+
+`plot_2` (daily EMA 21) and `plot_4` (daily SMA 50) are populated at `2026-08-14T19:21:00Z` and **null one 39m bar earlier**. That is what a daily series plotted on a 39m chart looks like — it carries a value only where the higher-timeframe bar lands, not on every intraday bar. Your rule is *"the candle closes above the level AND the previous candle closed below"*, which needs the level at **both** `ci` and `pi`. With `prev = null`, `__avwRead`'s existing "both bars must be present" guard drops the symbol — so the 21 leg would silently return nothing for every name, a 100% miss rather than a wrong number. Options, your call: carry the last non-null value forward (a daily line is flat across the intraday bars it spans, so this is faithful to what he sees on screen), compare both bars against the same current level, or pull the daily series properly. **Do not just index `plot_2` and ship it.**
+
+**2. Title-matching will not work for that study.** You asked for a matcher wired by title; the HTF plot titles are generic:
+
+```
+plot titles: {"plot_0":"Moving Average 1","plot_2":"Moving Average 2","plot_4":"Moving Average 3", ... "plot_18":"Moving Average 10"}
+```
+
+Nothing says "EMA 21" or "SMA 50". The only mapping is positional, through the study's own inputs: `(false, true, EMA, ohlc4, 10, 1D …)(true, true, EMA, ohlc4, 21, 1D …)(true, true, SMA, ohlc4, 50, 1D …)` → MA1 = EMA10 1D **disabled** (hence `plot_0 = null`), MA2 = EMA21 1D → `plot_2 = 75.00912047586905`, MA3 = SMA50 1D → `plot_4 = 82.735196`. Even indices are lines, odd are colorers (values `0,1,2,…` incrementing per MA, which is what confirms the pairing). If the operator re-orders or enables MA1 those indices shift — so parse the inputs rather than hardcoding `plot_2`, or you inherit exactly the silent wrong-plot bug this redesign exists to kill.
+
+**3. The standalone 39m SMA is clean and supports the cross rule as written:**
+
+```
+SMA (50, ohlc4, 0, None, 65, 0.001, true, false, false)
+  plot titles: {"plot_0":"MA","plot_1":"SMA-based MA","plot_2":"Upper Bollinger Band","plot_3":"Lower Bollinger Band"}
+  last bar: 2026-08-14T19:21:00.000Z
+  last values: [75.11702499999994,null,null,null,null]
+  prev values: [74.93622499999994,null,null,null,null]
+
+VWAP AA (Earnings, ohlc4, 14, Percentage, true, 1, false, 2, false, 3)
+  plot order:  ["VWAP","UpperBand","LowerBand","UpperBand_2","LowerBand_2","UpperBand_3","LowerBand_3"]
+  last values: [69.30305109562687,69.99608160658313,68.61002058467061,null,null,null,null]
+  prev values: [69.08915168029476,69.78004319709771,68.39826016349181,null,null,null,null]
+```
+
+**Your two explicit questions:**
+- **`lastTime` vs the price bar:** matches. Every value-bearing study reports `last bar: 2026-08-14T19:21:00.000Z`, identical to the price series' last bar. No skew.
+- **Studies all-null at the last bar:** `RAHUL ATR + Volume Spikes (10, 2.5, 10, ohlc4, 20)` and `Simple Volume (...)` both return `last values: null` / `prev values: null`, with no `last bar` line. Neither is a level source, so harmless — but if you iterate all sources they must not throw.
+
+Also present, for completeness: `Saty Phase Oscillator` (`last: [100,61.8,23.6,-23.6,-61.8,-100,0,2,92.19342584589033,4,null,null,null,null]`) and `ST_Squeeze_Pro` (`last: [4.67398713209124,0,0,6,0,0,0,0,0,0]`) — oscillators, not levels.
+
+**Minor tooling note:** `inventory.mjs` prints `switching BATS:MXL -> NASDAQ:MXL (will be restored)` and then headers the dump `=== BATS:MXL @ 39m ===` — it labels the output with the pre-switch symbol. Values are MXL either way so the data is fine, but the label misleads. Chart internal symbol reads `BATS:MXL` at 39m now, so state is as it was.
+
+Publisher not re-run, per your instruction. Machine green: `BigDogScanner` **Disabled** (confirmed), `TradingView CDP Launch` registered, CDP 9222 up, `.env` complete.
+
 ### 2026-08-16 — DESKTOP2 — **CORRECTION / operator settled it: the 21 IS the DAILY EMA21 plotted on the 39m chart. Option (a) in my last entry is wrong — do not ask him to add a 39m EMA.**
 
 Operator, verbatim: *"the chart is 39 mins and the EMA is 21 - use what I have on the chart"* and *"it is the daily EMA on 39 min chart"*. So the `Moving Averages HTF` daily plot is **deliberate**, not the wrong-plot accident your spec warned against. Ignore the three options I listed an hour ago; this is the answer.
