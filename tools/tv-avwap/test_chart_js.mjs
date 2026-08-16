@@ -62,8 +62,16 @@ function makeChart({ closes = [70, 74, 84.96] } = {}) {
   const bars = times.map((t, i) => [t, closes[i], closes[i], closes[i], closes[i], 1000]);
   const vwapRows = times.map((t) => [t, AVWAP, AVWAP * 1.01, AVWAP * 0.99, null, null, null, null]);
   const smaRows = times.map((t) => [t, SMA50, null, null, null, null]);
-  // plot_0 null (slot1 disabled), plot_2 = EMA21 1D, plot_4 = SMA50 1D
-  const htfRows = times.map((t) => [t, null, 0, EMA21D, 1, SMA50D, 2, null, 3, null, 4]);
+  // plot_0 null (slot1 disabled), plot_2 = EMA21 1D, plot_4 = SMA50 1D.
+  //
+  // HIGHER-TIMEFRAME PLOTS ARE SPARSE, and this is the real shape: a daily
+  // value lands on the bar at the day boundary and every later 39m bar inside
+  // that day is null. DESKTOP2 read exactly this off AVGO. Requiring a value on
+  // both scored bars rejected every symbol (Swept 0/193, exit 6), which is why
+  // the fake models the sparsity rather than a convenient dense series.
+  const htfRows = times.map((t, i) => (i === 0
+    ? [t, null, 0, EMA21D, 1, SMA50D, 2, null, 3, null, 4]
+    : [t, null, 0, null, 1, null, 2, null, 3, null, 4]));
   return [
     priceSeries("MXL · BATS, 39", bars),
     series(VWAP_T, vwapRows),
@@ -150,6 +158,40 @@ sources[3] = series(HTF_T.replace("true, true, EMA, ohlc4, 21, 1D", "false, true
                     [[BAR, null, 0, EMA21D, 1, SMA50D, 2]]);
 ok("disabled EMA21 slot is an error",
    win.__avwResolve().errors.some((e) => /EMA 21 1D/.test(e)));
+
+console.log("");
+console.log("--- carry-forward: the exit-6 blocker ---");
+sources = makeChart();   // earlier fail-closed cases left `sources` mutated
+// The fake chart above carries daily values ONLY on bar 0; both scored bars are
+// null. Every assertion in the CLOSED-bar section above therefore already
+// depends on carry-forward - without it they return null, which is exactly the
+// Swept 0/193 failure. These make the intent explicit.
+Date.now = () => (BAR + 39 * 60 + 5) * 1000;
+const sparse = win.__avwRead("MXL", 39 * 60);
+ok("sparse daily plots no longer reject the symbol", sparse && !sparse.fatal);
+eq("ema21d carried to the scored bar", sparse?.levels.ema21d.value, EMA21D);
+eq("sma50d carried to the scored bar", sparse?.levels.sma50d.value, SMA50D);
+ok("cross-up is expressible again (prev below, last above)",
+   sparse.levels.sma50d.pPct < 0 && sparse.levels.sma50d.cPct > 0);
+
+console.log("");
+console.log("--- a level with NO value anywhere degrades per-LEVEL, not per-symbol ---");
+sources = makeChart();
+sources[3] = series(HTF_T, [PREV2, PREV, BAR].map((t) => [t, null, 0, null, 1, null, 2]));
+const partial = win.__avwRead("MXL", 39 * 60);
+ok("symbol still publishes", partial && !partial.fatal);
+eq("avwap still present", partial?.levels.avwap.value, AVWAP);
+eq("sma50 still present", partial?.levels.sma50.value, SMA50);
+eq("ema21d degrades to null", partial?.levels.ema21d.value, null);
+ok("a null level cannot alert", partial?.levels.sma50d.pPct === null && partial?.levels.sma50d.cPct === null);
+
+console.log("");
+console.log("--- but a missing AVWAP still rejects the whole symbol ---");
+sources = makeChart();
+sources[1] = series(VWAP_T, [PREV2, PREV, BAR].map((t) => [t, null, null, null, null, null, null, null]));
+ok("no AVWAP anywhere -> symbol rejected", win.__avwRead("MXL", 39 * 60) === null);
+Date.now = realNow;
+sources = makeChart();
 
 console.log("\n--- expression builders still produce valid JS ---");
 for (const [name, src] of [["jsPreflight", jsPreflight("39")],
