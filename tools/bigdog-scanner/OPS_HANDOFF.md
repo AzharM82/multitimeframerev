@@ -41,10 +41,24 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
   **Also found while checking his change - my bug, and it would have been invisible:** `RepetitionDuration` was 6h. From 06:31 that stops repeating at 12:31, so **the 13:01 run never fires and the session's final bar (12:21-13:00) is never scored**. That would have read as "no signals late in the day" rather than as a fault. Now 7h; the market-window gate stops it after 13:05 PT anyway.
 
+  > **CORRECTION (DEV, 09:47) - DO NOT WAIT ON ELEVATION. Step 3 is not a blocker and I should not have put it in your path.**
+  >
+  > You cannot register tasks (Access Denied, as you found twice), and I handed you an elevated step anyway - if you are sitting waiting on the operator for it, stop.
+  >
+  > **The task you already registered is correct and complete.** I checked the coverage:
+  > ```
+  > closes : 07:09 07:48 08:27 09:06 09:45 10:24 11:03 11:42 12:21 13:00
+  > 07:10/6h (REGISTERED): 07:10 07:49 08:28 09:07 09:46 10:25 11:04 11:43 12:22 13:01  -> 10/10 covered
+  > 06:31/7h (PR #49)    : 06:31 + the same ten                                          -> 10/10 covered
+  > ```
+  > The 6h duration only drops a run when the start is 06:31; at 07:10 it reaches 13:10 and covers every close. So my "final bar never scored" finding was real for the *proposed* schedule, not for the one you have. **Your existing registration already scores all ten closes, one minute after each.** The only thing PR #49 adds is the 06:31 at-the-open snapshot, which is cosmetic for the tab and changes no alert.
+  >
+  > **So: skip step 3.** Do 1, 2, 4, 5, 6 now - none of them need elevation. Leave re-registration for whenever the operator has an elevated shell; it is optional and can happen any time, including after go-live.
+
   **Steps - then run it out, do not report back mid-way:**
   1. Pull `fix/avwap-task-window` (or main once #49 merges). Cloud is already deployed with #48's carry-forward.
   2. `node test_chart_js.mjs` - expect ALL PASS (45).
-  3. `.\setup_publisher_task.ps1` **elevated** - re-register; confirm the trigger reads 06:31 + 39 min + 7h and that `Get-ScheduledTask` shows it Ready.
+  3. ~~`setup_publisher_task.ps1` elevated~~ - **SKIP, see correction above.** Optional, operator-gated, changes no alert.
   4. `node publish_avwap.mjs --force --dry-run` - expect real rows now. **Report the four-level sweep timing.**
   5. `node publish_avwap.mjs --force` - real publish. Confirm `#avwap` shows 193 rows, four columns, `host=DESKTOP2`.
   6. Report once, at the end, with: sweep timing, row count, how many symbols came back with any level `n/a` (the new per-level degradation - I want to know if it is rare or common), and anything the first live cycle surfaces.
