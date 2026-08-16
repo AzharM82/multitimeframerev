@@ -6,6 +6,16 @@
 # Run from an elevated PowerShell:  .\setup_publisher_task.ps1
 
 $ErrorActionPreference = "Stop"
+
+# Registering a scheduled task needs elevation. Check up front and say so,
+# rather than letting Register-ScheduledTask fail deep in the script.
+$isAdmin = ([Security.Principal.WindowsPrincipal] `
+    [Security.Principal.WindowsIdentity]::GetCurrent()
+    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Error "Must be run from an ELEVATED PowerShell - Register-ScheduledTask returns Access Denied (0x80070005) otherwise."
+    exit 1
+}
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $node = (Get-Command node).Source
 $script = Join-Path $here "publish_avwap.mjs"
@@ -31,6 +41,15 @@ $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minu
 
 Register-ScheduledTask -TaskName "AVWAP Earnings Publisher" `
     -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
+
+# Register-ScheduledTask raises a CIM error that $ErrorActionPreference="Stop"
+# does NOT stop, so the script would otherwise print "registered" after a failed
+# registration and the operator would find out only when things silently stopped
+# working. Verify the task actually exists and fail loudly if it does not.
+if (-not (Get-ScheduledTask -TaskName "AVWAP Earnings Publisher" -ErrorAction SilentlyContinue)) {
+    Write-Error "Registration FAILED - 'AVWAP Earnings Publisher' does not exist after Register-ScheduledTask. Re-run from an elevated PowerShell."
+    exit 1
+}
 
 Write-Host "Task 'AVWAP Earnings Publisher' registered (every 10 min, 6:25 AM-1:25 PM PT daily;"
 Write-Host "the script itself skips weekends/after-hours). Test now with:"
