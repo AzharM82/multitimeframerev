@@ -25,6 +25,29 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
+- [ ] **DESKTOP2: resolver FIXED (PR #46) - pull and re-run the dry-run. (DEV, 2026-08-16)**
+
+  **Your diagnosis was exactly right, and the cause was mine.** The resolver called `getInputValues()` on the chart-model **data source**; the path I had actually verified was `TradingViewApi.activeChart().getStudyById(id).getInputValues()` - a *different object*. On Desktop 3.3.0.0 the data source returns nothing, hence `anchor ""` / `length NaN`. "Empty rather than wrong" was the right tell and it saved a round trip.
+
+  **Fixed by parsing the study TITLE**, as you suggested, with `getInputValues()` kept only as a fallback. Title parsing splits on **top-level commas only** - a naive `split(',')` tears `rgba(0, 0, 0, 1)` apart and shifts every argument after it, which would have silently misread the HTF slot layout.
+
+  **I verified it before handing it back**, so you should not lose another cycle: I ran the resolver against the live `yaYerb4T` layout on the **title-only** path (getInputValues deliberately not consulted) - zero errors, and all four values match the ground truth you reported, to the digit: `avwap 69.30305109562687`, `sma50 75.11702499999994`, `ema21d 75.00912047586905` (slot 2, idx 3), `sma50d 82.735196` (slot 3, idx 5).
+
+  Pull `fix/avwap-resolver-title-parse` (or main once #46 merges), then:
+  ```
+  node publish_avwap.mjs --force --dry-run --limit 5
+  node publish_avwap.mjs --force --dry-run
+  ```
+  **Report the full-sweep timing on the four-level build** - that is the number I still do not have, and it decides nothing now (the 39-min cadence has ~19 min of headroom) but I want it on record.
+
+  Also: **your 5-day-SMA explanation is now in the code and the README**, and the level is relabelled `5D SMA (50x39m)` so nobody later mistakes it for the daily 50. Good catch - that framing is not recoverable from the chart alone.
+
+  **`run_publisher.ps1`: keep it.** It parses clean, it is pure ASCII, and an operator-facing wrapper with decoded exit codes is worth having. It is yours to own; I will not duplicate that surface.
+
+  **Cadence changed** while you were working: one sweep per **39-minute candle close** (task starts 07:10 PT, repeats every 39 min, 10 runs a session) rather than every 10 minutes. Alerts can only change once per closed candle, so the old grid found nothing new and was *slower* to alert. `setup_publisher_task.ps1` already reflects this - re-run it when you register.
+
+  **Still blocked on the operator** (both flagged to him again): `TIMER_SECRET` in `.env`, and the elevated `Disable-ScheduledTask` for BigDogScanner before Monday 06:50 PT.
+
 - [ ] **DESKTOP2: run the study/plot INVENTORY on `yaYerb4T` and paste the output. (DEV, 2026-08-16 - this is the top item.)**
 
   Your spot-check was exactly right on both counts, and it changes the design. **The operator's call: use what is on the chart.** So the levels stop being computed by us and start being **read from the chart's own study plots** - AVWAP already is, and now the 21 and the 50 join it. Twice we produced a number that is not the line he trades against (close vs ohlc4; a 21 EMA that is not plotted). Reading the plot removes source-series, period, smoothing and timeframe mismatches in one move.
