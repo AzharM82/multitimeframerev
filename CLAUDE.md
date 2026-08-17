@@ -1,6 +1,10 @@
 # MultiTimeframeReversal (MTF portal)
 
-Swing/day-trading scanner portal: AVWAP / Swing List / ATR Matrix / Unusual Options / CVE / BIGD-Intraday / About tabs.
+Swing/day-trading scanner portal: Gate / Sector Desk / ATR Matrix / **AVWAP from Earnings** /
+Catalyst Value Eval / Rotation / Chart Analysis / Opening Drive / SPY Conviction / Journal / About.
+
+**Read `README.md` first** for architecture, the DESKTOP2 publisher pipeline, and the
+accumulated gotchas. This file is the operational contract: build, validate, deploy.
 React 19 + Vite 6 + Tailwind 4 frontend; Azure Functions v4 API (Node 20, CommonJS); Polygon.io data.
 Live: https://salmon-river-0a7a0c30f.1.azurestaticapps.net (Azure SWA `mtfrev-app`, RG `rg-mtfrev`).
 
@@ -13,6 +17,32 @@ Live: https://salmon-river-0a7a0c30f.1.azurestaticapps.net (Azure SWA `mtfrev-ap
 # api build:       cd api && npm run build   (tsc → api/dist)
 # tests:           no test suite — validation is manual E2E (below)
 ```
+
+## AVWAP from Earnings + the DESKTOP2 publisher
+
+The one subsystem with a second machine in the loop. Full detail in `README.md`;
+the rules that matter when changing it:
+
+- **Levels are READ off the operator's chart studies, never recomputed.** Four of
+  them: AVWAP(Earnings), `sma50` (= FIVE trading days, 50 x 39m, *not* the daily
+  50), daily EMA21, daily SMA50. Deriving them ourselves produced wrong numbers
+  twice.
+- **Run `cd tools/tv-avwap && node test_chart_js.mjs` before pushing anything
+  that touches `chart_js.mjs`.** It evaluates the real `INSTALL` string against a
+  fake chart built from live study titles. A rewrite once deleted `__avwResolve`
+  entirely and reached `main` because the tests exercised a hand-copied parser
+  instead of the shipped artefact.
+- **All TradingView reads happen on DESKTOP2.** Do not drive charts from here.
+- **DESKTOP2 cannot self-elevate, edit `.env`, or make an outward write carrying
+  `TIMER_SECRET`.** Check an instruction against that list before writing it; if
+  it collides, remove the dependency rather than escalating to the operator.
+- Coordination is `tools/bigdog-scanner/OPS_HANDOFF.md`, committed directly to
+  `main` (the one exception to the no-direct-push rule) so its ~5 min poll sees
+  it. Keep **exactly one** open `[ ]` item.
+- **`notifyBoth()` is live to Pushover/WhatsApp in production.** A test POST that
+  produces a crossing sends real alerts to a real phone. Build probes so a
+  crossing is structurally impossible (`c_pct_* == p_pct_*`). Got wrong twice.
+- **A change under `tools/` alone needs no deploy** — that code runs on DESKTOP2.
 
 ## How to validate a change end-to-end
 
@@ -55,6 +85,11 @@ anonymous (`/api/breadth`, `/api/health`) to confirm they return 200 and not a 3
 
 ## Gotchas
 
+- **New Azure Function must be imported in the `api/src/app.ts` barrel** or every route 404s
+- **Machine-called routes need a method-scoped anonymous entry in `staticwebapp.config.json`, placed before the `/api/*` catch-all**, or they 302 to the login page
+- **`.ps1` files must be pure ASCII** (or UTF-8 with BOM): PowerShell 5.1 decodes BOM-less UTF-8 as ANSI, so an em dash corrupts string literals into real parse errors. Verify with `[System.Management.Automation.Language.Parser]::ParseFile($absPath, [ref]$null, [ref]$errs)`
+- **`Register-ScheduledTask` raises a CIM error `$ErrorActionPreference="Stop"` does NOT stop** — verify with `Get-ScheduledTask` after, or the script reports success having done nothing
+- `swa start` against `api/local.settings.json` shares **production** storage — clean up rows a test writes
 - API uses `module: Node16` → use `.js` extensions in imports and `__dirname`, not `import.meta.url`
 - Frontend uses `verbatimModuleSyntax` conventions → `import type` for type-only imports
 - `staticwebapp.config.json` must end up in `dist/` (the build script copies it — don't bypass `npm run build`). The copy uses `node -e ... copyFileSync`, **not** `cp`: npm runs scripts via cmd.exe on Windows, where `cp` does not exist, so the old `cp` form silently produced a `dist/` with no config — i.e. a deploy with no auth rules. Keep it cross-platform.
