@@ -163,6 +163,11 @@ function etDayStr(now = new Date()): string {
   return now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
 
+/** ET calendar date of a BAR, from its epoch seconds. */
+function barDayStr(barTime: number): string {
+  return new Date(barTime * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
 export interface RecordResult {
   stored: number;
   skipped: number;
@@ -285,9 +290,24 @@ export async function recordSnapshot(
   return { stored, skipped, crossings };
 }
 
-/** Dedup is per BAR, so a later genuine re-cross still alerts. */
-function alertKey(ticker: string, level: Level, dir: string, barTime: number): [string, string] {
-  return [`alert-${etDayStr()}`, `${ticker}-${level}-${dir}-${barTime}`];
+/**
+ * Dedup key, derived ENTIRELY from the bar - never from "today".
+ *
+ * The partition used to be the current ET date while the row key carried the
+ * bar time, so the same bar scored on a different calendar day landed in a
+ * different partition and looked un-alerted.
+ *
+ * That is not hypothetical. At 06:31 PT the session's first 39m bar is still
+ * forming, so the last CLOSED bar is the previous session's final bar - the one
+ * already alerted on. Under the old key, Monday's first run would have re-fired
+ * every crossing from Friday's close, as a burst at the open, on stale signals.
+ *
+ * Keying both halves off the bar makes dedup a property of the bar itself: the
+ * same bar is suppressed no matter when or how often it is re-scored, while a
+ * genuine later cross on a NEW bar still alerts.
+ */
+export function alertKey(ticker: string, level: Level, dir: string, barTime: number): [string, string] {
+  return [`alert-${barDayStr(barTime)}`, `${ticker}-${level}-${dir}-${barTime}`];
 }
 
 async function alreadyAlerted(
