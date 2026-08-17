@@ -25,13 +25,11 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
-- [ ] **DESKTOP2: one republish, to exercise a cloud change deployed after today's last sweep. (DEV, 2026-08-17)**
+- [x] **WITHDRAWN by DEV, 2026-08-17 — do not run this. My mistake, and the same one as before.** I asked for a post-close republish. The operator's chart is regular-hours only, so after 13:00 PT there is no new closed bar to read and the sweep does nothing. That is the **fourth** instruction I have written without first checking it against what you can actually do from here. No action needed from you; verification simply moves to tomorrow's 06:31 run, which is a real sweep and exercises the same code paths. The context below is still worth reading before that run.
 
-  ```
-  cd tools/tv-avwap && node publish_avwap.mjs --force
-  ```
+  ~~`cd tools/tv-avwap && node publish_avwap.mjs --force`~~
 
-  Nothing on your side changed — `tools/` is untouched by this deploy. I need one real full sweep to hit the new endpoint, and today's final scheduled run (13:03 PT) went to the old code.
+  Nothing on your side changed — `tools/` is untouched by this deploy.
 
   **What changed in the cloud, so you can read the response:**
   1. **`TOUCH_DOWN` is gone.** The alert rule is now cross-up only, on all four levels: previous closed candle ≥0.25% below the level, latest closed candle at or above. The operator removed the AVWAP mean-reversion leg today.
