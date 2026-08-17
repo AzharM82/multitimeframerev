@@ -69,6 +69,15 @@ Guards: a **0.25% deadband** on the previous candle (`AVWAP_CROSS_MIN_PCT`) —
 applied to the previous candle only, so clearing the level at all is the signal —
 and dedup keyed on `ticker + level + direction + BAR`.
 
+`lastCross` records **every** level cleared on that bar — `"avwap,sma50:CROSS_UP"`
+— and the tab renders one badge per level under the ticker, plus a `×N` pill when
+two or more went at once. Those are the strong signals: a name reclaiming three
+levels on one candle is doing something a name clipping one line is not. Until
+2026-08-17 the field held a single level picked by loop order, so AVWAP crosses
+silently lost to moving-average crosses and 13 of that day's 58 crossers were
+under-reported. A single-level value is just the one-level case of the same
+shape, so rows written by older builds still parse.
+
 ### Data flow
 
 ```

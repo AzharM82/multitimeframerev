@@ -105,7 +105,8 @@ export interface AvwapRow {
   levels: Record<string, number | null>;
   /** Distance of the live close from each level, in percent. */
   pct: Record<string, number | null>;
-  lastCross: string;       // e.g. "sma50d:CROSS_UP"
+  /** Every level cleared on that bar: "sma50,ema21d:CROSS_UP". */
+  lastCross: string;
   lastCrossAt: string;
 }
 
@@ -175,6 +176,17 @@ export function classifyCross(
  */
 export const PRUNE_MIN_SWEPT = 50;
 export const PRUNE_MAX_FAILED_FRAC = 0.25;
+
+/**
+ * Encode the levels cleared on one bar into the `lastCross` field.
+ *
+ * Deliberately the same shape as the old single-level value, so rows written by
+ * earlier builds keep parsing: "sma50:CROSS_UP" is just the one-level case of
+ * "sma50,ema21d:CROSS_UP". The tab splits on ":" then "," .
+ */
+export function encodeLastCross(levels: Level[], dir: CrossDirection): string {
+  return `${levels.join(",")}:${dir}`;
+}
 
 /** Bare, upper-case ticker from either "AAOI" or "NASDAQ:AAOI". */
 function bareTicker(s: string): string {
@@ -287,7 +299,12 @@ export async function recordSnapshot(
     // levels may legitimately be absent for a thin symbol.
     if (num(raw.avwap) === null) { skipped++; continue; }
 
-    let newestCross: { key: string; at: string } | null = null;
+    // EVERY level this symbol cleared on this bar, not just one. All crossings
+    // in a sweep are scored against the same closed bar, so they belong to the
+    // same event — a name reclaiming three levels at once is a different animal
+    // from one clipping a single line, and the tab has to be able to say so.
+    const crossedLevels: Level[] = [];
+    let crossDir: CrossDirection | "" = "";
 
     for (const level of LEVELS) {
       const value = num(raw[level]);
@@ -306,7 +323,8 @@ export async function recordSnapshot(
         prevPct: p as number, pct: c as number,
         close: closedClose, levelValue: value ?? 0, barTime,
       });
-      newestCross = { key: `${level}:${dir}`, at: nowIso };
+      crossedLevels.push(level);
+      crossDir = dir;
 
       await upsert(
         TABLES.AVWAP_EARNINGS,
@@ -323,9 +341,12 @@ export async function recordSnapshot(
       );
     }
 
-    if (newestCross) {
-      entity.lastCross = newestCross.key;
-      entity.lastCrossAt = newestCross.at;
+    if (crossedLevels.length) {
+      // "sma50,ema21d,sma50d:CROSS_UP" — levels in LEVELS order, then direction.
+      // A single-level cross still reads "sma50:CROSS_UP", so rows written by
+      // the previous build parse unchanged.
+      entity.lastCross = encodeLastCross(crossedLevels, crossDir as CrossDirection);
+      entity.lastCrossAt = nowIso;
     } else {
       const prevRow = previous[ticker];
       if (prevRow?.lastCross) entity.lastCross = prevRow.lastCross;
