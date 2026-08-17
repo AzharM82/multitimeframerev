@@ -168,17 +168,45 @@ function fmtTime(iso: string): string {
 const pacificToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 const crossedToday = (r: Row) => !!r.lastCrossAt && r.lastCrossAt.slice(0, 10) === pacificToday();
 
-function CrossBadge({ row }: { row: Row }) {
-  if (!row.lastCross) return null;
-  const [level, dir] = row.lastCross.split(":");
-  const label = LEVEL_LABEL[level as LevelKey] ?? level;
-  const cls = dir === "CROSS_UP"
-    ? "bg-signal-bull/15 text-signal-bull"
-    : "bg-signal-bear/15 text-signal-bear";
+/**
+ * Levels cleared on the last cross bar. "sma50,ema21d:CROSS_UP" — and a row
+ * written by an older build, "sma50:CROSS_UP", is just the one-level case.
+ */
+function crossLevels(r: Row): { levels: LevelKey[]; dir: string } {
+  if (!r.lastCross) return { levels: [], dir: "" };
+  const [csv, dir] = r.lastCross.split(":");
+  return { levels: csv.split(",").filter(Boolean) as LevelKey[], dir: dir ?? "" };
+}
+
+const multiLevel = (r: Row) => crossedToday(r) && crossLevels(r).levels.length > 1;
+
+/**
+ * Every level the name cleared, not just one of them. Until 2026-08-17 this
+ * rendered a single badge chosen by loop order, so a name that reclaimed its
+ * AVWAP *and* its 50-day showed only the 50-day — 13 of that day's 58 crossers
+ * were under-reported this way, and the phone alert was strictly more
+ * informative than the tab.
+ *
+ * Badges from an earlier session are muted: the value carries forward until the
+ * name crosses again, so a bright badge on a stale cross reads as today's event.
+ */
+function CrossBadges({ row }: { row: Row }) {
+  const { levels, dir } = crossLevels(row);
+  if (!levels.length) return null;
+  const today = crossedToday(row);
+  const up = dir === "CROSS_UP";
+  const cls = !today
+    ? "bg-text-secondary/10 text-text-secondary"
+    : up ? "bg-signal-bull/15 text-signal-bull" : "bg-signal-bear/15 text-signal-bear";
   return (
-    <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap ${cls}`}>
-      {dir === "CROSS_UP" ? "▲" : "▼"} {label}
-    </span>
+    <div className="flex flex-wrap gap-1 mt-1">
+      {levels.map((k) => (
+        <span key={k}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap ${cls}`}>
+          {up ? "▲" : "▼"} {LEVEL_LABEL[k] ?? k}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -222,6 +250,7 @@ export function AvwapEarningsPage() {
   const [nearFilter, setNearFilter] = useState<LevelKey | "any" | null>(null);
   const [trendFilter, setTrendFilter] = useState<"aboveAll" | "belowAll" | null>(null);
   const [crossFilter, setCrossFilter] = useState(false);
+  const [multiFilter, setMultiFilter] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -252,6 +281,7 @@ export function AvwapEarningsPage() {
     aboveAll: snap.rows.filter(aboveAll).length,
     belowAll: snap.rows.filter(belowAll).length,
     crossed: snap.rows.filter(crossedToday).length,
+    multi: snap.rows.filter(multiLevel).length,
   }), [snap.rows]);
 
   const rows = useMemo(() => {
@@ -262,6 +292,7 @@ export function AvwapEarningsPage() {
     if (trendFilter === "aboveAll") out = out.filter(aboveAll);
     if (trendFilter === "belowAll") out = out.filter(belowAll);
     if (crossFilter) out = out.filter(crossedToday);
+    if (multiFilter) out = out.filter(multiLevel);
 
     const sign = dir === "asc" ? 1 : -1;
     const num = (v: number | null) => (v === null ? (dir === "asc" ? Infinity : -Infinity) : v);
@@ -282,7 +313,7 @@ export function AvwapEarningsPage() {
     });
     return sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snap.rows, query, sortKey, dir, near, nearFilter, trendFilter, crossFilter]);
+  }, [snap.rows, query, sortKey, dir, near, nearFilter, trendFilter, crossFilter, multiFilter]);
 
   /** Click a header: same column flips direction, new column starts sensibly. */
   const sortBy = (k: SortKey) => {
@@ -292,8 +323,10 @@ export function AvwapEarningsPage() {
   };
   const arrow = (k: SortKey) => (k === sortKey ? (dir === "asc" ? " ▲" : " ▼") : "");
 
-  const clearFilters = () => { setNearFilter(null); setTrendFilter(null); setCrossFilter(false); setQuery(""); };
-  const anyFilter = !!nearFilter || !!trendFilter || crossFilter || !!query;
+  const clearFilters = () => {
+    setNearFilter(null); setTrendFilter(null); setCrossFilter(false); setMultiFilter(false); setQuery("");
+  };
+  const anyFilter = !!nearFilter || !!trendFilter || crossFilter || multiFilter || !!query;
 
   const exportCsv = () => {
     const head = ["ticker", "sym", "close", "chg_pct", "chg_open_pct",
@@ -379,6 +412,11 @@ export function AvwapEarningsPage() {
               onClick={() => setTrendFilter(trendFilter === "belowAll" ? null : "belowAll")} />
         <Tile label="Crossed today" value={trendCounts.crossed}
               active={crossFilter} onClick={() => setCrossFilter(!crossFilter)} />
+        {/* A name reclaiming two or more levels on one candle is the strong
+            signal - it was previously invisible, reported as a single badge. */}
+        <Tile label="Multi-level" value={trendCounts.multi} sub="2+ on one candle"
+              tone="text-signal-bull"
+              active={multiFilter} onClick={() => setMultiFilter(!multiFilter)} />
       </div>
 
       {/* Controls */}
@@ -438,14 +476,22 @@ export function AvwapEarningsPage() {
                 <tr key={r.ticker}
                     className={`border-b border-border/50 hover:bg-bg-secondary/50 ${
                       hot ? "bg-signal-bull/5 border-l-2 border-l-signal-bull" : ""}`}>
-                  <td className="px-2 py-1.5 font-bold whitespace-nowrap">
-                    <a href={`https://www.tradingview.com/chart/${CHART_ID}/?symbol=${encodeURIComponent(r.sym || r.ticker)}`}
-                       target="_blank" rel="noopener noreferrer"
-                       title={`Open ${r.sym || r.ticker} on the 39m layout`}
-                       className="text-text-primary hover:underline">
-                      {r.ticker}
-                    </a>
-                    <CrossBadge row={r} />
+                  <td className="px-2 py-1.5 font-bold align-top">
+                    <div className="flex items-center gap-1.5 whitespace-nowrap">
+                      <a href={`https://www.tradingview.com/chart/${CHART_ID}/?symbol=${encodeURIComponent(r.sym || r.ticker)}`}
+                         target="_blank" rel="noopener noreferrer"
+                         title={`Open ${r.sym || r.ticker} on the 39m layout`}
+                         className="text-text-primary hover:underline">
+                        {r.ticker}
+                      </a>
+                      {multiLevel(r) && (
+                        <span title={`Cleared ${crossLevels(r).levels.length} levels on the same candle`}
+                              className="px-1 py-0.5 rounded text-[9px] font-bold bg-signal-bull/25 text-signal-bull">
+                          ×{crossLevels(r).levels.length}
+                        </span>
+                      )}
+                    </div>
+                    <CrossBadges row={r} />
                   </td>
                   <td className="px-2 py-1.5 text-right tabular-nums text-text-primary">{r.close.toFixed(2)}</td>
                   <PctCell p={r.chgPct} />

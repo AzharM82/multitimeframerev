@@ -8,7 +8,9 @@
  *
  * No Azure, no network, no storage: both functions under test are pure.
  */
-import { classifyCross, planPrune, PRUNE_MIN_SWEPT } from "../dist/lib/avwapEarnings.js";
+import {
+  classifyCross, planPrune, encodeLastCross, PRUNE_MIN_SWEPT,
+} from "../dist/lib/avwapEarnings.js";
 
 let pass = 0;
 const failures = [];
@@ -105,6 +107,29 @@ check("a healthy sweep with a few failures still prunes",
 
 check("a healthy sweep reports no hold-back",
   planPrune(roster, roster, []).heldBack, "");
+
+// ── lastCross encoding ────────────────────────────────────────────────────────
+// The tab reads this to say WHICH levels were cleared. It used to hold one
+// level chosen by loop order, so a name clearing three showed one.
+
+check("a single level encodes to the old shape",
+  encodeLastCross(["sma50"], "CROSS_UP"), "sma50:CROSS_UP");
+check("several levels ride in one value",
+  encodeLastCross(["ema21d", "sma50", "sma50d"], "CROSS_UP"),
+  "ema21d,sma50,sma50d:CROSS_UP");
+
+// The frontend's parse, mirrored — split on ":" then ",". Both shapes, plus the
+// TOUCH_DOWN rows still sitting in the table from before 2026-08-17.
+const parse = (s) => {
+  const [csv, dir] = s.split(":");
+  return { levels: csv.split(",").filter(Boolean), dir };
+};
+check("round-trips", parse(encodeLastCross(["avwap", "sma50d"], "CROSS_UP")),
+  { levels: ["avwap", "sma50d"], dir: "CROSS_UP" });
+check("a row from the OLD build still parses",
+  parse("sma50d:CROSS_UP"), { levels: ["sma50d"], dir: "CROSS_UP" });
+check("a historical TOUCH_DOWN row still parses",
+  parse("avwap:TOUCH_DOWN"), { levels: ["avwap"], dir: "TOUCH_DOWN" });
 
 // ── ───────────────────────────────────────────────────────────────────────────
 if (failures.length) {
