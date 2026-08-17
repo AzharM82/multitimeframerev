@@ -9,7 +9,7 @@
  * No Azure, no network, no storage: both functions under test are pure.
  */
 import {
-  classifyCross, planPrune, encodeLastCross, PRUNE_MIN_SWEPT,
+  classifyCross, planPrune, encodeLastCross, decodeLastCross, PRUNE_MIN_SWEPT,
 } from "../dist/lib/avwapEarnings.js";
 
 let pass = 0;
@@ -35,15 +35,24 @@ check("below -> barely above alerts", cross(-0.9, 0.01), "CROSS_UP");
 check("still below does not alert", cross(-1.2, -0.4), "");
 check("already above stays quiet", cross(1.2, 2.4), "");
 
-// The 2026-08-17 removal of TOUCH_DOWN. These four are the regression guard:
-// if a second direction is ever reintroduced, they fail.
-check("above -> below is SILENT (was TOUCH_DOWN)", cross(2.0, -0.5), "");
-check("above -> exactly at the level is SILENT", cross(2.0, 0), "");
-check("above -> far below is SILENT", cross(5.0, -3.0), "");
-check("no direction other than CROSS_UP exists", new Set(
-  [[-1, 1], [1, -1], [-1, -1], [1, 1], [-3, 0], [3, 0]]
+// Both directions, and the rule is SYMMETRIC. TOUCH_DOWN (AVWAP-only, "extended
+// above then comes back and touches") was removed 2026-08-17 and replaced by a
+// real CROSS_DOWN on every level. These assert the symmetry rather than silence:
+// if one branch is ever changed without the other, they fail.
+
+check("above -> below is a DOWN cross", cross(2.0, -0.5), "CROSS_DOWN");
+check("above -> exactly at the level is a DOWN cross", cross(2.0, 0), "CROSS_DOWN");
+check("above -> barely below is a DOWN cross", cross(0.9, -0.01), "CROSS_DOWN");
+check("still above does not alert", cross(2.0, 0.4), "");
+
+for (const [p, c] of [[-1.2, 0.8], [-0.9, 0.01], [-3, 0]]) {
+  check(`symmetry: ${p} -> ${c} mirrors`, cross(-p, -c),
+    cross(p, c) === "CROSS_UP" ? "CROSS_DOWN" : "");
+}
+check("only the two cross directions exist", new Set(
+  [[-1, 1], [1, -1], [-1, -1], [1, 1], [-3, 0], [3, 0], [0.1, 0.2]]
     .map(([p, c]) => cross(p, c)).filter(Boolean),
-).size <= 1, true);
+), new Set(["CROSS_UP", "CROSS_DOWN"]));
 
 // Deadband — on the PREVIOUS candle only.
 check("prev sitting on the level does not alert", cross(-0.1, 0.4), "");
@@ -109,27 +118,39 @@ check("a healthy sweep reports no hold-back",
   planPrune(roster, roster, []).heldBack, "");
 
 // ── lastCross encoding ────────────────────────────────────────────────────────
-// The tab reads this to say WHICH levels were cleared. It used to hold one
-// level chosen by loop order, so a name clearing three showed one.
+// One bar can send a name UP through one level and DOWN through another, so the
+// direction rides per level. Three older shapes are still in the table and must
+// keep parsing — nothing was migrated.
 
-check("a single level encodes to the old shape",
-  encodeLastCross(["sma50"], "CROSS_UP"), "sma50:CROSS_UP");
-check("several levels ride in one value",
-  encodeLastCross(["ema21d", "sma50", "sma50d"], "CROSS_UP"),
-  "ema21d,sma50,sma50d:CROSS_UP");
+check("one level", encodeLastCross([{ level: "sma50", dir: "CROSS_UP" }]),
+  "sma50:CROSS_UP");
+check("mixed directions in one bar",
+  encodeLastCross([
+    { level: "avwap", dir: "CROSS_UP" },
+    { level: "sma50d", dir: "CROSS_DOWN" },
+  ]),
+  "avwap:CROSS_UP,sma50d:CROSS_DOWN");
 
-// The frontend's parse, mirrored — split on ":" then ",". Both shapes, plus the
-// TOUCH_DOWN rows still sitting in the table from before 2026-08-17.
-const parse = (s) => {
-  const [csv, dir] = s.split(":");
-  return { levels: csv.split(",").filter(Boolean), dir };
-};
-check("round-trips", parse(encodeLastCross(["avwap", "sma50d"], "CROSS_UP")),
-  { levels: ["avwap", "sma50d"], dir: "CROSS_UP" });
-check("a row from the OLD build still parses",
-  parse("sma50d:CROSS_UP"), { levels: ["sma50d"], dir: "CROSS_UP" });
-check("a historical TOUCH_DOWN row still parses",
-  parse("avwap:TOUCH_DOWN"), { levels: ["avwap"], dir: "TOUCH_DOWN" });
+check("round-trips",
+  decodeLastCross(encodeLastCross([
+    { level: "avwap", dir: "CROSS_UP" },
+    { level: "sma50d", dir: "CROSS_DOWN" },
+  ])),
+  [{ level: "avwap", dir: "CROSS_UP" }, { level: "sma50d", dir: "CROSS_DOWN" }]);
+
+// Legacy shapes.
+check("legacy single level",
+  decodeLastCross("sma50d:CROSS_UP"), [{ level: "sma50d", dir: "CROSS_UP" }]);
+check("legacy multi-level, one trailing direction",
+  decodeLastCross("avwap,sma50,ema21d:CROSS_UP"),
+  [{ level: "avwap", dir: "CROSS_UP" },
+   { level: "sma50", dir: "CROSS_UP" },
+   { level: "ema21d", dir: "CROSS_UP" }]);
+check("legacy TOUCH_DOWN still parses",
+  decodeLastCross("avwap:TOUCH_DOWN"), [{ level: "avwap", dir: "TOUCH_DOWN" }]);
+check("empty", decodeLastCross(""), []);
+check("a bare level with no direction anywhere is dropped, not guessed",
+  decodeLastCross("avwap"), []);
 
 // ── ───────────────────────────────────────────────────────────────────────────
 if (failures.length) {

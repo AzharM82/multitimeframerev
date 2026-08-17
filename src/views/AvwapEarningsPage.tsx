@@ -70,12 +70,18 @@ interface Snapshot {
   stale: boolean;
   failed: string[];
   quoteSource: string;
+  /** Today's crossings per level, as ticker lists. Drives the cross matrix. */
+  todayCross: Record<string, { up: string[]; down: string[] }>;
   loaded: boolean;
 }
 
+const EMPTY_CROSS = () =>
+  Object.fromEntries(LEVELS.map((l) => [l, { up: [], down: [] }])) as
+    Record<string, { up: string[]; down: string[] }>;
+
 const EMPTY: Snapshot = {
   rows: [], barUtc: "", publishedAt: "", host: "",
-  stale: true, failed: [], quoteSource: "", loaded: false,
+  stale: true, failed: [], quoteSource: "", todayCross: EMPTY_CROSS(), loaded: false,
 };
 
 type SortKey = LevelKey | "ticker" | "close" | "chg" | "chgOpen" | "nearest" | "cross";
@@ -112,6 +118,17 @@ async function fetchSnapshot(): Promise<Snapshot> {
       stale: Boolean(raw.stale ?? true),
       failed: ((raw.failed ?? []) as unknown[]).map(String),
       quoteSource: String(raw.quote_source ?? ""),
+      todayCross: (() => {
+        const src = (raw.today_cross ?? {}) as Record<string, { up?: unknown; down?: unknown }>;
+        const out = EMPTY_CROSS();
+        for (const k of LEVELS) {
+          out[k] = {
+            up: ((src[k]?.up ?? []) as unknown[]).map(String),
+            down: ((src[k]?.down ?? []) as unknown[]).map(String),
+          };
+        }
+        return out;
+      })(),
       loaded: true,
     };
   } catch {
@@ -169,16 +186,30 @@ const pacificToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "A
 const crossedToday = (r: Row) => !!r.lastCrossAt && r.lastCrossAt.slice(0, 10) === pacificToday();
 
 /**
- * Levels cleared on the last cross bar. "sma50,ema21d:CROSS_UP" — and a row
- * written by an older build, "sma50:CROSS_UP", is just the one-level case.
+ * What the name did on its last cross bar, per level. Mirrors `decodeLastCross`
+ * in api/src/lib/avwapEarnings.ts — keep the two in step.
+ *
+ *   "avwap:CROSS_UP,sma50d:CROSS_DOWN"   current: direction per level
+ *   "avwap,sma50:CROSS_UP"               earlier today: one trailing direction
+ *   "sma50:CROSS_UP"                     always
+ *   "avwap:TOUCH_DOWN"                   the retired AVWAP touch rule
  */
-function crossLevels(r: Row): { levels: LevelKey[]; dir: string } {
-  if (!r.lastCross) return { levels: [], dir: "" };
-  const [csv, dir] = r.lastCross.split(":");
-  return { levels: csv.split(",").filter(Boolean) as LevelKey[], dir: dir ?? "" };
+function crossLevels(r: Row): { level: LevelKey; dir: string }[] {
+  if (!r.lastCross) return [];
+  const out: { level: LevelKey; dir: string }[] = [];
+  const pending: string[] = [];
+  for (const token of r.lastCross.split(",")) {
+    const [level, dir] = token.split(":");
+    if (!level) continue;
+    if (!dir) { pending.push(level); continue; }
+    for (const q of pending.splice(0)) out.push({ level: q as LevelKey, dir });
+    out.push({ level: level as LevelKey, dir });
+  }
+  return out;
 }
 
-const multiLevel = (r: Row) => crossedToday(r) && crossLevels(r).levels.length > 1;
+const isDownDir = (d: string) => d === "CROSS_DOWN" || d === "TOUCH_DOWN";
+const multiLevel = (r: Row) => crossedToday(r) && crossLevels(r).length > 1;
 
 /**
  * Every level the name cleared, not just one of them. Until 2026-08-17 this
@@ -191,21 +222,25 @@ const multiLevel = (r: Row) => crossedToday(r) && crossLevels(r).levels.length >
  * name crosses again, so a bright badge on a stale cross reads as today's event.
  */
 function CrossBadges({ row }: { row: Row }) {
-  const { levels, dir } = crossLevels(row);
-  if (!levels.length) return null;
+  const events = crossLevels(row);
+  if (!events.length) return null;
   const today = crossedToday(row);
-  const up = dir === "CROSS_UP";
-  const cls = !today
-    ? "bg-text-secondary/10 text-text-secondary"
-    : up ? "bg-signal-bull/15 text-signal-bull" : "bg-signal-bear/15 text-signal-bear";
   return (
     <div className="flex flex-wrap gap-1 mt-1">
-      {levels.map((k) => (
-        <span key={k}
-              className={`px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap ${cls}`}>
-          {up ? "▲" : "▼"} {LEVEL_LABEL[k] ?? k}
-        </span>
-      ))}
+      {events.map(({ level, dir }) => {
+        // One bar can push a name up through one level and down through
+        // another, so each badge carries its OWN direction and colour.
+        const down = isDownDir(dir);
+        const cls = !today
+          ? "bg-text-secondary/10 text-text-secondary"
+          : down ? "bg-signal-bear/15 text-signal-bear" : "bg-signal-bull/15 text-signal-bull";
+        return (
+          <span key={`${level}:${dir}`}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap ${cls}`}>
+            {down ? "▼" : "▲"} {LEVEL_LABEL[level] ?? level}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -251,6 +286,8 @@ export function AvwapEarningsPage() {
   const [trendFilter, setTrendFilter] = useState<"aboveAll" | "belowAll" | null>(null);
   const [crossFilter, setCrossFilter] = useState(false);
   const [multiFilter, setMultiFilter] = useState(false);
+  /** One cell of the cross matrix: level + direction, e.g. AVWAP down. */
+  const [cell, setCell] = useState<{ level: LevelKey; dir: "up" | "down" } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -293,6 +330,10 @@ export function AvwapEarningsPage() {
     if (trendFilter === "belowAll") out = out.filter(belowAll);
     if (crossFilter) out = out.filter(crossedToday);
     if (multiFilter) out = out.filter(multiLevel);
+    if (cell) {
+      const names = new Set(snap.todayCross[cell.level]?.[cell.dir] ?? []);
+      out = out.filter((r) => names.has(r.ticker));
+    }
 
     const sign = dir === "asc" ? 1 : -1;
     const num = (v: number | null) => (v === null ? (dir === "asc" ? Infinity : -Infinity) : v);
@@ -313,7 +354,7 @@ export function AvwapEarningsPage() {
     });
     return sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snap.rows, query, sortKey, dir, near, nearFilter, trendFilter, crossFilter, multiFilter]);
+  }, [snap.rows, query, sortKey, dir, near, nearFilter, trendFilter, crossFilter, multiFilter, cell]);
 
   /** Click a header: same column flips direction, new column starts sensibly. */
   const sortBy = (k: SortKey) => {
@@ -324,9 +365,9 @@ export function AvwapEarningsPage() {
   const arrow = (k: SortKey) => (k === sortKey ? (dir === "asc" ? " ▲" : " ▼") : "");
 
   const clearFilters = () => {
-    setNearFilter(null); setTrendFilter(null); setCrossFilter(false); setMultiFilter(false); setQuery("");
+    setNearFilter(null); setTrendFilter(null); setCrossFilter(false); setMultiFilter(false); setCell(null); setQuery("");
   };
-  const anyFilter = !!nearFilter || !!trendFilter || crossFilter || multiFilter || !!query;
+  const anyFilter = !!nearFilter || !!trendFilter || crossFilter || multiFilter || !!cell || !!query;
 
   const exportCsv = () => {
     const head = ["ticker", "sym", "close", "chg_pct", "chg_open_pct",
@@ -393,30 +434,89 @@ export function AvwapEarningsPage() {
         </div>
       )}
 
-      {/* Near-a-level counts, each a one-click filter. */}
-      <div className="flex gap-2 flex-wrap items-center">
+      {/* Two tiles, one matrix, one strip - the flat row of nine boxes made the
+          numbers hard to tell apart and still could not answer the question that
+          matters: of the names that crossed, how many went up and how many down,
+          per level. */}
+      <div className="flex gap-2 flex-wrap items-stretch">
         <Tile label="Symbols" value={snap.rows.length} />
-        <Tile label={`Near any ±${near}%`} value={counts.any}
-              sub={snap.rows.length ? `${Math.round((counts.any / snap.rows.length) * 100)}% of universe` : ""}
-              active={nearFilter === "any"} onClick={() => setNearFilter(nearFilter === "any" ? null : "any")} />
-        {LEVELS.map((k) => (
-          <Tile key={k} label={`Near ${LEVEL_LABEL[k]}`} value={counts[k]}
-                sub={snap.rows.length ? `${Math.round((counts[k] / snap.rows.length) * 100)}%` : ""}
-                active={nearFilter === k} onClick={() => setNearFilter(nearFilter === k ? null : k)} />
-        ))}
+        <Tile label="Crossed today" value={trendCounts.crossed}
+              active={crossFilter} onClick={() => setCrossFilter(!crossFilter)} />
+        <Tile label="Multi-level" value={trendCounts.multi} sub="2+ on one candle"
+              active={multiFilter} onClick={() => setMultiFilter(!multiFilter)} />
         <Tile label="Above all 4" value={trendCounts.aboveAll} tone="text-signal-bull"
               active={trendFilter === "aboveAll"}
               onClick={() => setTrendFilter(trendFilter === "aboveAll" ? null : "aboveAll")} />
         <Tile label="Below all 4" value={trendCounts.belowAll} tone="text-signal-bear"
               active={trendFilter === "belowAll"}
               onClick={() => setTrendFilter(trendFilter === "belowAll" ? null : "belowAll")} />
-        <Tile label="Crossed today" value={trendCounts.crossed}
-              active={crossFilter} onClick={() => setCrossFilter(!crossFilter)} />
-        {/* A name reclaiming two or more levels on one candle is the strong
-            signal - it was previously invisible, reported as a single badge. */}
-        <Tile label="Multi-level" value={trendCounts.multi} sub="2+ on one candle"
-              tone="text-signal-bull"
-              active={multiFilter} onClick={() => setMultiFilter(!multiFilter)} />
+
+        {/* Every cell is a filter. Counts come from the day's crossing history,
+            so a name that crossed up in the morning and back down after lunch
+            appears in BOTH columns - it did both things. */}
+        <div className="bg-bg-card border border-border rounded overflow-hidden">
+          <table className="text-xs">
+            <thead className="text-text-secondary">
+              <tr className="border-b border-border">
+                <th className="px-3 py-1 text-left font-semibold">Crossed today</th>
+                <th className="px-3 py-1 text-right font-semibold text-signal-bull">▲ up</th>
+                <th className="px-3 py-1 text-right font-semibold text-signal-bear">▼ down</th>
+              </tr>
+            </thead>
+            <tbody>
+              {LEVELS.map((k) => {
+                const up = snap.todayCross[k]?.up.length ?? 0;
+                const down = snap.todayCross[k]?.down.length ?? 0;
+                const Cell = ({ n, d, tint }: { n: number; d: "up" | "down"; tint: string }) => {
+                  const on = cell?.level === k && cell?.dir === d;
+                  return (
+                    <td className="px-1 py-0.5 text-right">
+                      <button type="button" disabled={!n}
+                        title={n ? `Show the ${n} name(s)` : "None today"}
+                        onClick={() => setCell(on ? null : { level: k, dir: d })}
+                        className={`w-12 px-2 py-0.5 rounded tabular-nums font-bold ${
+                          !n ? "text-dim cursor-default"
+                             : on ? "bg-text-primary text-bg-primary"
+                                  : `${tint} hover:bg-bg-secondary`}`}>
+                        {n}
+                      </button>
+                    </td>
+                  );
+                };
+                return (
+                  <tr key={k} className="border-b border-border/40 last:border-0">
+                    <td className="px-3 py-0.5 whitespace-nowrap text-text-secondary"
+                        title={LEVEL_HINT[k]}>{LEVEL_LABEL[k]}</td>
+                    <Cell n={up} d="up" tint="text-signal-bull" />
+                    <Cell n={down} d="down" tint="text-signal-bear" />
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Where names are sitting RIGHT NOW - a different kind of number from the
+          matrix above, which is what already happened. Demoted to a strip. */}
+      <div className="flex items-center gap-1.5 flex-wrap text-xs text-text-secondary">
+        <span>Near a level (±{near}%):</span>
+        <button type="button"
+                onClick={() => setNearFilter(nearFilter === "any" ? null : "any")}
+                className={`px-1.5 py-0.5 rounded tabular-nums ${nearFilter === "any"
+                  ? "bg-text-primary text-bg-primary font-bold"
+                  : "hover:text-text-primary"}`}>
+          any {counts.any}
+        </button>
+        {LEVELS.map((k) => (
+          <button key={k} type="button" title={LEVEL_HINT[k]}
+                  onClick={() => setNearFilter(nearFilter === k ? null : k)}
+                  className={`px-1.5 py-0.5 rounded tabular-nums ${nearFilter === k
+                    ? "bg-text-primary text-bg-primary font-bold"
+                    : "hover:text-text-primary"}`}>
+            {LEVEL_LABEL[k]} {counts[k]}
+          </button>
+        ))}
       </div>
 
       {/* Controls */}
@@ -484,12 +584,23 @@ export function AvwapEarningsPage() {
                          className="text-text-primary hover:underline">
                         {r.ticker}
                       </a>
-                      {multiLevel(r) && (
-                        <span title={`Cleared ${crossLevels(r).levels.length} levels on the same candle`}
-                              className="px-1 py-0.5 rounded text-[9px] font-bold bg-signal-bull/25 text-signal-bull">
-                          ×{crossLevels(r).levels.length}
-                        </span>
-                      )}
+                      {multiLevel(r) && (() => {
+                        // A single candle can clear one level and lose another,
+                        // so the pill must not claim a direction it does not
+                        // have: green all-up, red all-down, neutral when mixed.
+                        const ev = crossLevels(r);
+                        const downs = ev.filter((e) => isDownDir(e.dir)).length;
+                        const cls = downs === 0 ? "bg-signal-bull/25 text-signal-bull"
+                          : downs === ev.length ? "bg-signal-bear/25 text-signal-bear"
+                          : "bg-text-secondary/20 text-text-primary";
+                        return (
+                          <span title={`Crossed ${ev.length} levels on the same candle` +
+                                       (downs && downs < ev.length ? " - mixed directions" : "")}
+                                className={`px-1 py-0.5 rounded text-[9px] font-bold ${cls}`}>
+                            ×{ev.length}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <CrossBadges row={r} />
                   </td>

@@ -242,8 +242,11 @@ the bar closing, with 2x headroom on the sweep itself.
 | Event | Condition | Levels |
 |---|---|---|
 | `CROSS_UP` | candle closes at or above the level, previous candle closed below | **all four** |
+| `CROSS_DOWN` | candle closes at or below the level, previous candle closed above | **all four** |
 
-The single rule, identical on every level. `TOUCH_DOWN` was removed 2026-08-17.
+Symmetric, identical on every level, and the only two events that alert. The
+AVWAP-only `TOUCH_DOWN` touch rule was removed 2026-08-17 and is not the same
+thing as `CROSS_DOWN`.
 
 Guards: a **0.25% deadband** (`AVWAP_CROSS_MIN_PCT`) on the previous candle, so
 a symbol parked on a level cannot spam; and dedup keyed on

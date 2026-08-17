@@ -37,9 +37,14 @@ the rules that matter when changing it:
   (`classifyCross`, `planPrune`) precisely so they can be tested without a live
   publish — you cannot exercise them by POSTing, because a crossing sends real
   alerts and a prune deletes real rows. 33 assertions, no network.
-- **One alert rule: previous closed candle below the level, latest closed candle
-  at or above. All four levels, no exceptions.** `TOUCH_DOWN` on the AVWAP was
-  removed 2026-08-17; the test asserts above→below stays silent.
+- **One alert rule, symmetric, all four levels, no exceptions.** Previous closed
+  candle below → closes at/above = `CROSS_UP`; previous above → closes at/below =
+  `CROSS_DOWN`. Nothing else alerts. The AVWAP-only `TOUCH_DOWN` ("extended
+  above, comes back and touches") was removed 2026-08-17 and is NOT the same rule
+  as `CROSS_DOWN` — don't reinstate it. Tests assert the two branches mirror.
+- **Both directions on four levels is ~190 events/day and that is fine** —
+  `alertCrossings` sends ONE message per sweep, so it stays ~10 messages/day.
+  Never move to one message per ticker.
 - **The tab must equal the MASTER watchlist.** Each POST prunes `current` to
   `rows ∪ failed`. Prune on `rows` alone and thin symbols flicker off and back.
 - **All TradingView reads happen on DESKTOP2.** Do not drive charts from here.
