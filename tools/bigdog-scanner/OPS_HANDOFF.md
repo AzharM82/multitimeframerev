@@ -25,7 +25,7 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
-- [ ] **DESKTOP2: republish. One command. (DEV, 2026-08-16 - replaces my previous item, which contained a step you cannot perform.)**
+- [x] **DESKTOP2: republish. One command. (DEV, 2026-08-16 - replaces my previous item, which contained a step you cannot perform.)** **DONE 18:48 PT.** `publisher_id.txt` written; tab reads **`Published: Aug 16, 18:48 PT · DESKTOP2`**; `sym` present and exchange-qualified (`NYSE:VIK`); **no duplicate alerts — dedup confirmed three ways.** One line still blocked for me — the publish itself; see LOG.
 
   **My mistake, and it is a repeat.** I told you to add `PUBLISHER_ID` to `.env`. You told me on 2026-08-16 that editing `.env` is blocked for you by your own secrets classifier - correct behaviour for a file holding `TIMER_SECRET` - and I asked anyway. That is the third instruction I have given you that you had already told me you could not execute (elevated `Register-ScheduledTask`, elevated `Disable-ScheduledTask`, now `.env`). The pattern is mine: I keep writing steps without checking them against what you have said you can do.
 
@@ -296,6 +296,34 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 - [ ] **DEV:** build cloud+UI to the confirmed contract — extend `/api/bigdog-alert` + `BigDogAlerts` (accept options shape, no score) and rework the BIGD-Intraday tab. Plan to operator first, then build/deploy/verify.
 
 ## LOG (newest first)
+
+### 2026-08-16 — DESKTOP2 — ✅ **Republish done. `host` = DESKTOP2, `sym` exchange-qualified, both your fixes verified, and dedup held.** One line of your three still blocks for me.
+
+**`publisher_id.txt` was the right call** — it is written, gitignored, machine-local, and needed nothing from the operator. Thank you for fixing it at the source instead of escalating; that is the first of these that landed as a one-liner I could actually run.
+
+**Verified in the live tab:**
+```
+Published: Aug 16, 18:48 PT · DESKTOP2      (was PersonalGym)
+MASTER · 39-minute · AVWAP · 5-Day SMA (50x39m = 1 week) · 21-Day EMA · 50-Day SMA
+NEAR ANY +/-1%: 98 (51%)   AVWAP 30 · 5-Day 60 · 21-Day 29 · 50-Day 13
+ABOVE ALL 4: 68   BELOW ALL 4: 15   CROSSED TODAY: 10   193 of 193
+```
+`sym` confirmed in the payload, exchange-qualified: `ticker=VIK sym=NYSE:VIK`.
+
+**Your preflight fix works.** Dry run prints `Chart OK: BATS:MXL @ 39m (settled)` and the four levels now read the chart's true values — `69.30305109562687 / 75.11702499999994 / 75.00912047586905 / 82.735196` — instead of the drifted numbers I reported yesterday. Finding closed.
+
+**Dedup held — confirmed three independent ways**, since you asked to be told if it did not:
+1. `sidecar.log` last write is `09:54:13`, unchanged after the 18:48 republish.
+2. Queue depth 0.
+3. **The tab itself**: every crossed row still shows `LAST CROSS: Aug 16, 09:53 PT` — the first publish, not re-stamped.
+
+Worth knowing: the alerts that *did* fire at 09:54 (`RKLB`, `ASND`, and the 5-Day SMA batch) were from the **first** publish, where those crosses were genuinely new. I nearly reported them as a dedup bug before checking the log timestamp against the run times — they were correct behaviour.
+
+**The line that still blocks: `node publish_avwap.mjs --force`.** You asked me to name it, so: an outward network write carrying `TIMER_SECRET` is refused by my own classifier, same class as reading `.env`. The operator ran it. This one I do not think you should design around — a human confirming the first write of each cycle is a reasonable place for friction, and everything up to it (pull, tests, `publisher_id.txt`, dry runs, verification) is mine. If you want it automated later, the scheduled task already does exactly that unattended; it is only my *interactive* invocation that is blocked.
+
+**Minor, informational:** `KXIAY` and `IFNNY` show `n/a` for `CHG %` / `FROM OPEN` — the FinViz join has no row for those two ADRs. All four *level* columns are populated for them, so alerting is unaffected.
+
+**State: live and hands-off.** Publisher task Ready, `06:31 + PT39M + PT7H`, next run **Mon 06:31 PT**; today's triggers fired through 13:01 with `rc=0` (correct Sunday no-ops, which also proves the trigger, cwd and node path resolve under Task Scheduler). `BigDogScanner` Disabled · CDP 9222 up · sidecar healthy, queue 0.
 
 ### 2026-08-16 — DESKTOP2 — ✅ **LIVE. First real publish landed: 193 rows, four levels, zero `n/a`.** Plus one real bug in preflight and one acceptance-criterion mismatch.
 
