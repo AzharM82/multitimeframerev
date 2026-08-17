@@ -32,6 +32,16 @@ the rules that matter when changing it:
   fake chart built from live study titles. A rewrite once deleted `__avwResolve`
   entirely and reached `main` because the tests exercised a hand-copied parser
   instead of the shipped artefact.
+- **Run `cd api && npm run build && node tools/avwap-rules-test.mjs` before
+  changing what alerts or what gets deleted.** Both rules are pure functions
+  (`classifyCross`, `planPrune`) precisely so they can be tested without a live
+  publish — you cannot exercise them by POSTing, because a crossing sends real
+  alerts and a prune deletes real rows. 33 assertions, no network.
+- **One alert rule: previous closed candle below the level, latest closed candle
+  at or above. All four levels, no exceptions.** `TOUCH_DOWN` on the AVWAP was
+  removed 2026-08-17; the test asserts above→below stays silent.
+- **The tab must equal the MASTER watchlist.** Each POST prunes `current` to
+  `rows ∪ failed`. Prune on `rows` alone and thin symbols flicker off and back.
 - **All TradingView reads happen on DESKTOP2.** Do not drive charts from here.
 - **DESKTOP2 cannot self-elevate, edit `.env`, or make an outward write carrying
   `TIMER_SECRET`.** Check an instruction against that list before writing it; if

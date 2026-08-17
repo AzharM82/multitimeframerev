@@ -14,13 +14,19 @@
  *   sma50  50-period SMA of 39m closes    -- these mirror what the operator
  *          actually draws on the chart: a 21 EMA and a 50 SMA, not two EMAs.
  *
- * ── Alert rules (operator, 2026-08-15) ────────────────────────────────────
+ * ── Alert rule (operator, 2026-08-17 — supersedes 2026-08-15) ─────────────
  *
- *   CROSS_UP    the candle CLOSES above the level and the PREVIOUS candle
- *               closed below it. Fires for all three levels.
- *   TOUCH_DOWN  a name that was extended ABOVE the AVWAP comes back down and
- *               touches it. AVWAP only — this is the mean-reversion leg, kept
- *               alongside the cross-up rules rather than replaced by them.
+ *   CROSS_UP    the candle CLOSES at or above the level and the PREVIOUS candle
+ *               closed below it. The ONLY rule, and identical for all four
+ *               levels — there is no level with extra behaviour.
+ *
+ * The 2026-08-15 rules also carried TOUCH_DOWN on the AVWAP alone: a name
+ * extended above it coming back down to touch it, i.e. the mean-reversion leg.
+ * The operator removed it on 2026-08-17 — it was firing roughly one alert in
+ * five (17 of 80 on 8/17), in the opposite direction to everything else, on one
+ * level out of four. Alerts now mean exactly one thing. Do not reintroduce a
+ * second direction here without an explicit instruction; `avwapRules` asserts
+ * that an above→below transition stays silent.
  *
  * Crucially the publisher decides "previous candle" from two adjacent BARS on
  * the chart, not from two successive publishes, and scores the last genuinely
@@ -39,7 +45,7 @@
  *     in-memory cache is empty and would re-alert everything it had already sent.
  */
 
-import { upsert, getOne, listByPartition, TABLES } from "./tables.js";
+import { upsert, getOne, listByPartition, remove, TABLES } from "./tables.js";
 import { notifyBoth } from "./notifyBoth.js";
 
 export const CURRENT_PK = "current";
@@ -50,7 +56,7 @@ const DEFAULT_STALE_MIN = 15;
 
 export const LEVELS = ["avwap", "sma50", "ema21d", "sma50d"] as const;
 export type Level = (typeof LEVELS)[number];
-export type CrossDirection = "CROSS_UP" | "TOUCH_DOWN";
+export type CrossDirection = "CROSS_UP";
 
 export const LEVEL_LABEL: Record<Level, string> = {
   avwap: "AVWAP(Earnings)",
@@ -134,23 +140,75 @@ export function isRthNow(now = new Date()): boolean {
 }
 
 /**
- * The whole alert rule, in one pure function. Exported for unit tests.
+ * The whole alert rule, in one pure function. Exercised by
+ * `api/tools/avwap-rules-test.mjs` — run it before changing this.
  *
  * `prevPct` is the PREVIOUS closed candle's distance from the level and `pct`
- * the latest closed candle's. `allowTouchDown` is true only for the AVWAP.
+ * the latest closed candle's. Positive = above the level.
+ *
+ * The deadband applies to the PREVIOUS candle only: a candle that closed within
+ * minPct of the level was sitting ON it, not below it, so the next candle
+ * closing above is not a crossing. It is deliberately NOT applied to `pct` —
+ * clearing the level at all is the signal; how far past it is not.
  */
 export function classifyCross(
   prevPct: number | null | undefined,
   pct: number | null | undefined,
-  allowTouchDown: boolean,
   minPct: number = crossMinPct(),
 ): CrossDirection | "" {
   if (prevPct === null || prevPct === undefined || !Number.isFinite(prevPct)) return "";
   if (pct === null || pct === undefined || !Number.isFinite(pct)) return "";
   if (Math.abs(prevPct) < minPct) return "";
   if (prevPct < 0 && pct >= 0) return "CROSS_UP";
-  if (allowTouchDown && prevPct > 0 && pct <= 0) return "TOUCH_DOWN";
   return "";
+}
+
+/**
+ * A sweep must look healthy before we let it delete anything.
+ *
+ * Pruning is the only operation here that removes data, and it runs unattended
+ * every 39 minutes. A publisher that half-fails — TradingView mid-restart, the
+ * watchlist briefly empty, a chart that stops resolving symbols — would
+ * otherwise be read as "the operator deleted 150 names" and empty the tab.
+ * Below either threshold we keep the stale rows, which is the recoverable
+ * failure; the next healthy sweep prunes them.
+ */
+export const PRUNE_MIN_SWEPT = 50;
+export const PRUNE_MAX_FAILED_FRAC = 0.25;
+
+/** Bare, upper-case ticker from either "AAOI" or "NASDAQ:AAOI". */
+function bareTicker(s: string): string {
+  return String(s).split(":").pop()!.trim().toUpperCase();
+}
+
+/**
+ * Which `current` rows no longer belong, given what the sweep reported.
+ *
+ * The roster is `swept ∪ failed`, NOT `swept` alone. A symbol the publisher
+ * could not read this cycle is still in MASTER — pruning on `swept` would drop
+ * it and let the next sweep put it back, so a thin name would flicker on and
+ * off the tab instead of just holding its last values.
+ *
+ * Pure so `api/tools/avwap-rules-test.mjs` can cover it: nothing that deletes
+ * rows unattended should be reachable only through a live publish.
+ */
+export function planPrune(
+  currentTickers: string[],
+  swept: string[],
+  failed: string[],
+): { prune: string[]; heldBack: string } {
+  if (swept.length < PRUNE_MIN_SWEPT) {
+    return { prune: [], heldBack: `only ${swept.length} symbols swept` };
+  }
+  const roster = new Set([...swept, ...failed].map(bareTicker));
+  const failedFrac = roster.size ? failed.length / roster.size : 1;
+  if (failedFrac > PRUNE_MAX_FAILED_FRAC) {
+    return { prune: [], heldBack: `${failed.length}/${roster.size} symbols failed to read` };
+  }
+  return {
+    prune: currentTickers.filter((t) => t !== META_RK && !roster.has(bareTicker(t))),
+    heldBack: "",
+  };
 }
 
 function num(v: unknown): number | null {
@@ -171,6 +229,10 @@ function barDayStr(barTime: number): string {
 export interface RecordResult {
   stored: number;
   skipped: number;
+  /** Tickers dropped from `current` because they left the MASTER watchlist. */
+  pruned: string[];
+  /** Non-empty when the prune was held back because the sweep looked degraded. */
+  pruneHeldBack: string;
   crossings: CrossEvent[];
 }
 
@@ -194,9 +256,15 @@ export async function recordSnapshot(
   let stored = 0;
   let skipped = 0;
 
+  // Every ticker the publisher MENTIONED, not just the ones we stored. A MASTER
+  // symbol whose levels were unreadable is still in MASTER, so it must count
+  // toward the roster or the prune below would delete it for being thin.
+  const sent: string[] = [];
+
   for (const raw of rows) {
     const ticker = String(raw.ticker ?? "").trim().toUpperCase();
     const close = num(raw.close);
+    if (ticker) sent.push(ticker);
     if (!ticker || close === null) { skipped++; continue; }
 
     const barTime = num(raw.closed_time) ?? 0;
@@ -229,7 +297,7 @@ export async function recordSnapshot(
 
       const c = num(raw[`c_pct_${level}`]);
       const p = num(raw[`p_pct_${level}`]);
-      const dir = classifyCross(p, c, level === "avwap", minPct);
+      const dir = classifyCross(p, c, minPct);
       if (!dir || barTime <= 0) continue;
       if (await alreadyAlerted(ticker, level, dir, barTime)) continue;
 
@@ -268,6 +336,14 @@ export async function recordSnapshot(
     stored++;
   }
 
+  // The tab shows the MASTER watchlist, so `current` has to BE the watchlist.
+  // upsert() alone only ever adds, so a symbol removed from MASTER kept its last
+  // row forever and read as live data (KXIAY sat there for hours on 2026-08-17).
+  const { prune, heldBack } = planPrune(Object.keys(previous), sent, opts.failed);
+  for (const ticker of prune) {
+    await remove(TABLES.AVWAP_EARNINGS, CURRENT_PK, ticker);
+  }
+
   await upsert(TABLES.AVWAP_EARNINGS, CURRENT_PK, META_RK, {
     barUtc: opts.barUtc,
     publishedAt: opts.publishedAt || nowIso,
@@ -278,6 +354,11 @@ export async function recordSnapshot(
     // own failure list through to the tab.
     failed: opts.failed.join(",").slice(0, 30000),
     failedCount: opts.failed.length,
+    // Same reasoning for the prune: a silent delete and a silently skipped
+    // delete look identical from the tab unless both are recorded.
+    pruned: prune.join(",").slice(0, 30000),
+    prunedCount: prune.length,
+    pruneHeldBack: heldBack,
   });
 
   if (crossings.length) {
@@ -287,7 +368,7 @@ export async function recordSnapshot(
     }
   }
 
-  return { stored, skipped, crossings };
+  return { stored, skipped, pruned: prune, pruneHeldBack: heldBack, crossings };
 }
 
 /**
@@ -333,11 +414,6 @@ async function alertCrossings(events: CrossEvent[]): Promise<void> {
       lines.push(`Closed above ${LEVEL_LABEL[level]}: ` +
         ups.map((e) => `${e.ticker} ${e.close}`).join(", "));
     }
-  }
-  const downs = events.filter((e) => e.direction === "TOUCH_DOWN");
-  if (downs.length) {
-    lines.push("Touched AVWAP from above: " +
-      downs.map((e) => `${e.ticker} ${e.close}`).join(", "));
   }
   try {
     await notifyBoth(

@@ -58,11 +58,16 @@ pct = (close - level) / level * 100      (+ above / - below)
 
 | Event | Condition | Levels |
 |---|---|---|
-| `CROSS_UP` | the candle **closes** above the level, previous candle closed below | all four |
-| `TOUCH_DOWN` | a name extended **above** the AVWAP comes back down and touches it | AVWAP only |
+| `CROSS_UP` | the candle **closes** at or above the level, previous candle closed below | all four |
 
-Guards: a **0.25% deadband** on the previous candle (`AVWAP_CROSS_MIN_PCT`), and
-dedup keyed on `ticker + level + direction + BAR`.
+That is the only rule, and it is identical on every level. `TOUCH_DOWN` (a name
+extended above the AVWAP coming back down to touch it) was removed **2026-08-17**
+— it fired in the opposite direction to everything else, on one level out of
+four, for about one alert in five. An alert now means exactly one thing.
+
+Guards: a **0.25% deadband** on the previous candle (`AVWAP_CROSS_MIN_PCT`) —
+applied to the previous candle only, so clearing the level at all is the signal —
+and dedup keyed on `ticker + level + direction + BAR`.
 
 ### Data flow
 
@@ -74,8 +79,8 @@ POST /api/avwap-earnings   (x-timer-secret; POST-only anonymous in staticwebapp.
    |
    v
 Azure Table AvwapEarnings
-   current/<TICKER>          latest read per symbol
-   current/__meta__          bar, publisher, failed[]
+   current/<TICKER>          latest read per symbol — pruned to the MASTER roster
+   current/__meta__          bar, publisher, failed[], pruned[]
    <YYYY-MM-DD>/<t>-<tkr>-<lvl>   history, written ONLY on a cross
    alert-<BAR ET DATE>/<tkr>-<lvl>-<dir>-<barTime>   dedup
    |
@@ -88,6 +93,17 @@ GET /api/avwap-earnings   (portal-role gated) -> src/views/AvwapEarningsPage.tsx
 `GET` also joins **FinViz Elite** quotes (`fetchQuotesFinviz`, 30s cache) for the
 Chg % and From Open columns, so those agree with Rotation and Sector Desk.
 Non-fatal: if FinViz is down those two columns blank and the levels still render.
+
+**The tab equals the watchlist.** Each POST prunes `current` down to the roster
+the sweep reported — `rows` ∪ `failed`. Remove a symbol from MASTER and it leaves
+the tab on the next sweep. It is `∪ failed`, not `rows` alone, so a symbol the
+publisher could not read this cycle holds its last values instead of flickering
+off and back on. Pruning is the only destructive thing the endpoint does and it
+runs unattended, so it is held back entirely when a sweep looks degraded (fewer
+than `PRUNE_MIN_SWEPT` symbols, or more than 25% failed) and the reason is
+recorded in `__meta__.pruneHeldBack` — a skipped delete must not be silent
+either. Before this (2026-08-17) `upsert` only ever added, so a removed symbol
+kept its last row forever and read as live data.
 
 ### Schedule
 
