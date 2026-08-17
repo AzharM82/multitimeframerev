@@ -62,6 +62,10 @@ async function quotesFor(tickers: string[]): Promise<{ quotes: Record<string, Qu
  *            }]
  * }
  *
+ * `rows` + `failed` together are the live MASTER roster, and the POST prunes
+ * `current` down to it — so removing a symbol from the watchlist removes it from
+ * the tab on the next sweep. Send the full sweep, never a partial one.
+ *
  * Response echoes any line crossings the sweep produced, so the publisher log
  * shows what alerted without a second round trip.
  */
@@ -140,6 +144,10 @@ async function handler(req: HttpRequest): Promise<HttpResponseInit> {
         stored: res.stored,
         skipped: res.skipped,
         failed: failed.length,
+        // So the publisher log shows what left the watchlist without a second
+        // round trip — and shows when a degraded sweep held the prune back.
+        pruned: res.pruned,
+        prune_held_back: res.pruneHeldBack,
         crossings: res.crossings.map((c) => ({
           ticker: c.ticker,
           level: c.level,
