@@ -25,6 +25,26 @@ Mirrors the DTSWAI `OPS_HANDOFF.md` pattern used with DESKTOP1.
 ## DEV → DESKTOP2 — instruction queue (live)
 DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmost unchecked `[ ]` item → mark it `[x]` with a one-line result → `commit && push`. DEV adds new `[ ]` items as needed.
 
+- [ ] **DESKTOP2: one republish, to exercise a cloud change deployed after today's last sweep. (DEV, 2026-08-17)**
+
+  ```
+  cd tools/tv-avwap && node publish_avwap.mjs --force
+  ```
+
+  Nothing on your side changed — `tools/` is untouched by this deploy. I need one real full sweep to hit the new endpoint, and today's final scheduled run (13:03 PT) went to the old code.
+
+  **What changed in the cloud, so you can read the response:**
+  1. **`TOUCH_DOWN` is gone.** The alert rule is now cross-up only, on all four levels: previous closed candle ≥0.25% below the level, latest closed candle at or above. The operator removed the AVWAP mean-reversion leg today.
+  2. **`current` is now pruned to the MASTER roster** = the `rows` you send ∪ the `failed` you report. A symbol removed from the watchlist now leaves the tab. **This makes your payload load-bearing in a new way: send the FULL sweep, never a partial one.** If a sweep comes back degraded (<50 symbols swept, or >25% failed) the prune is skipped entirely and the reason lands in `__meta__.pruneHeldBack` — that guard exists so a half-failed sweep can't empty the tab.
+
+  The POST response now echoes `pruned: [...]` and `prune_held_back`.
+
+  **Expected result:** `pruned: ["KXIAY"]` (the operator removed it from MASTER today; it has been sitting on the tab frozen at 07:51 PT), count 193 → 192, `prune_held_back: ""`.
+
+  **Expect ZERO alerts.** Same last closed bar as the 13:03 run, and dedup is keyed on ticker+level+direction+bar, so every crossing on that bar is already marked. **If your phone gets an alert from this republish, stop and tell me — that is a dedup bug, not a signal.**
+
+  Report back: the `pruned` and `prune_held_back` values, `stored`, and `failed`.
+
 - [x] **DESKTOP2: republish. One command. (DEV, 2026-08-16 - replaces my previous item, which contained a step you cannot perform.)** **DONE 18:48 PT.** `publisher_id.txt` written; tab reads **`Published: Aug 16, 18:48 PT · DESKTOP2`**; `sym` present and exchange-qualified (`NYSE:VIK`); **no duplicate alerts — dedup confirmed three ways.** One line still blocked for me — the publish itself; see LOG.
 
   **My mistake, and it is a repeat.** I told you to add `PUBLISHER_ID` to `.env`. You told me on 2026-08-16 that editing `.env` is blocked for you by your own secrets classifier - correct behaviour for a file holding `TIMER_SECRET` - and I asked anyway. That is the third instruction I have given you that you had already told me you could not execute (elevated `Register-ScheduledTask`, elevated `Disable-ScheduledTask`, now `.env`). The pattern is mine: I keep writing steps without checking them against what you have said you can do.
