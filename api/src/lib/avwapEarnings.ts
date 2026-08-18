@@ -14,19 +14,21 @@
  *   sma50  50-period SMA of 39m closes    -- these mirror what the operator
  *          actually draws on the chart: a 21 EMA and a 50 SMA, not two EMAs.
  *
- * ── Alert rule (operator, 2026-08-17 — supersedes 2026-08-15) ─────────────
+ * ── Alert rule (operator, 2026-08-17, second revision) ────────────────────
  *
- *   CROSS_UP    the candle CLOSES at or above the level and the PREVIOUS candle
- *               closed below it. The ONLY rule, and identical for all four
- *               levels — there is no level with extra behaviour.
+ *   CROSS_UP    the candle CLOSES at or above the level, previous candle below
+ *   CROSS_DOWN  the candle CLOSES at or below the level, previous candle above
  *
- * The 2026-08-15 rules also carried TOUCH_DOWN on the AVWAP alone: a name
- * extended above it coming back down to touch it, i.e. the mean-reversion leg.
- * The operator removed it on 2026-08-17 — it was firing roughly one alert in
- * five (17 of 80 on 8/17), in the opposite direction to everything else, on one
- * level out of four. Alerts now mean exactly one thing. Do not reintroduce a
- * second direction here without an explicit instruction; `avwapRules` asserts
- * that an above→below transition stays silent.
+ * Symmetric, and identical on all four levels. No level has extra behaviour and
+ * no other event type alerts — "all alerts crossing up or down only".
+ *
+ * History, because this moved twice in one day and the reasoning matters:
+ * 2026-08-15 shipped CROSS_UP on every level plus TOUCH_DOWN on the AVWAP alone
+ * ("extended above, comes back and touches"). That was removed in the morning —
+ * it was not a clean cross, it was asymmetric, and it applied to one level out
+ * of four. What replaced it is the symmetric cross, which is what was wanted all
+ * along. So a down alert is BACK, but it is a different rule: a real close
+ * through the level, on every level, not an AVWAP mean-reversion touch.
  *
  * Crucially the publisher decides "previous candle" from two adjacent BARS on
  * the chart, not from two successive publishes, and scores the last genuinely
@@ -56,7 +58,7 @@ const DEFAULT_STALE_MIN = 15;
 
 export const LEVELS = ["avwap", "sma50", "ema21d", "sma50d"] as const;
 export type Level = (typeof LEVELS)[number];
-export type CrossDirection = "CROSS_UP";
+export type CrossDirection = "CROSS_UP" | "CROSS_DOWN";
 
 export const LEVEL_LABEL: Record<Level, string> = {
   avwap: "AVWAP(Earnings)",
@@ -119,7 +121,20 @@ export interface AvwapSnapshot {
   ageMin: number;
   stale: boolean;
   failed: string[];
+  /**
+   * Today's crossings per level and direction, as TICKER lists so the tab can
+   * both count them and filter to them.
+   *
+   * Read from the history partition, NOT from each row's `lastCross`. A name
+   * that reclaimed its AVWAP at 07:12 and lost it again at 11:03 did two things
+   * today; `lastCross` only remembers the second. Counting off `lastCross` would
+   * quietly under-report exactly the choppy names worth looking at.
+   */
+  todayCross: Record<string, { up: string[]; down: string[] }>;
 }
+
+/** Historical rows say TOUCH_DOWN; it means the same side as CROSS_DOWN. */
+const isDown = (dir: string) => dir === "CROSS_DOWN" || dir === "TOUCH_DOWN";
 
 function crossMinPct(): number {
   const n = Number(process.env.AVWAP_CROSS_MIN_PCT);
@@ -148,9 +163,12 @@ export function isRthNow(now = new Date()): boolean {
  * the latest closed candle's. Positive = above the level.
  *
  * The deadband applies to the PREVIOUS candle only: a candle that closed within
- * minPct of the level was sitting ON it, not below it, so the next candle
- * closing above is not a crossing. It is deliberately NOT applied to `pct` —
- * clearing the level at all is the signal; how far past it is not.
+ * minPct of the level was sitting ON it, not on one side of it, so the next
+ * candle closing through is not a crossing. It is deliberately NOT applied to
+ * `pct` — clearing the level at all is the signal; how far past it is not.
+ *
+ * Perfectly symmetric. If you are changing one branch here, change both, and
+ * check `avwap-rules-test.mjs` still mirrors them.
  */
 export function classifyCross(
   prevPct: number | null | undefined,
@@ -161,6 +179,7 @@ export function classifyCross(
   if (pct === null || pct === undefined || !Number.isFinite(pct)) return "";
   if (Math.abs(prevPct) < minPct) return "";
   if (prevPct < 0 && pct >= 0) return "CROSS_UP";
+  if (prevPct > 0 && pct <= 0) return "CROSS_DOWN";
   return "";
 }
 
@@ -178,14 +197,41 @@ export const PRUNE_MIN_SWEPT = 50;
 export const PRUNE_MAX_FAILED_FRAC = 0.25;
 
 /**
- * Encode the levels cleared on one bar into the `lastCross` field.
+ * Encode what a symbol did on one bar into the `lastCross` field.
  *
- * Deliberately the same shape as the old single-level value, so rows written by
- * earlier builds keep parsing: "sma50:CROSS_UP" is just the one-level case of
- * "sma50,ema21d:CROSS_UP". The tab splits on ":" then "," .
+ * Now that both directions fire, a single bar can send a name UP through one
+ * level and DOWN through another — reclaiming the AVWAP while losing the 50-day
+ * is an ordinary Tuesday. So the direction rides per level rather than once for
+ * the whole value:
+ *
+ *     "avwap:CROSS_UP,sma50d:CROSS_DOWN"
+ *
+ * `decodeLastCross` also reads the two older shapes still sitting in the table,
+ * so nothing has to be migrated:
+ *
+ *     "sma50:CROSS_UP"            single level, every build
+ *     "avwap,sma50d:CROSS_UP"     multi-level, shipped earlier today
+ *     "avwap:TOUCH_DOWN"          the retired AVWAP touch rule
  */
-export function encodeLastCross(levels: Level[], dir: CrossDirection): string {
-  return `${levels.join(",")}:${dir}`;
+export function encodeLastCross(pairs: { level: Level; dir: CrossDirection }[]): string {
+  return pairs.map((p) => `${p.level}:${p.dir}`).join(",");
+}
+
+export function decodeLastCross(value: string): { level: string; dir: string }[] {
+  if (!value) return [];
+  const out: { level: string; dir: string }[] = [];
+  const pending: string[] = [];
+  for (const token of value.split(",")) {
+    const [level, dir] = token.split(":");
+    if (!level) continue;
+    if (!dir) { pending.push(level); continue; }   // legacy bare level
+    // A bare level inherits the next direction it finds — that is exactly what
+    // "avwap,sma50d:CROSS_UP" meant when one direction covered the whole value.
+    for (const p of pending.splice(0)) out.push({ level: p, dir });
+    out.push({ level, dir });
+  }
+  // Trailing bare levels with no direction anywhere: unusable, drop them.
+  return out;
 }
 
 /** Bare, upper-case ticker from either "AAOI" or "NASDAQ:AAOI". */
@@ -303,8 +349,7 @@ export async function recordSnapshot(
     // in a sweep are scored against the same closed bar, so they belong to the
     // same event — a name reclaiming three levels at once is a different animal
     // from one clipping a single line, and the tab has to be able to say so.
-    const crossedLevels: Level[] = [];
-    let crossDir: CrossDirection | "" = "";
+    const crossedLevels: { level: Level; dir: CrossDirection }[] = [];
 
     for (const level of LEVELS) {
       const value = num(raw[level]);
@@ -323,8 +368,7 @@ export async function recordSnapshot(
         prevPct: p as number, pct: c as number,
         close: closedClose, levelValue: value ?? 0, barTime,
       });
-      crossedLevels.push(level);
-      crossDir = dir;
+      crossedLevels.push({ level, dir });
 
       await upsert(
         TABLES.AVWAP_EARNINGS,
@@ -342,10 +386,7 @@ export async function recordSnapshot(
     }
 
     if (crossedLevels.length) {
-      // "sma50,ema21d,sma50d:CROSS_UP" — levels in LEVELS order, then direction.
-      // A single-level cross still reads "sma50:CROSS_UP", so rows written by
-      // the previous build parse unchanged.
-      entity.lastCross = encodeLastCross(crossedLevels, crossDir as CrossDirection);
+      entity.lastCross = encodeLastCross(crossedLevels);
       entity.lastCrossAt = nowIso;
     } else {
       const prevRow = previous[ticker];
@@ -426,19 +467,31 @@ async function markAlerted(
   await upsert(TABLES.AVWAP_EARNINGS, pk, rk, { at: new Date().toISOString() });
 }
 
-/** One message per sweep — never one per ticker. */
+/**
+ * One message per sweep — never one per ticker. That is what keeps both
+ * directions on all four levels down to ~10 messages a day instead of ~190:
+ * the event count grows, the message count does not.
+ */
 async function alertCrossings(events: CrossEvent[]): Promise<void> {
   const lines: string[] = [];
   for (const level of LEVELS) {
     const ups = events.filter((e) => e.level === level && e.direction === "CROSS_UP");
     if (ups.length) {
-      lines.push(`Closed above ${LEVEL_LABEL[level]}: ` +
+      lines.push(`▲ Closed above ${LEVEL_LABEL[level]}: ` +
         ups.map((e) => `${e.ticker} ${e.close}`).join(", "));
     }
   }
+  for (const level of LEVELS) {
+    const downs = events.filter((e) => e.level === level && e.direction === "CROSS_DOWN");
+    if (downs.length) {
+      lines.push(`▼ Closed below ${LEVEL_LABEL[level]}: ` +
+        downs.map((e) => `${e.ticker} ${e.close}`).join(", "));
+    }
+  }
+  const ups = events.filter((e) => e.direction === "CROSS_UP").length;
   try {
     await notifyBoth(
-      `AVWAP/EMA cross — ${events.length} signal(s)`,
+      `AVWAP/EMA cross — ${ups}▲ ${events.length - ups}▼`,
       lines.join("\n"),
       "avwap-earnings",
       { count: events.length },
@@ -453,7 +506,23 @@ export async function getSnapshot(): Promise<AvwapSnapshot> {
   const out: AvwapSnapshot = {
     rows: [], barUtc: "", publishedAt: "", receivedAt: "",
     host: "", ageMin: -1, stale: true, failed: [],
+    todayCross: Object.fromEntries(LEVELS.map((l) => [l, { up: [], down: [] }])),
   };
+
+  // Today's crossings, for the up/down matrix. Non-fatal: the levels are the
+  // point of this tab, and an empty matrix is better than a 500.
+  try {
+    const events = await listByPartition<Record<string, unknown>>(
+      TABLES.AVWAP_EARNINGS, etDayStr());
+    for (const e of events) {
+      const level = String(e.level ?? "");
+      const ticker = String(e.ticker ?? "");
+      const bucket = out.todayCross[level];
+      if (!bucket || !ticker) continue;
+      const side = isDown(String(e.direction ?? "")) ? bucket.down : bucket.up;
+      if (!side.includes(ticker)) side.push(ticker);
+    }
+  } catch { /* matrix renders empty */ }
 
   const entities = await listByPartition<Record<string, unknown>>(
     TABLES.AVWAP_EARNINGS, CURRENT_PK);

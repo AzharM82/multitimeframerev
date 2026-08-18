@@ -104,6 +104,9 @@ async function handler(req: HttpRequest): Promise<HttpResponseInit> {
           age_min: snap.ageMin,
           stale: snap.stale,
           failed: snap.failed,
+          // Per-level up/down for today, as ticker lists: the tab counts them
+          // for the cross matrix and filters the table by membership.
+          today_cross: snap.todayCross,
         },
       };
     } catch (err) {

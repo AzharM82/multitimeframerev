@@ -58,25 +58,38 @@ pct = (close - level) / level * 100      (+ above / - below)
 
 | Event | Condition | Levels |
 |---|---|---|
-| `CROSS_UP` | the candle **closes** at or above the level, previous candle closed below | all four |
+| `CROSS_UP` | the candle **closes at or above** the level, previous candle closed below | all four |
+| `CROSS_DOWN` | the candle **closes at or below** the level, previous candle closed above | all four |
 
-That is the only rule, and it is identical on every level. `TOUCH_DOWN` (a name
-extended above the AVWAP coming back down to touch it) was removed **2026-08-17**
-— it fired in the opposite direction to everything else, on one level out of
-four, for about one alert in five. An alert now means exactly one thing.
+Symmetric, and the only two events that alert. `TOUCH_DOWN` — an AVWAP-only
+"extended above, comes back and touches" rule — shipped 2026-08-15 and was
+removed 2026-08-17; `CROSS_DOWN` is **not** the same rule and does not reinstate
+it. Both directions across four levels is roughly **190 events a day**, which
+stays at ~10 notifications because `alertCrossings` sends one message per sweep,
+never one per ticker.
 
 Guards: a **0.25% deadband** on the previous candle (`AVWAP_CROSS_MIN_PCT`) —
 applied to the previous candle only, so clearing the level at all is the signal —
-and dedup keyed on `ticker + level + direction + BAR`.
+and dedup keyed on `ticker + level + direction + BAR`. Up and down dedup
+independently, so a name may cross up in the morning and back down after lunch
+and alert twice.
 
-`lastCross` records **every** level cleared on that bar — `"avwap,sma50:CROSS_UP"`
-— and the tab renders one badge per level under the ticker, plus a `×N` pill when
-two or more went at once. Those are the strong signals: a name reclaiming three
+`lastCross` records **every** level crossed on that bar with its own direction —
+`"avwap:CROSS_UP,sma50d:CROSS_DOWN"`, because one candle can reclaim one level
+while losing another — and the tab renders one badge per level under the ticker,
+plus a `×N` pill when two or more went at once. Those are the strong signals: a name reclaiming three
 levels on one candle is doing something a name clipping one line is not. Until
 2026-08-17 the field held a single level picked by loop order, so AVWAP crosses
 silently lost to moving-average crosses and 13 of that day's 58 crossers were
 under-reported. A single-level value is just the one-level case of the same
-shape, so rows written by older builds still parse.
+shape, so rows written by older builds still parse (`decodeLastCross` reads the
+single-level, one-trailing-direction, and `TOUCH_DOWN` shapes too — nothing was
+migrated).
+
+The tab's **cross matrix** counts today's crossings per level and direction, and
+every cell filters the table. Those counts come from the day's history rows, not
+from `lastCross`: a name that crossed up at 07:12 and back down at 11:03 did two
+things, and `lastCross` only remembers the second.
 
 ### Data flow
 
