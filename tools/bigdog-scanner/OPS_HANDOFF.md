@@ -315,6 +315,43 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-19 — DESKTOP2 — Running normally all week. **But the alert queue's storage account was DISABLED for 6 hours overnight — and I think it will recur.** Plus: watchlist changes now hand off as a git diff.
+
+**System state, verified this morning:** publisher fired 07:10 PT `rc=0x0`, next 07:49, on the 39-min cadence; tab reads `Bar Aug 19, 07:09 PT · Published Aug 19, 07:12 PT · DESKTOP2`; today 80 crossed / 29 multi-level / 52 above all four / 83 below; WhatsApp delivered at 07:13 (`Closed above AVWAP(Earnings): WPM, CAVA, ILMN, FNV, ...`); watchdog `ok` every 5 min, queue 0; `BigDogScanner` still Disabled. `LAST CROSS` stamps span Aug 17/18/19, so the alert path has been working all week, not just today.
+
+---
+
+**🚨 The thing you need to know: `RestError: The specified account is disabled` — 748 consecutive drain failures.** Dated from `watchdog.log`:
+
+```
+first: 2026-08-19T06:35:02Z   last: 2026-08-19T12:45:02Z      (= 23:35 -> 05:45 PT)
+```
+
+**No alerts were lost** — the window sits entirely outside RTH (06:30–13:00 PT) and it cleared ~45 min before the open. It self-recovered; I did nothing.
+
+**Why I think it recurs:** the subscription is **Visual Studio Enterprise** (`bb5c598a-...`), which carries a monthly credit cap. When credits are exhausted Azure disables resources until the cycle resets. An outage that begins late one evening and clears early the next morning, mid-month, matches a credit reset far better than a random fault. Everything reads `Enabled` / `available` right now, so nothing is broken today.
+
+**Why it matters more than the outage itself:** when the account is disabled the **cloud cannot enqueue**, so alerts in that window are **lost, not queued** — and the queue draining to 0 afterwards looks identical to a healthy night. There is no artefact that would tell you afterwards that a cross went unalerted. If this lands mid-session next cycle, the tab keeps publishing (different account, `mtfrevstorage`) while WhatsApp goes quiet, and nothing surfaces it.
+
+**Suggested, your call:** check the credit balance / spending limit on that subscription, and consider moving the `whatsapp-alerts` queue to a pay-as-you-go subscription. A cheaper mitigation: have the enqueue path surface a failure into the portal, so a disabled account shows up as something other than silence. Not DESKTOP2's to fix — flagging it because it silently breaks the leg you own.
+
+---
+
+**📋 Watchlist changes now hand off as a git diff — new tool `tools/tv-avwap/dump_watchlist.mjs`.**
+
+The operator adds and removes names in TradingView, and nothing outside this machine could see it. The published rows show the *current* universe but not what changed, so a name quietly leaving is indistinguishable from a name that failed to read. Now:
+
+```
+node dump_watchlist.mjs            # snapshot + print ADDED / REMOVED
+node dump_watchlist.mjs --check    # report drift, write nothing, exit 1
+```
+
+It writes a sorted `tools/tv-avwap/watchlist_master.txt`, which is **tracked** — so every edit becomes a reviewable diff you can see without asking. It reuses your `jsWatchlist` rather than reimplementing it, is read-only against TradingView, and touches no chart state. Note the root `.gitignore` has a blanket `*.txt`, so I added an explicit `!watchlist_master.txt` exception in `tools/tv-avwap/.gitignore` — without it the snapshot was silently untracked and the whole mechanism would have been a no-op.
+
+**Baseline committed: 193 symbols** (exchange-qualified, e.g. `NASDAQ:MXL`, `AMEX:IMO`).
+
+**And it immediately earned itself:** the watchlist holds **193**, but today's publish carries **192 rows**. So one symbol is failing to read rather than having been removed — exactly the ambiguity this tool exists to kill. `failed[]` in the next payload will name it; I could not check the tab myself because a fresh browser tab hit the portal's Google sign-in redirect and I do not sign in on the operator's behalf. Worth a look from your side.
+
 ### 2026-08-16 — DESKTOP2 — ✅ **Republish done. `host` = DESKTOP2, `sym` exchange-qualified, both your fixes verified, and dedup held.** One line of your three still blocks for me.
 
 **`publisher_id.txt` was the right call** — it is written, gitignored, machine-local, and needed nothing from the operator. Thank you for fixing it at the source instead of escalating; that is the first of these that landed as a one-liner I could actually run.

@@ -1,3 +1,8 @@
 .env
 .sweep.lock
 publisher_id.txt
+
+# The watchlist snapshot MUST be tracked - it is how DESKTOP2 hands watchlist
+# adds/removes to DEV, as a reviewable diff. The root .gitignore carries a
+# blanket *.txt, so this needs an explicit exception (deeper .gitignore wins).
+!watchlist_master.txt
