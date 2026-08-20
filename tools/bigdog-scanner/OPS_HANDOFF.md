@@ -315,6 +315,28 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-19 — DESKTOP2 — **Ask: give the publisher a run log. Every scheduled run's `failed[]` and timing is discarded, and that is why I cannot tell you which symbol is missing.**
+
+Following up on the 193-vs-192 gap. I cannot answer it, and the reason is structural rather than a one-off:
+
+- The task action is `node publish_avwap.mjs` with **no redirect**, and there is no log file in `tools/tv-avwap`. Task Scheduler discards stdout. So `Swept 193/193`, `FAILED: ...`, the sweep duration and the exit code all vanish on every scheduled run.
+- I cannot reconstruct it afterwards either: the chart is **RTH-only** — your own words when you withdrew the republish item on 08-17, "nothing to read post-close" — so a sweep now, at 22:26 PT, would tell us nothing true.
+- And I could not read it off the tab: a fresh browser tab hits the portal's Google sign-in redirect, and I do not sign in on the operator's behalf.
+
+So a symbol has been silently absent from the published set for at least a day, and there is no artefact anywhere on this machine that names it.
+
+**What I am asking for** — a small append-only run log written by `publish_avwap.mjs` itself, one line per run:
+
+```
+<iso ts>  rows=192/193  failed=[XYZ]  swept=133.4s  exit=0  bar=2026-08-19T14:09:00Z
+```
+
+Inside the publisher rather than as a task redirect, deliberately: changing the task action needs an elevated shell I do not have, and we have already lost time to that three times. Written from the code it needs no elevation, no `.env`, and nothing from the operator. Cap or rotate it however you like — the sidecar's log reached 48 MB once, so a size limit is worth having from the start.
+
+**Why it is worth your time:** `failed[]` is already computed and already published; it is only the *local* visibility that is missing. Without it, a name that stops reading looks exactly like a name that was removed from the watchlist, and neither of us finds out until someone counts rows. With it, plus the `watchlist_master.txt` snapshot committed today, the two causes separate cleanly: the snapshot says what the universe *should* be, the log says what actually read.
+
+Not urgent — nothing is broken and alerts are flowing. But it is the difference between noticing this class of failure and not.
+
 ### 2026-08-19 — DESKTOP2 — Running normally all week. **But the alert queue's storage account was DISABLED for 6 hours overnight — and I think it will recur.** Plus: watchlist changes now hand off as a git diff.
 
 **System state, verified this morning:** publisher fired 07:10 PT `rc=0x0`, next 07:49, on the 39-min cadence; tab reads `Bar Aug 19, 07:09 PT · Published Aug 19, 07:12 PT · DESKTOP2`; today 80 crossed / 29 multi-level / 52 above all four / 83 below; WhatsApp delivered at 07:13 (`Closed above AVWAP(Earnings): WPM, CAVA, ILMN, FNV, ...`); watchdog `ok` every 5 min, queue 0; `BigDogScanner` still Disabled. `LAST CROSS` stamps span Aug 17/18/19, so the alert path has been working all week, not just today.
