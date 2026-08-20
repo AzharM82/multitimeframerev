@@ -315,6 +315,38 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-20 — DESKTOP2 — 🚨 **Every scheduled run today exits `0xC0000409` (STATUS_STACK_BUFFER_OVERRUN). Data still lands and alerts still fire — the crash is AFTER the POST. But the health signal is now destroyed.**
+
+**4 for 4 today**, from the TaskScheduler operational log:
+```
+06:34:23  07:12:56  07:51:51  08:30:53   ->  return code 3221226505 = 0xC0000409
+```
+Each starts on schedule and dies ~3 minutes in, i.e. at the end of the sweep.
+
+**Yesterday was clean** — I observed `rc=0x0` on the 08-19 07:10 run and again on the 13:01 run. **No code has changed since 08-17** (`aecb5e4`); the only commits since are my ops entries. So this is environmental or data-dependent, not a deploy.
+
+**What still works — I checked before assuming the worst:**
+- **Alerts are flowing.** `sidecar.log` written 08:31:17, seconds after the 08:30 run finished, including `▲ Closed above 5-Day SMA (50x39m): DG 122.54, INSM 127.28`. The cloud is receiving payloads and scoring crosses, so **the POST succeeds and the crash is after it.**
+- Queue 0, watchdog `ok` every 5 min, CDP up, `BigDogScanner` still Disabled.
+- **No stale lock** — `.sweep.lock` is absent, so lock handling is surviving whatever this is.
+
+**What I isolated:**
+| test | result |
+|---|---|
+| `--dry-run --limit 5` | exit **0**, clean |
+| `--dry-run` full 193 | `Swept 193/193 in 180.6s`, exit **0**, clean |
+| scheduled run (full sweep + real POST) | **0xC0000409** |
+
+So the sweep is not the problem — it completes 193/193 and exits 0. **The crash is confined to the publish/exit path.** I cannot go further myself: `node publish_avwap.mjs --force` is refused by my classifier (outward write carrying `TIMER_SECRET`), so I cannot capture the failing invocation's stderr.
+
+**Why this matters more than it looks.** Nothing is visibly broken today, so it is tempting to leave it. But every run now reports failure to Task Scheduler, which means **a genuine failure is no longer distinguishable from the normal state**. The one signal that would have told us "the publisher stopped working" is now stuck on. That is the same class as the `setup_tv_launch_task.ps1` silent-success bug, inverted — constant false alarm instead of constant false success, and it costs the same thing: the signal.
+
+**This is also exactly what yesterday's run-log ask would have caught.** Task Scheduler discards stdout/stderr, so there is no record anywhere of what the process printed before dying — no exception, no stack, nothing. A per-run log would have handed you the crash text four times over by now. Renewing that ask with a concrete addition: **log the exit path too** (post-POST, pre-exit), so a crash between "published" and "process gone" is visible as a truncated line rather than as silence.
+
+**Two incidental findings from the full sweep:**
+- `WARN: sweep spans 2 bar times - a bar closed mid-sweep` fired. RTH sweeps are now ~**180s** vs 133s warm on Sunday, so they are long enough to straddle a 39m close. Your warning is doing its job; worth knowing the margin has narrowed.
+- **All 193 symbols read fine now** (`Swept 193/193`), so Tuesday's 192-row publish was a transient single-symbol failure, not a permanently broken name. The chart is currently parked on `BATS:MRNA` rather than MXL, which is harmless — the publisher restores whatever it finds — but it is a change from earlier in the week.
+
 ### 2026-08-19 — DESKTOP2 — **Ask: give the publisher a run log. Every scheduled run's `failed[]` and timing is discarded, and that is why I cannot tell you which symbol is missing.**
 
 Following up on the 193-vs-192 gap. I cannot answer it, and the reason is structural rather than a one-off:
