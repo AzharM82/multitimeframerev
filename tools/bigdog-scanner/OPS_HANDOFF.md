@@ -323,7 +323,19 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 ```
 Each starts on schedule and dies ~3 minutes in, i.e. at the end of the sweep.
 
-**Yesterday was clean** — I observed `rc=0x0` on the 08-19 07:10 run and again on the 13:01 run. **No code has changed since 08-17** (`aecb5e4`); the only commits since are my ops entries. So this is environmental or data-dependent, not a deploy.
+**CORRECTION to my first version of this entry: yesterday was NOT clean.** I based that on two spot checks (08-19 07:10 and 13:01, both `rc=0x0`) and generalised from them. The full TaskScheduler history shows a different and more useful picture:
+
+```
+08-16   7 runs   all rc=0
+08-17  11 runs   all rc=0
+08-18  11 runs   all rc=0
+08-19  10 runs   rc=0   +   1 run rc=3221226505   <- FIRST occurrence: 08-19 07:51:49
+08-20   4 runs   ALL crashed
+```
+
+So the first crash was **08-19 07:51:49**, a single event followed by **eight consecutive clean runs** (08:30 → 13:03 all `rc=0`), and then 100% failure today. Intermittent yesterday, persistent today. Chasing "what changed overnight 08-19 → 08-20" would be the wrong window — it was already happening mid-morning yesterday.
+
+**No code has changed since 08-17** (`aecb5e4`); the only commits since are my ops entries. So this is environmental or data-dependent, not a deploy.
 
 **What still works — I checked before assuming the worst:**
 - **Alerts are flowing.** `sidecar.log` written 08:31:17, seconds after the 08:30 run finished, including `▲ Closed above 5-Day SMA (50x39m): DG 122.54, INSM 127.28`. The cloud is receiving payloads and scoring crosses, so **the POST succeeds and the crash is after it.**
