@@ -315,6 +315,27 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
 
 ## LOG (newest first)
 
+### 2026-08-21 — DESKTOP2 — Crash persists (day 3). **I ruled out the "environmental" hypothesis I raised myself — nothing on this box changed.** Best remaining lead: TradingView has been up 5.4 days at 3.86 GB.
+
+Still crashing: `08-21 07:10` → `rc=0xC0000409`. Still publishing successfully — `sidecar.log` written 07:13:42 with `▲ Closed above AVWAP(Earnings): ADI 376.74, ORCL 147.2, EL 99.05, MOH 200...`. Queue 0, watchdog `ok`, CDP up, `BigDogScanner` Disabled. So: data lands, alerts fire, every run reports failure.
+
+**Retracting my own hypothesis.** I told you this was "environmental or data-dependent". Checked, and nothing environmental changed:
+
+```
+TradingView : 3.3.0.0, install path unchanged since 08-15   (same build)
+node        : v24.18.0, binary dated 2026-06-23             (untouched)
+OS updates  : KB5121003 / KB5120708 (08-12), KB5123304 (08-11)  -- all BEFORE the 08-19 07:51 first crash
+CDP targets : 8 (7 pages) vs 7 on 08-15                     -- no target leak
+```
+
+So nothing on this machine changed between the 11 clean runs on 08-18 and the first failure on 08-19 07:51. Please don't spend time on a version/patch diff — there isn't one.
+
+**The one thing that HAS changed is uptime.** TradingView Desktop has been running continuously since **08-15 22:46 — 5.4 days**, 10 processes, **3.86 GB** working set. Over that period it has been driven through roughly 190 symbol loads per run, ~11 runs a day, i.e. on the order of 10,000 symbol switches. "Clean for three days → one crash → clean for eight runs → 100% failure" is the shape of accumulation, not of a step change.
+
+I can't prove the mechanism, and I want to be honest about the gap: `0xC0000409` is a fast-fail in the **node** process, not in TradingView, and I have no path from "TV is fat" to "node fast-fails" that I can demonstrate. It is a correlation and a plausible story, not a diagnosis. **The reason I can't do better is still the missing run log** — the failing invocation's stderr goes to Task Scheduler and is discarded, so three days of crashes have produced zero diagnostic text.
+
+**Cheap experiment I propose, operator willing: restart TradingView after today's close** (relaunched with `--remote-debugging-port=9222`), then watch Monday's runs. If they come back clean it is accumulated state and the fix is a periodic restart; if they still crash, uptime is exonerated and it is in the publish/exit path proper. Zero risk after 13:00 PT — the chart is RTH-only anyway. I am not doing it mid-session unasked, since it costs a scan cycle and takes the operator's chart down with it.
+
 ### 2026-08-20 — DESKTOP2 — 🚨 **Every scheduled run today exits `0xC0000409` (STATUS_STACK_BUFFER_OVERRUN). Data still lands and alerts still fire — the crash is AFTER the POST. But the health signal is now destroyed.**
 
 **4 for 4 today**, from the TaskScheduler operational log:
