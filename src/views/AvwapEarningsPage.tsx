@@ -392,6 +392,15 @@ export function AvwapEarningsPage() {
    * did so into a RISING line. Answers the question the tile asks, but for the
    * crossings rather than the standing population.
    */
+  /**
+   * Whether the trend metric has any data behind it at all.
+   *
+   * `slopeBars` only becomes non-zero once a publisher that knows about slope
+   * has posted a sweep, so this stays false through the whole window between
+   * deploying the cloud side and DESKTOP2 picking up the publisher change.
+   */
+  const hasSlope = snap.slopeBars > 0;
+
   const smaCrossRising = useMemo(() => {
     const names = new Set(snap.todayCross[SMA5]?.up ?? []);
     return snap.rows.filter((r) => names.has(r.ticker) && sma5Rising(r)).length;
@@ -533,12 +542,19 @@ export function AvwapEarningsPage() {
         {/* The trend metric. Price above the 5-day SMA is only half the story -
             above a RISING line is the tradable half, and the denominator says
             how much of the population that actually is. */}
+        {/* NO SLOPE DATA IS NOT "NOTHING IS RISING". Until the publisher on
+            DESKTOP2 ships slope_*, every row's direction is unknown, and
+            rendering 0/71 would assert that not one name is trending up - a
+            confident wrong answer where the honest one is "not measured yet". */}
         <Tile label="5D SMA rising"
-              value={`${trendCounts.aboveSma5Rising}/${trendCounts.aboveSma5}`}
-              sub={`above & rising${snap.slopeBars ? ` · ${snap.slopeBars}-bar` : ""}`}
-              tone="text-signal-bull"
+              value={hasSlope ? `${trendCounts.aboveSma5Rising}/${trendCounts.aboveSma5}` : "—"}
+              sub={hasSlope ? `above & rising · ${snap.slopeBars}-bar`
+                            : "awaiting publisher"}
+              tone={hasSlope ? "text-signal-bull" : "text-dim"}
               active={trendFilter === "sma5Rising"}
-              onClick={() => setTrendFilter(trendFilter === "sma5Rising" ? null : "sma5Rising")} />
+              onClick={hasSlope
+                ? () => setTrendFilter(trendFilter === "sma5Rising" ? null : "sma5Rising")
+                : undefined} />
 
         {/* Every cell is a filter. Counts come from the day's crossing history,
             so a name that crossed up in the morning and back down after lunch
@@ -587,7 +603,7 @@ export function AvwapEarningsPage() {
                           event from crossing up through a falling one. Only
                           this level gets the annotation - it is the level the
                           trend metric is about. */}
-                      {k === SMA5 && up > 0 && (
+                      {k === SMA5 && up > 0 && hasSlope && (
                         <span className="ml-1.5 text-[10px] text-signal-bull"
                               title={`${smaCrossRising} of the ${up} up-crosses are into a RISING 5-day SMA`}>
                           ({smaCrossRising} rising)
