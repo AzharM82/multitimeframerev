@@ -56,6 +56,10 @@ interface Row {
   close: number;
   levels: Record<string, number | null>;
   pct: Record<string, number | null>;
+  /** Direction of the LEVEL itself over the publisher's slope window, in percent. */
+  slope: Record<string, number | null>;
+  /** "UP" | "DOWN" | "FLAT", or "" when the symbol is too young to have one. */
+  slopeDir: Record<string, string>;
   chgPct: number | null;
   chgOpenPct: number | null;
   lastCross: string;
@@ -70,8 +74,17 @@ interface Snapshot {
   stale: boolean;
   failed: string[];
   quoteSource: string;
-  /** Today's crossings per level, as ticker lists. Drives the cross matrix. */
+  /** The session's crossings per level, as ticker lists. Drives the cross matrix. */
   todayCross: Record<string, { up: string[]; down: string[] }>;
+  /**
+   * The ET date `todayCross` actually describes. NOT always today: the matrix
+   * now holds the last session's crossings through the overnight and premarket
+   * (it used to blank at 21:00 PT), and walks further back over a weekend.
+   */
+  crossDay: string;
+  crossDayIsCurrent: boolean;
+  /** Bars the publisher measured `slope` over, so the column labels itself. */
+  slopeBars: number;
   loaded: boolean;
 }
 
@@ -81,10 +94,11 @@ const EMPTY_CROSS = () =>
 
 const EMPTY: Snapshot = {
   rows: [], barUtc: "", publishedAt: "", host: "",
-  stale: true, failed: [], quoteSource: "", todayCross: EMPTY_CROSS(), loaded: false,
+  stale: true, failed: [], quoteSource: "", todayCross: EMPTY_CROSS(),
+  crossDay: "", crossDayIsCurrent: true, slopeBars: 0, loaded: false,
 };
 
-type SortKey = LevelKey | "ticker" | "close" | "chg" | "chgOpen" | "nearest" | "cross";
+type SortKey = LevelKey | "ticker" | "close" | "chg" | "chgOpen" | "nearest" | "cross" | "slope";
 type Dir = "asc" | "desc";
 
 async function fetchSnapshot(): Promise<Snapshot> {
@@ -96,14 +110,21 @@ async function fetchSnapshot(): Promise<Snapshot> {
     const rows = ((raw.rows ?? []) as Record<string, unknown>[]).map((r) => {
       const lv = (r.levels ?? {}) as Record<string, unknown>;
       const pc = (r.pct ?? {}) as Record<string, unknown>;
+      const sl = (r.slope ?? {}) as Record<string, unknown>;
+      const sd = (r.slopeDir ?? {}) as Record<string, unknown>;
       const levels: Record<string, number | null> = {};
       const pct: Record<string, number | null> = {};
-      for (const k of LEVELS) { levels[k] = n(lv[k]); pct[k] = n(pc[k]); }
+      const slope: Record<string, number | null> = {};
+      const slopeDir: Record<string, string> = {};
+      for (const k of LEVELS) {
+        levels[k] = n(lv[k]); pct[k] = n(pc[k]);
+        slope[k] = n(sl[k]); slopeDir[k] = String(sd[k] ?? "");
+      }
       return {
         ticker: String(r.ticker ?? ""),
         sym: String(r.sym ?? ""),
         close: Number(r.close ?? 0),
-        levels, pct,
+        levels, pct, slope, slopeDir,
         chgPct: n(r.chgPct),
         chgOpenPct: n(r.chgOpenPct),
         lastCross: String(r.lastCross ?? ""),
@@ -129,6 +150,9 @@ async function fetchSnapshot(): Promise<Snapshot> {
         }
         return out;
       })(),
+      crossDay: String(raw.cross_day ?? ""),
+      crossDayIsCurrent: raw.cross_day_is_current !== false,
+      slopeBars: Number(raw.slope_bars ?? 0),
       loaded: true,
     };
   } catch {
@@ -163,6 +187,35 @@ function above(r: Row, k: LevelKey): boolean | null {
 const aboveAll = (r: Row) => LEVELS.every((k) => above(r, k) === true);
 const belowAll = (r: Row) => LEVELS.every((k) => above(r, k) === false);
 
+/**
+ * The 5-day SMA (50 x 39m) — the level the trend metric is about.
+ *
+ * Named rather than inlined because "sma50" and "sma50d" differ by one
+ * character and mean completely different things (a 5-DAY average vs a 50-DAY
+ * one). Getting that wrong here would silently report the wrong trend.
+ */
+const SMA5: LevelKey = "sma50";
+
+const aboveSma5 = (r: Row) => above(r, SMA5) === true;
+const sma5Rising = (r: Row) => r.slopeDir[SMA5] === "UP";
+
+/**
+ * The metric: above the 5-day SMA AND the line itself pointing up.
+ *
+ * Price above a FALLING 5-day SMA and price above a RISING one look identical
+ * in every other column on this tab, and they are not the same trade. This is
+ * the only place the difference is visible.
+ */
+const aboveSma5Rising = (r: Row) => aboveSma5(r) && sma5Rising(r);
+
+/** Slope colouring is by DIRECTION, not magnitude — FLAT must read as neutral. */
+function slopeTone(dir: string): string {
+  if (dir === "UP") return "text-signal-bull";
+  if (dir === "DOWN") return "text-signal-bear";
+  if (dir === "FLAT") return "text-text-secondary";
+  return "text-dim";
+}
+
 function tone(p: number | null): string {
   if (p === null) return "text-dim";
   if (p >= 10) return "text-signal-bull";
@@ -170,6 +223,15 @@ function tone(p: number | null): string {
   if (p <= -10) return "text-signal-bear";
   if (p < 0) return "text-signal-bear/80";
   return "text-text-secondary";
+}
+
+/** "2026-08-24" -> "Mon Aug 24". Labels the cross matrix when it is not today. */
+function fmtDay(day: string): string {
+  if (!day) return "";
+  const t = Date.parse(`${day}T12:00:00Z`);
+  if (!Number.isFinite(t)) return day;
+  return new Date(t).toLocaleDateString("en-US",
+    { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 function fmtTime(iso: string): string {
@@ -283,7 +345,7 @@ export function AvwapEarningsPage() {
   const [dir, setDir] = useState<Dir>("asc");
   const [near, setNear] = useState(NEAR_DEFAULT);
   const [nearFilter, setNearFilter] = useState<LevelKey | "any" | null>(null);
-  const [trendFilter, setTrendFilter] = useState<"aboveAll" | "belowAll" | null>(null);
+  const [trendFilter, setTrendFilter] = useState<"aboveAll" | "belowAll" | "sma5Rising" | null>(null);
   const [crossFilter, setCrossFilter] = useState(false);
   const [multiFilter, setMultiFilter] = useState(false);
   /** One cell of the cross matrix: level + direction, e.g. AVWAP down. */
@@ -319,7 +381,30 @@ export function AvwapEarningsPage() {
     belowAll: snap.rows.filter(belowAll).length,
     crossed: snap.rows.filter(crossedToday).length,
     multi: snap.rows.filter(multiLevel).length,
+    // Numerator AND denominator: "34 rising" means nothing without knowing
+    // whether 40 or 140 names are above the line in the first place.
+    aboveSma5: snap.rows.filter(aboveSma5).length,
+    aboveSma5Rising: snap.rows.filter(aboveSma5Rising).length,
   }), [snap.rows]);
+
+  /**
+   * Of the names that crossed UP through the 5-day SMA this session, how many
+   * did so into a RISING line. Answers the question the tile asks, but for the
+   * crossings rather than the standing population.
+   */
+  /**
+   * Whether the trend metric has any data behind it at all.
+   *
+   * `slopeBars` only becomes non-zero once a publisher that knows about slope
+   * has posted a sweep, so this stays false through the whole window between
+   * deploying the cloud side and DESKTOP2 picking up the publisher change.
+   */
+  const hasSlope = snap.slopeBars > 0;
+
+  const smaCrossRising = useMemo(() => {
+    const names = new Set(snap.todayCross[SMA5]?.up ?? []);
+    return snap.rows.filter((r) => names.has(r.ticker) && sma5Rising(r)).length;
+  }, [snap.rows, snap.todayCross]);
 
   const rows = useMemo(() => {
     const q = query.trim().toUpperCase();
@@ -328,6 +413,7 @@ export function AvwapEarningsPage() {
     if (nearFilter) out = out.filter((r) => isNear(r, nearFilter));
     if (trendFilter === "aboveAll") out = out.filter(aboveAll);
     if (trendFilter === "belowAll") out = out.filter(belowAll);
+    if (trendFilter === "sma5Rising") out = out.filter(aboveSma5Rising);
     if (crossFilter) out = out.filter(crossedToday);
     if (multiFilter) out = out.filter(multiLevel);
     if (cell) {
@@ -345,6 +431,7 @@ export function AvwapEarningsPage() {
         case "chg": return sign * (num(a.chgPct) - num(b.chgPct));
         case "chgOpen": return sign * (num(a.chgOpenPct) - num(b.chgOpenPct));
         case "cross": return sign * a.lastCrossAt.localeCompare(b.lastCrossAt);
+        case "slope": return sign * (num(a.slope[SMA5] ?? null) - num(b.slope[SMA5] ?? null));
         case "nearest": {
           const av = Math.abs(nearest(a)?.pct ?? Infinity), bv = Math.abs(nearest(b)?.pct ?? Infinity);
           return sign * (av - bv);
@@ -371,10 +458,12 @@ export function AvwapEarningsPage() {
 
   const exportCsv = () => {
     const head = ["ticker", "sym", "close", "chg_pct", "chg_open_pct",
-                  ...LEVELS.flatMap((k) => [`${k}`, `pct_${k}`]), "nearest", "last_cross", "last_cross_at"];
+                  ...LEVELS.flatMap((k) => [`${k}`, `pct_${k}`, `slope_${k}`]),
+                  "sma5_slope_dir", "nearest", "last_cross", "last_cross_at"];
     const lines = rows.map((r) => [
       r.ticker, r.sym, r.close, r.chgPct ?? "", r.chgOpenPct ?? "",
-      ...LEVELS.flatMap((k) => [r.levels[k] ?? "", r.pct[k] ?? ""]),
+      ...LEVELS.flatMap((k) => [r.levels[k] ?? "", r.pct[k] ?? "", r.slope[k] ?? ""]),
+      r.slopeDir[SMA5] ?? "",
       nearest(r) ? LEVEL_LABEL[nearest(r)!.level] : "", r.lastCross, r.lastCrossAt,
     ].join(","));
     const blob = new Blob([[head.join(","), ...lines].join("\n")], { type: "text/csv" });
@@ -450,6 +539,22 @@ export function AvwapEarningsPage() {
         <Tile label="Below all 4" value={trendCounts.belowAll} tone="text-signal-bear"
               active={trendFilter === "belowAll"}
               onClick={() => setTrendFilter(trendFilter === "belowAll" ? null : "belowAll")} />
+        {/* The trend metric. Price above the 5-day SMA is only half the story -
+            above a RISING line is the tradable half, and the denominator says
+            how much of the population that actually is. */}
+        {/* NO SLOPE DATA IS NOT "NOTHING IS RISING". Until the publisher on
+            DESKTOP2 ships slope_*, every row's direction is unknown, and
+            rendering 0/71 would assert that not one name is trending up - a
+            confident wrong answer where the honest one is "not measured yet". */}
+        <Tile label="5D SMA rising"
+              value={hasSlope ? `${trendCounts.aboveSma5Rising}/${trendCounts.aboveSma5}` : "—"}
+              sub={hasSlope ? `above & rising · ${snap.slopeBars}-bar`
+                            : "awaiting publisher"}
+              tone={hasSlope ? "text-signal-bull" : "text-dim"}
+              active={trendFilter === "sma5Rising"}
+              onClick={hasSlope
+                ? () => setTrendFilter(trendFilter === "sma5Rising" ? null : "sma5Rising")
+                : undefined} />
 
         {/* Every cell is a filter. Counts come from the day's crossing history,
             so a name that crossed up in the morning and back down after lunch
@@ -458,7 +563,13 @@ export function AvwapEarningsPage() {
           <table className="text-xs">
             <thead className="text-text-secondary">
               <tr className="border-b border-border">
-                <th className="px-3 py-1 text-left font-semibold">Crossed today</th>
+                <th className="px-3 py-1 text-left font-semibold whitespace-nowrap">
+                  {snap.crossDayIsCurrent ? "Crossed today" : (
+                    <span title="The last session that recorded crossings. Held through the overnight and premarket until the new feed starts at 6:30 AM PT.">
+                      Crossed <span className="text-signal-bull">{fmtDay(snap.crossDay)}</span>
+                    </span>
+                  )}
+                </th>
                 <th className="px-3 py-1 text-right font-semibold text-signal-bull">▲ up</th>
                 <th className="px-3 py-1 text-right font-semibold text-signal-bear">▼ down</th>
               </tr>
@@ -486,7 +597,19 @@ export function AvwapEarningsPage() {
                 return (
                   <tr key={k} className="border-b border-border/40 last:border-0">
                     <td className="px-3 py-0.5 whitespace-nowrap text-text-secondary"
-                        title={LEVEL_HINT[k]}>{LEVEL_LABEL[k]}</td>
+                        title={LEVEL_HINT[k]}>
+                      {LEVEL_LABEL[k]}
+                      {/* Crossing UP through a rising 5-day SMA is a different
+                          event from crossing up through a falling one. Only
+                          this level gets the annotation - it is the level the
+                          trend metric is about. */}
+                      {k === SMA5 && up > 0 && hasSlope && (
+                        <span className="ml-1.5 text-[10px] text-signal-bull"
+                              title={`${smaCrossRising} of the ${up} up-crosses are into a RISING 5-day SMA`}>
+                          ({smaCrossRising} rising)
+                        </span>
+                      )}
+                    </td>
                     <Cell n={up} d="up" tint="text-signal-bull" />
                     <Cell n={down} d="down" tint="text-signal-bear" />
                   </tr>
@@ -554,6 +677,10 @@ export function AvwapEarningsPage() {
               <Th k="chg" right>Chg %</Th>
               <Th k="chgOpen" right>From Open</Th>
               {LEVELS.map((k) => <Th key={k} k={k} right hint={LEVEL_HINT[k]}>Δ% {LEVEL_LABEL[k]}</Th>)}
+              <Th k="slope" right
+                  hint={`Slope of the 5-day SMA line itself over the last ${snap.slopeBars || 15} bars of 39m. Positive = the line is rising. This is the direction of the LEVEL, not of price against it.`}>
+                5D slope
+              </Th>
               <Th k="nearest">Nearest</Th>
               <th className="px-2 py-2 font-semibold text-left">Daily</th>
               <Th k="cross">Last cross</Th>
@@ -561,10 +688,10 @@ export function AvwapEarningsPage() {
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={11} className="px-3 py-6 text-text-secondary">Loading…</td></tr>
+              <tr><td colSpan={12} className="px-3 py-6 text-text-secondary">Loading…</td></tr>
             )}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={11} className="px-3 py-6 text-text-secondary">No symbols match.</td></tr>
+              <tr><td colSpan={12} className="px-3 py-6 text-text-secondary">No symbols match.</td></tr>
             )}
             {rows.map((r) => {
               const nr = nearest(r);
@@ -608,6 +735,21 @@ export function AvwapEarningsPage() {
                   <PctCell p={r.chgPct} />
                   <PctCell p={r.chgOpenPct} bold={false} />
                   {LEVELS.map((k) => <PctCell key={k} p={pctOf(r, k)} />)}
+                  {(() => {
+                    // Raw number AND arrow, deliberately. The arrow is the
+                    // deadbanded call the tile counts off; the number is what
+                    // lets the deadband itself be retuned from real data
+                    // instead of re-guessed.
+                    const sv = r.slope[SMA5] ?? null;
+                    const sd = r.slopeDir[SMA5] ?? "";
+                    const glyph = sd === "UP" ? "▲" : sd === "DOWN" ? "▼" : sd === "FLAT" ? "→" : "";
+                    return (
+                      <td className={`px-2 py-1.5 text-right tabular-nums whitespace-nowrap ${slopeTone(sd)}`}
+                          title={sd ? `5-day SMA is ${sd.toLowerCase()}` : "not enough history behind the level"}>
+                        {sv === null ? "—" : `${glyph} ${sv > 0 ? "+" : ""}${sv.toFixed(2)}%`}
+                      </td>
+                    );
+                  })()}
                   <td className="px-2 py-1.5 text-[11px] text-text-secondary whitespace-nowrap">
                     {nr ? `${LEVEL_LABEL[nr.level]} ${nr.pct > 0 ? "+" : ""}${nr.pct.toFixed(2)}%` : "—"}
                   </td>

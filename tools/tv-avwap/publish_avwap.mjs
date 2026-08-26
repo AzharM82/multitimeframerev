@@ -74,6 +74,12 @@ const WATCHLIST = process.env.TV_WATCHLIST || "MASTER";
 const CHART_URL = process.env.TV_CHART_URL || "";
 const EXPECT_RES = String(process.env.TV_EXPECT_RESOLUTION || "39");
 const SYMBOL_TIMEOUT_MS = Number(process.env.TV_SYMBOL_TIMEOUT_MS || 12000);
+// How many 39m bars back the level-slope is measured over. A session is exactly
+// 10 bars (390 min / 39), so 15 is a session and a half: slow enough that a
+// 5-day average is not judged on intraday noise, and it deliberately does not
+// land on a day boundary, which keeps the reading from quantizing to day edges.
+// Tunable without a code change - try 10 for a faster read, 20 for a slower one.
+const SLOPE_BARS = Number(process.env.TV_SLOPE_BARS || 15);
 /**
  * Logical publisher name shown in the portal.
  *
@@ -330,7 +336,7 @@ async function run() {
     // Generous ceiling: ~1.3s/symbol observed, plus slack for cold symbols.
     const sweepTimeout = Math.max(120000, symbols.length * (SYMBOL_TIMEOUT_MS + 2000));
     const resSeconds = Number(EXPECT_RES) * 60;
-    const out = await session.evaluate(jsSweep(symbols, SYMBOL_TIMEOUT_MS, resSeconds), sweepTimeout);
+    const out = await session.evaluate(jsSweep(symbols, SYMBOL_TIMEOUT_MS, resSeconds, SLOPE_BARS), sweepTimeout);
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     if (out?.fatal) {
       console.error("ERROR: sweep aborted - the CHART is wrong, so every remaining symbol " +
@@ -364,6 +370,10 @@ async function run() {
       resolution: EXPECT_RES,
       watchlist: wl.name,
       levels: LEVELS,
+      // The window `slope_*` was measured over, so the tab labels the column
+      // with the real number instead of assuming whatever was hardcoded when it
+      // was written. Changing TV_SLOPE_BARS relabels the UI on the next sweep.
+      slope_bars: SLOPE_BARS,
       failed,
       // Each row carries the LIVE bar (what the tab shows) and, per level, the
       // last two CLOSED bars (what the alert is decided on). See chart_js.mjs.
@@ -384,6 +394,8 @@ async function run() {
           o["pct_" + k] = L ? L.pct : null;
           o["c_pct_" + k] = L ? L.cPct : null;
           o["p_pct_" + k] = L ? L.pPct : null;
+          // Direction of the LEVEL itself over SLOPE_BARS, in percent.
+          o["slope_" + k] = L ? L.slope : null;
         }
         return o;
       }),

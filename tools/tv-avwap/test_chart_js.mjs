@@ -203,5 +203,100 @@ for (const [name, src] of [["jsPreflight", jsPreflight("39")],
 }
 
 console.log("");
+console.log("--- slope of the LEVEL itself (the trend metric) ---");
+
+/**
+ * A chart `n` bars long where the 5-day SMA moves `stepPct` per bar. The daily
+ * levels stay SPARSE - a value only on bar 0 - because that is the real shape
+ * and the slope has to stay correct through carryBack, not just on dense data.
+ */
+function makeRamp(n, stepPct) {
+  const times = Array.from({ length: n }, (_, i) => BAR - (n - 1 - i) * 39 * 60);
+  const bars = times.map((t) => [t, 84.96, 84.96, 84.96, 84.96, 1000]);
+  const smaAt = (i) => SMA50 * Math.pow(1 + stepPct / 100, i);
+  return {
+    times,
+    smaAt,
+    sources: [
+      priceSeries("MXL · BATS, 39", bars),
+      series(VWAP_T, times.map((t) => [t, AVWAP, AVWAP * 1.01, AVWAP * 0.99, null, null, null, null])),
+      series(SMA_T, times.map((t, i) => [t, smaAt(i), null, null, null, null])),
+      series(HTF_T, times.map((t, i) => (i === 0
+        ? [t, null, 0, EMA21D, 1, SMA50D, 2, null, 3, null, 4]
+        : [t, null, 0, null, 1, null, 2, null, 3, null, 4]))),
+    ],
+  };
+}
+
+// The last bar is CLOSED for these, so the scored bar ci === li.
+const realNow2 = Date.now;
+Date.now = () => (BAR + 39 * 60) * 1000;
+
+// 30 bars, +0.20%/bar. Over a 15-bar lookback the line is up 1.015^... exactly
+// (1.002^15 - 1) * 100 = 3.0421%. Asserting the NUMBER, not just the sign:
+// a sign-only test passes just as happily with an off-by-one lookback.
+{
+  const ramp = makeRamp(30, 0.20);
+  sources = ramp.sources;
+  const r = win.__avwRead("MXL", 39 * 60, "BATS:MXL", 15);
+  const want = +(((ramp.smaAt(29) - ramp.smaAt(14)) / ramp.smaAt(14)) * 100).toFixed(3);
+  eq("rising 5D SMA reports the exact 15-bar slope", r?.levels.sma50.slope, want);
+  ok("rising slope is positive", r?.levels.sma50.slope > 0);
+}
+
+// Symmetry. Same magnitude of step down must report the mirror sign.
+{
+  const ramp = makeRamp(30, -0.20);
+  sources = ramp.sources;
+  const r = win.__avwRead("MXL", 39 * 60, "BATS:MXL", 15);
+  ok("falling 5D SMA reports a negative slope", r?.levels.sma50.slope < 0);
+}
+
+// A dead-flat line must read exactly zero, not a rounding artefact - the
+// deadband downstream depends on this being clean.
+{
+  const ramp = makeRamp(30, 0);
+  sources = ramp.sources;
+  const r = win.__avwRead("MXL", 39 * 60, "BATS:MXL", 15);
+  eq("a flat line reports exactly zero slope", r?.levels.sma50.slope, 0);
+}
+
+// The lookback is honoured, not hardcoded. 10 bars of the same ramp must give a
+// SMALLER slope than 15 - this is what catches TV_SLOPE_BARS being ignored.
+{
+  const ramp = makeRamp(30, 0.20);
+  sources = ramp.sources;
+  const a = win.__avwRead("MXL", 39 * 60, "BATS:MXL", 10);
+  const b = win.__avwRead("MXL", 39 * 60, "BATS:MXL", 15);
+  ok("a shorter lookback yields a smaller slope",
+     a?.levels.sma50.slope > 0 && a.levels.sma50.slope < b.levels.sma50.slope);
+  const want10 = +(((ramp.smaAt(29) - ramp.smaAt(19)) / ramp.smaAt(19)) * 100).toFixed(3);
+  eq("10-bar lookback steps back exactly 10 bars", a?.levels.sma50.slope, want10);
+}
+
+// NOT ENOUGH HISTORY IS NULL, NOT ZERO. A young symbol has an unknown trend;
+// reporting 0 would fold it into FLAT and quietly count it as "not rising".
+{
+  const ramp = makeRamp(8, 0.20);
+  sources = ramp.sources;
+  const r = win.__avwRead("MXL", 39 * 60, "BATS:MXL", 15);
+  eq("too little history -> null slope, never 0", r?.levels.sma50.slope, null);
+  ok("the row still publishes its levels", r?.levels.sma50.value > 0);
+}
+
+// A SPARSE daily line is flat across the bars it spans, so its slope over a
+// window inside one day is genuinely 0 - carryBack must produce that, not null.
+{
+  const ramp = makeRamp(30, 0.20);
+  sources = ramp.sources;
+  const r = win.__avwRead("MXL", 39 * 60, "BATS:MXL", 15);
+  eq("a sparse daily level carries back to a real slope", r?.levels.sma50d.slope, 0);
+  ok("a sparse daily level is not null", r?.levels.sma50d.slope !== null);
+}
+
+Date.now = realNow2;
+sources = makeChart();
+
+console.log("");
 console.log(failures ? `RESULT: ${failures} FAILURE(S)` : "RESULT: ALL PASS");
 process.exit(failures ? 1 : 0);

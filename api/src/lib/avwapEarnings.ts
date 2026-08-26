@@ -56,6 +56,46 @@ export const META_RK = "__meta__";
 const DEFAULT_CROSS_MIN_PCT = 0.25;
 const DEFAULT_STALE_MIN = 15;
 
+/**
+ * Deadband for calling a level's own slope UP or DOWN.
+ *
+ * A 5-day average is heavily smoothed, so its slope is small in absolute terms
+ * and hovers around zero on a rangebound name. Without a deadband a flat line
+ * would report UP and DOWN on alternating bars purely on rounding, and the
+ * "above and rising" count - the whole point of the metric - would flicker.
+ *
+ * 0.10% over the publisher's slope window is a deliberately low bar: the raw
+ * slope ships alongside the label so the real distribution is visible on the
+ * tab, and this can be retuned from the observed spread rather than guessed at
+ * twice.
+ */
+const DEFAULT_SLOPE_MIN_PCT = 0.10;
+
+export type SlopeDirection = "UP" | "DOWN" | "FLAT";
+
+function slopeMinPct(): number {
+  const n = Number(process.env.AVWAP_SLOPE_MIN_PCT);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_SLOPE_MIN_PCT;
+}
+
+/**
+ * Which way the LEVEL is pointing - a different question from where price sits
+ * relative to it, and the one that decides whether a 5-day SMA is worth
+ * trading against or is just a falling line price happens to be crossing.
+ *
+ * Pure and exported so `api/tools/avwap-rules-test.mjs` can pin it the same way
+ * it pins classifyCross().
+ */
+export function classifySlope(
+  slope: number | null | undefined,
+  minPct: number = slopeMinPct(),
+): SlopeDirection | "" {
+  if (slope === null || slope === undefined || !Number.isFinite(slope)) return "";
+  if (slope >= minPct) return "UP";
+  if (slope <= -minPct) return "DOWN";
+  return "FLAT";
+}
+
 export const LEVELS = ["avwap", "sma50", "ema21d", "sma50d"] as const;
 export type Level = (typeof LEVELS)[number];
 export type CrossDirection = "CROSS_UP" | "CROSS_DOWN";
@@ -107,6 +147,14 @@ export interface AvwapRow {
   levels: Record<string, number | null>;
   /** Distance of the live close from each level, in percent. */
   pct: Record<string, number | null>;
+  /**
+   * Direction of each LEVEL itself over the publisher's slope window, in
+   * percent. Positive = the line is rising. Null when the symbol is too young
+   * to have that much history behind the level.
+   */
+  slope: Record<string, number | null>;
+  /** UP / DOWN / FLAT per level, `slope` put through the deadband. */
+  slopeDir: Record<string, SlopeDirection | "">;
   /** Every level cleared on that bar: "sma50,ema21d:CROSS_UP". */
   lastCross: string;
   lastCrossAt: string;
@@ -131,6 +179,17 @@ export interface AvwapSnapshot {
    * quietly under-report exactly the choppy names worth looking at.
    */
   todayCross: Record<string, { up: string[]; down: string[] }>;
+  /**
+   * The ET date `todayCross` actually describes. Not always "today": the matrix
+   * holds the last session's crossings through the overnight and premarket, and
+   * falls further back across weekends and holidays. The tab labels off this
+   * instead of hardcoding the word "today".
+   */
+  crossDay: string;
+  /** True when `crossDay` is the session currently in progress. */
+  crossDayIsCurrent: boolean;
+  /** Bars the publisher measured `slope` over, so the tab can label the column. */
+  slopeBars: number;
 }
 
 /** Historical rows say TOUCH_DOWN; it means the same side as CROSS_DOWN. */
@@ -279,6 +338,47 @@ function etDayStr(now = new Date()): string {
   return now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
 
+/**
+ * The ET date of the SESSION the crossing matrix belongs to, rolling at
+ * 09:30 ET (06:30 PT) rather than at midnight.
+ *
+ * Writes key on `etDayStr()` and always land during RTH, so the two agree while
+ * the market is open. They diverge exactly where it matters: between 00:00 ET
+ * and 09:30 ET, `etDayStr()` has already rolled to a partition nothing has
+ * written to yet, so the matrix read zero for every level from 21:00 PT until
+ * the first genuine crossing of the next session (~07:49 PT — the 06:31 and
+ * 07:10 sweeps score the PREVIOUS session's last bar, which dedup suppresses).
+ *
+ * That blanked the whole overnight and premarket, which is when you actually
+ * want to review what crossed. Rolling at the open keeps the last session's
+ * crossings on screen right up until the new feed starts producing its own.
+ */
+export function sessionDayStr(now = new Date()): string {
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const mins = et.getHours() * 60 + et.getMinutes();
+  if (mins >= 9 * 60 + 30) return etDayStr(now);
+  const prev = new Date(now.getTime() - 24 * 3600 * 1000);
+  return etDayStr(prev);
+}
+
+/** `d` shifted back `n` calendar days, as an ET date string. */
+function etDayMinus(d: string, n: number): string {
+  const t = Date.parse(`${d}T12:00:00Z`);
+  return etDayStr(new Date(t - n * 24 * 3600 * 1000));
+}
+
+/**
+ * How far back to look for the most recent session that actually recorded
+ * crossings. Weekends and holidays leave empty partitions behind, so without a
+ * walk-back the matrix would blank every Saturday morning and stay blank all
+ * weekend. Four days clears a Fri→Mon gap plus a holiday on either end.
+ *
+ * The walk-back is why `crossDay` ships in the payload: on a genuinely quiet
+ * session it will surface the PREVIOUS day's crossings, and the tab has to be
+ * able to say so rather than passing them off as today's.
+ */
+const CROSS_LOOKBACK_DAYS = 4;
+
 /** ET calendar date of a BAR, from its epoch seconds. */
 function barDayStr(barTime: number): string {
   return new Date(barTime * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -296,7 +396,7 @@ export interface RecordResult {
 
 export async function recordSnapshot(
   rows: AvwapInputRow[],
-  opts: { barUtc: string; publishedAt: string; host: string; failed: string[] },
+  opts: { barUtc: string; publishedAt: string; host: string; failed: string[]; slopeBars?: number },
 ): Promise<RecordResult> {
   const nowIso = new Date().toISOString();
   const minPct = crossMinPct();
@@ -357,6 +457,12 @@ export async function recordSnapshot(
       entity[level] = value;
       entity[`pct_${level}`] = livePct;
 
+      // Slope of the level itself. Stored whether or not anything crossed: the
+      // "above and rising" count is a live property of every row, not just of
+      // the ones that crossed today.
+      const slope = num(raw[`slope_${level}`]);
+      entity[`slope_${level}`] = slope;
+
       const c = num(raw[`c_pct_${level}`]);
       const p = num(raw[`p_pct_${level}`]);
       const dir = classifyCross(p, c, minPct);
@@ -379,6 +485,17 @@ export async function recordSnapshot(
           prevPct: Number((p as number).toFixed(4)),
           pct: Number((c as number).toFixed(4)),
           close: closedClose, levelValue: value ?? 0,
+          // The level's OWN direction at the moment it was crossed.
+          //
+          // This is the field that makes the trend metric answerable rather
+          // than merely visible: a live "above and rising" count tells you what
+          // is true now, but only a slope stamped onto the crossing itself lets
+          // you go back and ask whether crossing up through a RISING 5-day SMA
+          // actually behaved differently from crossing up through a falling
+          // one. Written here because this is the only place that sees both the
+          // crossing and the slope on the same closed bar.
+          slope: slope,
+          slopeDir: classifySlope(slope),
           barTime, barIso: new Date(barTime * 1000).toISOString(),
           firedAt: nowIso, host: opts.host,
         },
@@ -412,6 +529,10 @@ export async function recordSnapshot(
     receivedAt: nowIso,
     host: opts.host,
     count: stored,
+    // Carried so the tab labels the slope column with the window actually used,
+    // not one hardcoded in the frontend that silently goes stale the moment
+    // TV_SLOPE_BARS is retuned on the publisher.
+    slopeBars: Number(opts.slopeBars) > 0 ? Number(opts.slopeBars) : 0,
     // A dead feed must never look like a quiet market — carry the publisher's
     // own failure list through to the tab.
     failed: opts.failed.join(",").slice(0, 30000),
@@ -507,22 +628,36 @@ export async function getSnapshot(): Promise<AvwapSnapshot> {
     rows: [], barUtc: "", publishedAt: "", receivedAt: "",
     host: "", ageMin: -1, stale: true, failed: [],
     todayCross: Object.fromEntries(LEVELS.map((l) => [l, { up: [], down: [] }])),
+    crossDay: "", crossDayIsCurrent: true, slopeBars: 0,
   };
 
-  // Today's crossings, for the up/down matrix. Non-fatal: the levels are the
-  // point of this tab, and an empty matrix is better than a 500.
+  // The session's crossings, for the up/down matrix. Non-fatal: the levels are
+  // the point of this tab, and an empty matrix is better than a 500.
+  //
+  // Walks back from the current SESSION day (which rolls at the open, not at
+  // midnight) to the most recent partition that has anything in it, so the
+  // matrix survives the overnight, the premarket and the weekend.
+  const session = sessionDayStr();
+  out.crossDay = session;
   try {
-    const events = await listByPartition<Record<string, unknown>>(
-      TABLES.AVWAP_EARNINGS, etDayStr());
-    for (const e of events) {
-      const level = String(e.level ?? "");
-      const ticker = String(e.ticker ?? "");
-      const bucket = out.todayCross[level];
-      if (!bucket || !ticker) continue;
-      const side = isDown(String(e.direction ?? "")) ? bucket.down : bucket.up;
-      if (!side.includes(ticker)) side.push(ticker);
+    for (let back = 0; back <= CROSS_LOOKBACK_DAYS; back++) {
+      const day = back === 0 ? session : etDayMinus(session, back);
+      const events = await listByPartition<Record<string, unknown>>(
+        TABLES.AVWAP_EARNINGS, day);
+      if (!events.length) continue;
+      for (const e of events) {
+        const level = String(e.level ?? "");
+        const ticker = String(e.ticker ?? "");
+        const bucket = out.todayCross[level];
+        if (!bucket || !ticker) continue;
+        const side = isDown(String(e.direction ?? "")) ? bucket.down : bucket.up;
+        if (!side.includes(ticker)) side.push(ticker);
+      }
+      out.crossDay = day;
+      break;
     }
   } catch { /* matrix renders empty */ }
+  out.crossDayIsCurrent = out.crossDay === session;
 
   const entities = await listByPartition<Record<string, unknown>>(
     TABLES.AVWAP_EARNINGS, CURRENT_PK);
@@ -535,14 +670,20 @@ export async function getSnapshot(): Promise<AvwapSnapshot> {
       out.receivedAt = String(e.receivedAt ?? "");
       out.host = String(e.host ?? "");
       out.failed = String(e.failed ?? "").split(",").filter(Boolean);
+      out.slopeBars = num(e.slopeBars) ?? 0;
       continue;
     }
     const levels: Record<string, number | null> = {};
     const pct: Record<string, number | null> = {};
+    const slope: Record<string, number | null> = {};
+    const slopeDir: Record<string, SlopeDirection | ""> = {};
     for (const level of LEVELS) {
       levels[level] = num(e[level]);
       const v = num(e[`pct_${level}`]);
       pct[level] = v === null ? null : Number(v.toFixed(2));
+      const sl = num(e[`slope_${level}`]);
+      slope[level] = sl === null ? null : Number(sl.toFixed(2));
+      slopeDir[level] = classifySlope(sl);
     }
     out.rows.push({
       ticker: rk,
@@ -550,6 +691,8 @@ export async function getSnapshot(): Promise<AvwapSnapshot> {
       close: num(e.close) ?? 0,
       levels,
       pct,
+      slope,
+      slopeDir,
       lastCross: String(e.lastCross ?? ""),
       lastCrossAt: String(e.lastCrossAt ?? ""),
     });

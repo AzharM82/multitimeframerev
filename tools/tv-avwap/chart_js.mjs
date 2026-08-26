@@ -43,14 +43,14 @@
  */
 
 // Installs the sweep helpers. Idempotent - safe to re-evaluate.
-export const INSTALL_VERSION = "resolver-2026-08-16b";
+export const INSTALL_VERSION = "resolver-2026-08-25-slope";
 
 export const INSTALL = `(function () {
   // Stamped so the publisher can prove the helpers it is about to use are the
   // ones it just installed. window.__avw* survives run to run - nothing reloads
   // the tab - so a half-installed build can otherwise keep running the PREVIOUS
   // build's resident helpers and look healthy.
-  window.__avwVersion = 'resolver-2026-08-16b';
+  window.__avwVersion = 'resolver-2026-08-25-slope';
   window.__avwSleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   var T = function (s) { try { return s.title(); } catch (e) { return ''; } };
@@ -258,7 +258,7 @@ export const INSTALL = `(function () {
    * Deciding the cross from two adjacent BARS rather than two successive
    * publishes also makes the answer independent of how often this runs.
    */
-  window.__avwRead = function (ticker, resSeconds, sym) {
+  window.__avwRead = function (ticker, resSeconds, sym, slopeBars) {
     const ds = window.__avwSources();
     const px = ds.find(s => T(s).indexOf(' \\u00b7 ') > -1 && T(s).indexOf('(') === -1);
     if (!px) return null;
@@ -318,17 +318,36 @@ export const INSTALL = `(function () {
       // rest rendering n/a and simply never alerting.
       if (vLive === null || vC === null || vP === null) {
         if (key === 'avwap') return null;
-        out.levels[key] = { value: null, pct: null, cPct: null, pPct: null };
+        out.levels[key] = { value: null, pct: null, cPct: null, pPct: null, slope: null };
         continue;
       }
+      // SLOPE OF THE LINE ITSELF - not of price against it.
+      //
+      // Every other number here answers "where is price relative to the level".
+      // This one answers "which way is the level going", which is a different
+      // question and the one that separates a 5-day SMA worth trading from a
+      // falling knife price happens to be poking through.
+      //
+      // Measured off the CLOSED bar (vC), not the live one, so it is decided on
+      // the same bar the cross is - a slope read from a half-formed bar would
+      // not be comparable with the crossing it is stored against.
+      //
+      // carryBack is what makes this correct for the DAILY levels too: a daily
+      // line is flat across the intraday bars it spans, so stepping back N bars
+      // and carrying forward yields the level as it was plotted then, which is
+      // exactly the line the operator saw on screen.
+      var vBack = (iC - slopeBars >= 0) ? carryBack(d, iC - slopeBars, L.valueIdx) : null;
+      var slope = (vBack !== null && vBack > 0) ? +(((vC - vBack) / vBack) * 100).toFixed(3) : null;
+
       out.levels[key] = { value: vLive, pct: pctFrom(liveClose, vLive),
-                          cPct: pctFrom(cClose, vC), pPct: pctFrom(pClose, vP) };
+                          cPct: pctFrom(cClose, vC), pPct: pctFrom(pClose, vP),
+                          slope: slope };
     }
 
     return out;
   };
 
-  window.__avwOne = async function (sym, timeoutMs, resSeconds) {
+  window.__avwOne = async function (sym, timeoutMs, resSeconds, slopeBars) {
     const ticker = sym.split(':').pop();
     const chart = window.TradingViewApi.activeChart();
     await new Promise(res => {
@@ -337,7 +356,7 @@ export const INSTALL = `(function () {
     });
     const t0 = Date.now();
     while (Date.now() - t0 < timeoutMs) {
-      const r = window.__avwRead(ticker, resSeconds, sym);
+      const r = window.__avwRead(ticker, resSeconds, sym, slopeBars);
       if (r && r.fatal) return r;          // chart misconfigured - stop the sweep
       if (r) return r;
       await window.__avwSleep(250);
@@ -384,13 +403,13 @@ export function jsWatchlist(name) {
 // must never be indistinguishable from a quiet market. A `fatal` result aborts
 // the sweep: that means the CHART is wrong, and every remaining symbol would be
 // wrong the same way.
-export function jsSweep(symbols, timeoutMs, resSeconds) {
+export function jsSweep(symbols, timeoutMs, resSeconds, slopeBars) {
   return `(async function () {
     const syms = ${JSON.stringify(symbols)};
     const rows = [], failed = [];
     for (const sym of syms) {
       let r = null;
-      try { r = await window.__avwOne(sym, ${timeoutMs}, ${resSeconds}); } catch (e) { r = null; }
+      try { r = await window.__avwOne(sym, ${timeoutMs}, ${resSeconds}, ${Number(slopeBars) || 15}); } catch (e) { r = null; }
       if (r && r.fatal) return { rows: rows, failed: failed, fatal: r.fatal };
       if (r) rows.push(r); else failed.push(sym.split(':').pop());
     }

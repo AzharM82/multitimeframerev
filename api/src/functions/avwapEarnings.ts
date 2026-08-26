@@ -76,6 +76,8 @@ interface PostBody {
   host?: string;
   failed?: unknown;
   rows?: unknown;
+  /** Bars the publisher measured `slope_<level>` over (TV_SLOPE_BARS). */
+  slope_bars?: unknown;
 }
 
 async function handler(req: HttpRequest): Promise<HttpResponseInit> {
@@ -107,6 +109,13 @@ async function handler(req: HttpRequest): Promise<HttpResponseInit> {
           // Per-level up/down for today, as ticker lists: the tab counts them
           // for the cross matrix and filters the table by membership.
           today_cross: snap.todayCross,
+          // The ET date `today_cross` describes. It holds the last session's
+          // crossings through the overnight/premarket and across weekends, so
+          // the tab must label off this rather than assuming "today".
+          cross_day: snap.crossDay,
+          cross_day_is_current: snap.crossDayIsCurrent,
+          // Window `slope` was measured over, echoed from the publisher.
+          slope_bars: snap.slopeBars,
         },
       };
     } catch (err) {
@@ -140,6 +149,7 @@ async function handler(req: HttpRequest): Promise<HttpResponseInit> {
       publishedAt: String(body.published_at ?? ""),
       host: String(body.host ?? ""),
       failed,
+      slopeBars: Number(body.slope_bars) || 0,
     });
     return {
       jsonBody: {

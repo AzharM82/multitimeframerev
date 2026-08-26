@@ -10,18 +10,45 @@ import { TableClient, TableServiceClient, odata } from "@azure/data-tables";
 const clients = new Map<string, TableClient>();
 const ensured = new Set<string>();
 
-function getServiceClient(): TableServiceClient {
+/**
+ * Emulator escape hatch, and ONLY that.
+ *
+ * The SDK refuses plain HTTP unless `allowInsecureConnection` is set, which
+ * makes a local Azurite endpoint unusable — so the only way to exercise this
+ * code against real Table Storage semantics was to point it at the PRODUCTION
+ * account. That is how a local run ends up writing to live tables, and for the
+ * AVWAP endpoint specifically a POST prunes `current` down to whatever roster
+ * it was handed, so one careless local publish empties the tab.
+ *
+ * Gated strictly on the endpoint being loopback. A real *.table.core.windows.net
+ * endpoint is https and never matches, so this can never silently downgrade a
+ * production connection — it only unblocks a local emulator.
+ */
+function isLoopbackEndpoint(connStr: string): boolean {
+  return /(?:^|;)TableEndpoint=http:\/\/(?:127\.0\.0\.1|localhost|\[::1\])[:/]/i.test(connStr)
+    || /(?:^|;)UseDevelopmentStorage=true(?:;|$)/i.test(connStr);
+}
+
+function connString(): string {
   const connStr = process.env.AZURE_STORAGE_CONNECTION_STRING;
   if (!connStr) throw new Error("AZURE_STORAGE_CONNECTION_STRING not set");
-  return TableServiceClient.fromConnectionString(connStr);
+  return connStr;
+}
+
+function clientOptions(connStr: string) {
+  return isLoopbackEndpoint(connStr) ? { allowInsecureConnection: true } : undefined;
+}
+
+function getServiceClient(): TableServiceClient {
+  const connStr = connString();
+  return TableServiceClient.fromConnectionString(connStr, clientOptions(connStr));
 }
 
 export function getClient(tableName: string): TableClient {
   const cached = clients.get(tableName);
   if (cached) return cached;
-  const connStr = process.env.AZURE_STORAGE_CONNECTION_STRING;
-  if (!connStr) throw new Error("AZURE_STORAGE_CONNECTION_STRING not set");
-  const client = TableClient.fromConnectionString(connStr, tableName);
+  const connStr = connString();
+  const client = TableClient.fromConnectionString(connStr, tableName, clientOptions(connStr));
   clients.set(tableName, client);
   return client;
 }
