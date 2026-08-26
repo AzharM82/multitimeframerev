@@ -10,6 +10,7 @@
  */
 import {
   classifyCross, planPrune, encodeLastCross, decodeLastCross, PRUNE_MIN_SWEPT,
+  classifySlope, sessionDayStr,
 } from "../dist/lib/avwapEarnings.js";
 
 let pass = 0;
@@ -153,9 +154,57 @@ check("a bare level with no direction anywhere is dropped, not guessed",
   decodeLastCross("avwap"), []);
 
 // ── ───────────────────────────────────────────────────────────────────────────
+// -- Level slope ---------------------------------------------------------------
+// Which way the LINE is pointing, not where price sits against it. The deadband
+// exists so a flat 5-day average does not flip UP/DOWN on rounding noise, which
+// would make the "above and rising" count unusable.
+const SLOPE_MIN = 0.10;
+const slope = (v) => classifySlope(v, SLOPE_MIN);
+
+check("clearly rising", slope(0.8), "UP");
+check("clearly falling", slope(-0.8), "DOWN");
+check("exactly at the threshold counts as rising", slope(0.10), "UP");
+check("exactly at the negative threshold counts as falling", slope(-0.10), "DOWN");
+check("inside the deadband is flat, not up", slope(0.09), "FLAT");
+check("inside the deadband is flat, not down", slope(-0.09), "FLAT");
+check("dead flat is flat", slope(0), "FLAT");
+
+// Symmetric, exactly like classifyCross - if one branch moves, so must the other.
+check("slope is symmetric", slope(0.42) === "UP" && slope(-0.42) === "DOWN", true);
+
+// A missing slope is NOT flat. A young symbol with no history behind the level
+// has an unknown trend, and folding that into FLAT would quietly count it as
+// "not rising" in a metric whose whole job is to separate rising from falling.
+check("null slope is unknown", slope(null), "");
+check("undefined slope is unknown", slope(undefined), "");
+check("NaN slope is unknown", slope(NaN), "");
+check("Infinity slope is unknown", slope(Infinity), "");
+
+// -- Session day ----------------------------------------------------------------
+// The crossing matrix must roll at the OPEN, not at midnight, or it blanks from
+// 21:00 PT through the whole premarket - exactly when the last session's
+// crossings are worth reviewing.
+const at = (iso) => sessionDayStr(new Date(iso));
+
+// 2026-08-25 is a Tuesday. 13:30Z = 09:30 ET (EDT), the open.
+check("just before the open still belongs to the previous session",
+  at("2026-08-25T13:29:00Z"), "2026-08-24");
+check("the open rolls the session",
+  at("2026-08-25T13:30:00Z"), "2026-08-25");
+check("midday is the current session", at("2026-08-25T17:00:00Z"), "2026-08-25");
+check("after the close is still the current session",
+  at("2026-08-25T20:30:00Z"), "2026-08-25");
+
+// The bug this replaces: at 21:00 PT the ET date has already rolled to the 26th,
+// so the old key read an empty partition and every count went to zero.
+check("21:00 PT (past ET midnight) still shows that day's session",
+  at("2026-08-26T04:00:00Z"), "2026-08-25");
+check("premarket next morning still shows the previous session",
+  at("2026-08-26T12:00:00Z"), "2026-08-25");
+
 if (failures.length) {
   console.error(`FAIL — ${failures.length} of ${pass + failures.length}\n`);
   for (const f of failures) console.error(`  x ${f}`);
   process.exit(1);
 }
-console.log(`PASS — ${pass} assertions (alert rule + roster prune)`);
+console.log(`PASS — ${pass} assertions (alert rule + roster prune + slope + session day)`);
