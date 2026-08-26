@@ -406,6 +406,19 @@ async function run() {
       const sorted = [...payload.rows].sort((a, b) => b.pct_avwap - a.pct_avwap);
       console.log("  top:", sorted.slice(0, 5).map((r) => `${r.ticker} ${r.pct_avwap}%`).join(", "));
       console.log("  bottom:", sorted.slice(-5).map((r) => `${r.ticker} ${r.pct_avwap}%`).join(", "));
+      // Slope has to be visible in the dry run or there is no way to confirm it
+      // reads correctly WITHOUT publishing - and publishing is the one thing a
+      // verification run must not do. Nulls are called out separately: a symbol
+      // too young for the lookback is expected, every symbol null is a bug.
+      const sl = payload.rows.map((r) => r.slope_sma50).filter((v) => v !== null && v !== undefined);
+      const nulls = payload.rows.length - sl.length;
+      console.log(`  5D SMA slope (${SLOPE_BARS}-bar): ${sl.length} read, ${nulls} null`);
+      if (sl.length) {
+        const bySlope = [...payload.rows].filter((r) => r.slope_sma50 !== null && r.slope_sma50 !== undefined)
+          .sort((a, b) => b.slope_sma50 - a.slope_sma50);
+        console.log("    rising:", bySlope.slice(0, 5).map((r) => `${r.ticker} ${r.slope_sma50}%`).join(", "));
+        console.log("    falling:", bySlope.slice(-5).map((r) => `${r.ticker} ${r.slope_sma50}%`).join(", "));
+      }
       return 0;
     }
 
