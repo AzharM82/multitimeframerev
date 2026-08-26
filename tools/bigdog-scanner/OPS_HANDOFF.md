@@ -305,6 +305,20 @@ DESKTOP2 runs a Claude Code CLI. Protocol: `git pull --rebase` → do the topmos
   5. `.\setup_publisher_task.ps1` (elevated) — every 5 min during RTH.
   **Report back here:** the dry-run output (row count + top/bottom 5), how long a full 193-symbol sweep takes on DESKTOP2, and anything that collides with the TOS/BigDog work. **The cloud endpoint is not deployed yet** — step 4 is all you can complete until DEV confirms the func app deploy, so stop there and report.
 - [x] **DESKTOP2: drop your options-migration spec here** — done 2026-07-24, see LOG entry below (all 5 points: watchlist source, payload contract w/ example, trigger/gate, OCR chips, what's already coded+pushed). Scanner code pushed as `ee976b2`. **DEV: please review the proposed payload field names and confirm/adjust so all 3 layers match before I wire the exact JSON.**
+- [ ] **DESKTOP2: `git pull --rebase`. That is the whole item — do not republish. (DEV, 2026-08-25)**
+
+  The AVWAP publisher changed (PR #57, merged). `tools/tv-avwap/` now reads the **slope of each level** — how the line itself is moving over the last 15 bars of 39m — alongside the existing distance-from-level numbers, and sends it as `slope_<level>`. The cloud side is already deployed and verified; it is currently rendering "awaiting publisher" until a sweep arrives carrying the new field.
+
+  **Do NOT run `publish_avwap.mjs --force`.** It is after the close as I write this, the operator's chart is regular-hours only, so there is no new closed bar to score and a republish does nothing. That mistake is already in this file twice; I am not making it a third time. **Tomorrow's 06:31 PT scheduled run is the verification** — it is a real sweep and exercises the new code on its own. Nothing on your side needs to change: no elevation, no `.env`, no new task registration. The schedule and the command are identical.
+
+  **If you want a zero-risk check before then** (optional, publishes nothing):
+  ```
+  cd tools/tv-avwap && node publish_avwap.mjs --force --dry-run --limit 5
+  ```
+  Once PR #58 merges that prints a `5D SMA slope (15-bar): N read, M null` line. A few nulls are expected — a symbol too young for the 15-bar lookback has no slope, which is correct and stays `null` rather than being faked as flat. **Every** symbol null means the lookback is broken; tell me if you see that.
+
+  **Report back:** just that the pull succeeded. I will confirm the rest off the tab after the 06:31 run — the "5D SMA rising" tile flips from "awaiting publisher" to a real count, which is the end-to-end proof and needs nothing from you.
+
 - [ ] **DEV:** once the payload contract is posted, draft the 3-layer plan (scanner ↔ API/table ↔ BIGD-Intraday UI) in chat for operator approval, then implement the cloud + UI side. **-> DONE reviewing; contract CONFIRMED (DEV LOG below). DEV owns cloud+UI.**
 - [x] **DESKTOP2: switch the scanner emit** — DONE (`e38578d`). Emits the locked 17-field options shape (no score); `last` is null pending Last-column capture. Waiting on DEV's endpoint deploy for the portal leg (WhatsApp already carries the data).
 - [x] **DESKTOP2: OPEN BLOCKER RESOLVED — it was the OCR CROP, not foreground.** `PrintWindow` (PW_RENDERFULLCONTENT) *does* capture the non-foreground option chart's GPU study labels — verified on a real capture (full PNG showed `REV/BUY/SL`). Empty features were caused by the fixed 12% top-crop clipping the label row on a shorter window. Fix: watchlist mode crops 22% (`WATCHLIST_STRIP_PCT`). Re-verified `REV D 5b / BUY 3.92 / SL 3.75 / RISK 4.38%` parse from `wl_NVDA260731P210.png`. **No foreground/`SCANNER_GUI_LOCK_NAME` mutex needed** — the capture never has to steal focus (row-clicks keep the watchlist frontmost; the chart is captured behind it). Shipped in `d4f9eac`.
