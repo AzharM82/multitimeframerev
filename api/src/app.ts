@@ -82,6 +82,14 @@ import "./functions/journalSummary.js";
 // there is no regime lookup and no regime cron.
 import "./functions/spyConviction.js";
 
+// Options Strategy Guide — plain-English credit-spread builder (Floor Bet =
+// bull put, Ceiling Bet = bear call). The handlers only fetch and shape; all
+// money math is pure in lib/spreadMath.ts so api/tools/spread-math-test.mjs can
+// exercise it with no network. Chain comes from lib/optionsChain.ts, which
+// dispatches on OPTIONS_FEED (finviz by default).
+import "./functions/optionsExpiries.js";
+import "./functions/optionsSpread.js";
+
 // Portal authentication — SWA rolesSource allowlist (Google sign-in).
 // Invoked by the SWA platform, not the browser; must stay anonymous.
 import "./functions/getRoles.js";

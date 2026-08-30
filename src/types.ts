@@ -1027,3 +1027,114 @@ export interface SpyConvictionResponse {
   hits: ConvictionHit[];
   research: SpyResearchReport | null;
 }
+
+// ─── Options Strategy Guide ──────────────────────────────────────────────────
+// Credit-spread builder. "Floor Bet" = bull put spread (stays ABOVE a line),
+// "Ceiling Bet" = bear call spread (stays BELOW). Every number below is computed
+// server-side in api/src/lib/spreadMath.ts — the view performs no options
+// arithmetic, so there is exactly one implementation of the money math.
+
+export type SpreadSide = "floor" | "ceiling";
+export type CheckState = "pass" | "warn" | "fail" | "unknown";
+
+export interface SpreadCheck {
+  state: CheckState;
+  detail: string;
+  /** Only on the DTE check: inside the sweeter 30–45 day window. */
+  ideal?: boolean;
+}
+
+export interface SpreadLeg {
+  strike: number;
+  bid: number | null;
+  ask: number | null;
+  /** Signed as the feed reports it: puts negative, calls positive. */
+  delta: number | null;
+  iv: number | null;
+  openInterest: number | null;
+  volume: number | null;
+}
+
+export interface SpreadRow {
+  side: SpreadSide;
+  shortLeg: SpreadLeg;
+  longLeg: SpreadLeg;
+  widthTarget: number;
+  /** What the strike grid actually allowed — label from THIS, not the target. */
+  widthActual: number;
+  widthShort: boolean;
+  /** Natural credit (short bid − long ask). Drives every risk number. */
+  credit: number | null;
+  /** Mid-to-mid credit. Display only; never used for risk. */
+  creditMid: number | null;
+  maxProfit: number | null;
+  maxLoss: number | null;
+  maxProfitContract: number | null;
+  maxLossContract: number | null;
+  breakeven: number | null;
+  popShort: number | null;
+  popBreakeven: number | null;
+  payoff: { price: number; pl: number }[];
+  viable: boolean;
+  /** "no_credit" | "credit_ge_width" | "short_not_bid" | … — "" when viable. */
+  reason: string;
+}
+
+export interface SpreadRecommendation {
+  strike: number;
+  delta: number;
+  inBand: boolean;
+}
+
+export interface OptionsExpiry {
+  date: string;
+  dte: number;
+  monthly: boolean;
+  inWindow: boolean;
+  ideal: boolean;
+}
+
+export interface OptionsExpiriesResponse {
+  ticker: string;
+  spot: number;
+  as_of: string;
+  delayed: boolean;
+  feed: string;
+  expirations: OptionsExpiry[];
+  outside_window: OptionsExpiry[];
+  recommended: string | null;
+  dte_window: [number, number];
+  dte_ideal: [number, number];
+}
+
+export interface OptionsSpreadResponse {
+  ticker: string;
+  spot: number;
+  as_of: string;
+  delayed: boolean;
+  feed: string;
+  expiration: string;
+  requested_expiration: string;
+  expiration_mismatch: boolean;
+  dte: number | null;
+  expiries: string[];
+  ladder: {
+    floor: Record<string, SpreadRow[]>;
+    ceiling: Record<string, SpreadRow[]>;
+  };
+  recommended: {
+    floor: SpreadRecommendation | null;
+    ceiling: SpreadRecommendation | null;
+  };
+  greeks_available: boolean;
+  strikes_without_greeks: number;
+  checks: { dte: SpreadCheck; vix: SpreadCheck };
+  vix: { level: number | null; source: string; degraded: boolean; warnings: string[] };
+  rules: {
+    dte: [number, number];
+    delta: [number, number, number];
+    vix: [number, number];
+    min_open_interest: number;
+    widths: number[];
+  };
+}

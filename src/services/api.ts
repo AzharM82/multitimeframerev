@@ -1,4 +1,6 @@
 import type {
+  OptionsExpiriesResponse,
+  OptionsSpreadResponse,
   MmPanelName,
   MmPanelResponse,
   RotationEnrichMap,
@@ -190,4 +192,16 @@ export function getSpyConviction(date?: string): Promise<SpyConvictionResponse> 
  *  endpoint accepts a signed-in portal session for exactly this button. */
 export function forceSpyFlat(): Promise<{ status: string; was: string; now: string }> {
   return request(`/spy-conviction?flat=1`, { method: "POST" });
+}
+
+// ─── Options Strategy Guide ─────────────────────────────────────────────────
+
+export function getOptionsExpiries(ticker: string): Promise<OptionsExpiriesResponse> {
+  return request<OptionsExpiriesResponse>(`/options-expiries?ticker=${encodeURIComponent(ticker.toUpperCase())}`);
+}
+
+export function getOptionsSpread(ticker: string, expiration: string): Promise<OptionsSpreadResponse> {
+  return request<OptionsSpreadResponse>(
+    `/options-spread?ticker=${encodeURIComponent(ticker.toUpperCase())}&expiration=${encodeURIComponent(expiration)}`,
+  );
 }

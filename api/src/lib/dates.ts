@@ -9,3 +9,17 @@
 export function pacificDateKey(d: Date = new Date()): string {
   return d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 }
+
+/**
+ * Eastern (America/New_York) calendar date as YYYY-MM-DD.
+ *
+ * Use this — NOT pacificDateKey — whenever the answer is measured against a
+ * MARKET date. Option expirations are ET dates, so days-to-expiry has to be
+ * counted from the ET calendar: between 9pm and midnight Pacific the Eastern
+ * day has already rolled, and a Pacific-derived DTE would read one day too
+ * high for that whole window, silently sliding expiries in and out of the
+ * 28–60 day filter every evening.
+ */
+export function easternDateKey(d: Date = new Date()): string {
+  return d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
