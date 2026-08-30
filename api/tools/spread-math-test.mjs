@@ -14,6 +14,7 @@ import {
   toContract, payoffPoints, popShort, popAtBreakeven,
   pickShortStrike, pickLongStrike, recommendShort,
   checkDte, checkVix, checkLiquidity, verdict, dteBetween,
+  closeLadder, sizePosition, contractsForRisk, CLOSE_TARGETS, STOP_MULTIPLE,
   DTE_MIN, DTE_MAX, DTE_IDEAL_MIN, DTE_IDEAL_MAX,
   DELTA_MIN, DELTA_MAX, DELTA_TARGET,
   VIX_MIN, VIX_MAX, MIN_OPEN_INTEREST, MAX_SPREAD_PCT,
@@ -270,9 +271,84 @@ check("liquidity floors", [MIN_OPEN_INTEREST, MAX_SPREAD_PCT], [100, 0.1]);
 check("protection widths", [WIDTH_BASIC, WIDTH_FULL, WIDTH_MAX], [5, 10, 20]);
 
 // ── ───────────────────────────────────────────────────────────────────────
+// -- Position sizing -------------------------------------------------------
+// A credit spread pays you to open, so there is no debit. What the broker takes
+// is COLLATERAL equal to the max loss, and that is the number that limits how
+// many you can hold. Conflating the two would imply money leaving the account.
+
+check("one contract off the real AAPL spread",
+  sizePosition(1.0, 5, 1),
+  { contracts: 1, creditReceived: 100, capitalHeld: 400, maxProfit: 100, maxLoss: 400, returnOnCapital: 0.25 });
+check("ten contracts scale linearly",
+  sizePosition(1.0, 5, 10),
+  { contracts: 10, creditReceived: 1000, capitalHeld: 4000, maxProfit: 1000, maxLoss: 4000, returnOnCapital: 0.25 });
+// Return on capital is per-contract and therefore size-invariant. If it ever
+// moves with quantity, the collateral maths has gone wrong.
+check("return on capital does not move with size",
+  sizePosition(1.0, 5, 1).returnOnCapital === sizePosition(1.0, 5, 37).returnOnCapital, true);
+check("credit received equals max profit - you are paid up front",
+  sizePosition(0.75, 5, 4).creditReceived, sizePosition(0.75, 5, 4).maxProfit);
+check("fractional contracts floor, never round up", sizePosition(1.0, 5, 3.9).contracts, 3);
+check("zero contracts is not a position", sizePosition(1.0, 5, 0), null);
+check("negative contracts", sizePosition(1.0, 5, -2), null);
+check("unpriced spread cannot be sized", sizePosition(null, 5, 1), null);
+
+// -- Risk budget -> quantity -----------------------------------------------
+// Floors ALWAYS. Rounding up would put more at risk than the budget allows,
+// which is the one direction this must never err in.
+
+check("$1000 budget at $400 risk buys 2", contractsForRisk(400, 1000), 2);
+check("exact fit", contractsForRisk(500, 1000), 2);
+check("one dollar short of the next contract still floors", contractsForRisk(400, 799), 1);
+check("budget smaller than one contract buys none", contractsForRisk(400, 250), 0);
+check("zero budget", contractsForRisk(400, 0), 0);
+check("unpriced risk", contractsForRisk(null, 1000), 0);
+check("a credit >= width has no positive risk to size against", contractsForRisk(-0.1, 1000), 0);
+
+// -- Closing the position --------------------------------------------------
+// You SOLD the spread, so you close by BUYING it back cheaper. Capturing 50% of
+// max profit means buying it back for half what you received.
+
+const L = closeLadder(1.0, 5);
+check("four take-profit rungs plus a stop", L.length, 5);
+check("50% rung: buy it back for half the credit",
+  { close: L[1].closePrice, pnl: L[1].pnlPerContract }, { close: 0.5, pnl: 50 });
+check("25% rung", { close: L[0].closePrice, pnl: L[0].pnlPerContract }, { close: 0.75, pnl: 25 });
+check("75% rung", { close: L[2].closePrice, pnl: L[2].pnlPerContract }, { close: 0.25, pnl: 75 });
+check("expiring worthless costs nothing to close and pays the lot",
+  { close: L[3].closePrice, pnl: L[3].pnlPerContract, label: L[3].label },
+  { close: 0, pnl: 100, label: "expire worthless" });
+check("return on capital at the 50% rung", L[1].returnOnCapital, 0.125);
+check("return on capital at expiry equals max profit / capital", L[3].returnOnCapital, 0.25);
+
+const stop = L[4];
+check("the stop is flagged as one", stop.isStop, true);
+check("a 2x-credit stop loses exactly the credit received",
+  { close: stop.closePrice, pnl: stop.pnlPerContract }, { close: 2, pnl: -100 });
+check("stop label names the multiple", stop.label, "stop (2x credit)");
+// One loser at the stop cancels one winner held to expiry. That symmetry is the
+// arithmetic that makes the strategy legible, so it is pinned.
+check("stop loss exactly offsets an expiry win",
+  L[3].pnlPerContract + stop.pnlPerContract, 0);
+
+// A spread can never be worth more than its width, so a 2x stop on a rich
+// spread IS max loss. Quoting an uncappable close price would be a fiction.
+const rich = closeLadder(3.0, 5);
+const richStop = rich[4];
+check("2x on a rich spread caps at the width", richStop.closePrice, 5);
+check("and is relabelled as max loss", richStop.label, "stop (max loss)");
+check("capped stop loses the max loss, not 2x the credit", richStop.pnlPerContract, -200);
+
+check("an unpriced spread has no exits", closeLadder(null, 5), []);
+check("a zero credit has no exits", closeLadder(0, 5), []);
+check("a debit has no exits", closeLadder(-0.3, 5), []);
+
+check("close targets are the shipped rungs", [...CLOSE_TARGETS], [0.25, 0.5, 0.75, 1]);
+check("stop multiple", STOP_MULTIPLE, 2);
+
 if (failures.length) {
   console.error(`FAIL — ${failures.length} of ${pass + failures.length}\n`);
   for (const f of failures) console.error(`  x ${f}`);
   process.exit(1);
 }
-console.log(`PASS — ${pass} assertions (spread math + selection + checklist)`);
+console.log(`PASS — ${pass} assertions (spread math + selection + checklist + sizing + exits)`);

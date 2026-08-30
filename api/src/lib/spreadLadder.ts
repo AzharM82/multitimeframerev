@@ -22,7 +22,7 @@ import type { OptionChain, OptionContract } from "./optionsChain.js";
 import {
   breakeven, creditMid, creditNatural, maxLoss, maxProfit, payoffPoints,
   pickLongStrike, pickShortStrike, popAtBreakeven, popShort, recommendShort,
-  toContract, width, normDelta,
+  toContract, width, normDelta, closeLadder, type CloseTarget,
   WIDTH_BASIC, WIDTH_FULL, WIDTH_MAX,
   type SpreadSide,
 } from "./spreadMath.js";
@@ -69,6 +69,14 @@ export interface SpreadRow {
   popShort: number | null;
   popBreakeven: number | null;
   payoff: { price: number; pl: number }[];
+  /**
+   * What it takes to close, and what that leaves — PER CONTRACT.
+   *
+   * Size-independent on purpose: a close price is per share whatever quantity
+   * you trade, so this ships once and the view multiplies the dollar figures by
+   * the contract count. Every genuine options calculation stays in spreadMath.
+   */
+  closeTargets: CloseTarget[];
   viable: boolean;
   reason: string;
 }
@@ -178,6 +186,7 @@ export function buildRow(
     popShort: popShort(shortC.delta, shortC.type),
     popBreakeven: popAtBreakeven(be, lower, upper),
     payoff: payoffPoints(side, shortC.strike, longC.strike, credit, lo - pad, hi + pad),
+    closeTargets: closeLadder(credit, w),
     viable,
     reason,
   };

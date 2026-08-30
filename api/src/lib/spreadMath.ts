@@ -403,3 +403,134 @@ export function dteBetween(fromIso: string, toIso: string): number | null {
   if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
   return Math.round((b - a) / 86_400_000);
 }
+
+// ─── Position sizing and exits ──────────────────────────────────────────────
+
+/**
+ * Take-profit rungs, as a fraction of max profit captured.
+ *
+ * 50% is the conventional close for a credit spread: the last half of the
+ * premium takes the most time and carries the most gamma risk to collect, so
+ * most of the edge is in the first half. The other rungs are there to show the
+ * shape of that trade-off rather than to recommend one.
+ */
+export const CLOSE_TARGETS = [0.25, 0.50, 0.75, 1.00] as const;
+
+/**
+ * Stop rung: close if the spread costs this multiple of the credit to buy back.
+ * At 2x, a loss equals the credit received — one loser cancels one winner held
+ * to expiry, which is the arithmetic that makes the strategy legible.
+ */
+export const STOP_MULTIPLE = 2;
+
+export interface CloseTarget {
+  /** "50%" or "expire worthless" or "stop". */
+  label: string;
+  /** Fraction of max profit captured. Negative on the stop rung. */
+  pctOfMax: number;
+  /** What the SPREAD must be worth to close here, per share. */
+  closePrice: number;
+  /** Profit (or loss) per contract, in dollars. */
+  pnlPerContract: number;
+  /** pnl ÷ capital held, per contract. */
+  returnOnCapital: number | null;
+  isStop: boolean;
+}
+
+/**
+ * What it takes to close, and what that leaves you.
+ *
+ * Deliberately independent of contract count: a close PRICE is per share
+ * whatever size you trade, so the API ships this once per spread and the view
+ * multiplies the dollar figures by the quantity. That keeps every genuine
+ * options calculation here — the view only ever scales.
+ *
+ * You SOLD the spread for `credit`, so you close by BUYING it back cheaper:
+ * capture 50% of max profit means buying it back for half the credit.
+ */
+export function closeLadder(credit: number | null, w: number | null): CloseTarget[] {
+  if (credit === null || w === null || credit <= 0 || w <= 0) return [];
+  const capital = w - credit;
+  const roc = (pnl: number) => (capital > 0 ? r4(pnl / (capital * 100)) : null);
+
+  const rungs: CloseTarget[] = CLOSE_TARGETS.map((pct) => {
+    const closePrice = r2(credit * (1 - pct));
+    const pnl = r2(credit * pct * 100);
+    return {
+      label: pct === 1 ? "expire worthless" : `${Math.round(pct * 100)}%`,
+      pctOfMax: pct,
+      closePrice,
+      pnlPerContract: pnl,
+      returnOnCapital: roc(pnl),
+      isStop: false,
+    };
+  });
+
+  // The spread can never be worth more than its width, so a 2x-credit stop on a
+  // rich spread is really just max loss. Capping keeps the rung honest instead
+  // of quoting a close price the market cannot print.
+  const rawStop = credit * STOP_MULTIPLE;
+  const stopPrice = r2(Math.min(rawStop, w));
+  const stopPnl = r2((credit - stopPrice) * 100);
+  rungs.push({
+    label: rawStop >= w ? "stop (max loss)" : `stop (${STOP_MULTIPLE}x credit)`,
+    pctOfMax: r4(stopPnl / (credit * 100)),
+    closePrice: stopPrice,
+    pnlPerContract: stopPnl,
+    returnOnCapital: roc(stopPnl),
+    isStop: true,
+  });
+
+  return rungs;
+}
+
+export interface Position {
+  contracts: number;
+  /** Cash the broker credits you on open. */
+  creditReceived: number;
+  /**
+   * Buying power the broker holds until the position closes.
+   *
+   * This is the "cost" of a credit spread, and it is NOT a debit — you are paid
+   * to open it. What you give up is the collateral, which equals the max loss
+   * on a defined-risk vertical. Calling it a cost without saying which would
+   * imply money leaving the account, and it does not.
+   */
+  capitalHeld: number;
+  maxProfit: number;
+  maxLoss: number;
+  /** Max profit ÷ capital held. The number that makes sizes comparable. */
+  returnOnCapital: number | null;
+}
+
+export function sizePosition(
+  credit: number | null, w: number | null, contracts: number,
+): Position | null {
+  if (credit === null || w === null) return null;
+  if (!Number.isFinite(contracts) || contracts < 1) return null;
+  const n = Math.floor(contracts);
+  const perContractLoss = (w - credit) * 100;
+  const perContractProfit = credit * 100;
+  return {
+    contracts: n,
+    creditReceived: r2(perContractProfit * n),
+    capitalHeld: r2(perContractLoss * n),
+    maxProfit: r2(perContractProfit * n),
+    maxLoss: r2(perContractLoss * n),
+    returnOnCapital: perContractLoss > 0 ? r4(perContractProfit / perContractLoss) : null,
+  };
+}
+
+/**
+ * How many contracts a risk budget buys.
+ *
+ * Floors, never rounds — rounding up would quietly put more at risk than the
+ * budget allows, which is the one direction this must never err in. Returns 0
+ * when even one contract exceeds the budget, so the caller can say "this trade
+ * is too big for that number" rather than showing a 1 you cannot afford.
+ */
+export function contractsForRisk(maxLossPerContract: number | null, budget: number): number {
+  if (maxLossPerContract === null || !Number.isFinite(budget)) return 0;
+  if (maxLossPerContract <= 0 || budget <= 0) return 0;
+  return Math.floor(budget / maxLossPerContract);
+}

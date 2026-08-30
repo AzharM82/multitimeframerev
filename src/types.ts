@@ -1055,6 +1055,19 @@ export interface SpreadLeg {
   volume: number | null;
 }
 
+export interface CloseTarget {
+  /** "50%", "expire worthless", "stop (2x credit)". */
+  label: string;
+  /** Fraction of max profit captured. Negative on the stop rung. */
+  pctOfMax: number;
+  /** What the spread must be worth to close here, per share. */
+  closePrice: number;
+  /** Profit or loss PER CONTRACT — multiply by quantity. */
+  pnlPerContract: number;
+  returnOnCapital: number | null;
+  isStop: boolean;
+}
+
 export interface SpreadRow {
   side: SpreadSide;
   shortLeg: SpreadLeg;
@@ -1075,6 +1088,8 @@ export interface SpreadRow {
   popShort: number | null;
   popBreakeven: number | null;
   payoff: { price: number; pl: number }[];
+  /** Exits, per contract. Size-independent — a close price is per share. */
+  closeTargets: CloseTarget[];
   viable: boolean;
   /** "no_credit" | "credit_ge_width" | "short_not_bid" | … — "" when viable. */
   reason: string;

@@ -78,11 +78,15 @@ function Tile({ label, value, sub, tone }: {
  * breakeven — rather than under the curve. The plain-English claim is "you win
  * if it stays above your line", and a price-axis band says exactly that.
  */
-function PayoffChart({ row, spot }: { row: SpreadRow; spot: number }) {
+function PayoffChart({ row, spot, contracts }: { row: SpreadRow; spot: number; contracts: number }) {
   const [hover, setHover] = useState<number | null>(null);
   const W = 1000, H = 200, L = 52, R = 18, TOP = 22, BOT = 140;
 
-  const pts = row.payoff;
+  // Scale the per-contract vertices to the position. Multiplying by an integer
+  // is the only arithmetic done here — the SHAPE is the API's. Without this the
+  // axis would read -$400 beside a tile reading -$2400 for the same trade.
+  const n = Math.max(1, Math.floor(contracts) || 1);
+  const pts = row.payoff.map((p) => ({ price: p.price, pl: p.pl * n }));
   if (!pts.length || row.credit === null || row.breakeven === null) return null;
 
   // The payoff vertices bound the strikes; spot can sit outside them (a name
@@ -97,8 +101,8 @@ function PayoffChart({ row, spot }: { row: SpreadRow; spot: number }) {
   const span = hi - lo || 1;
   const x = (p: number) => L + ((Math.min(Math.max(p, lo), hi) - lo) / span) * (W - L - R);
 
-  const profit = row.maxProfitContract ?? 0;
-  const loss = row.maxLossContract ?? 0;
+  const profit = (row.maxProfitContract ?? 0) * n;
+  const loss = (row.maxLossContract ?? 0) * n;
   const yMax = profit * 1.6 || 1;
   const yMin = -loss * 1.15 || -1;
   const y = (v: number) =>
@@ -238,6 +242,8 @@ export function OptionsGuidePage() {
   const [widthTarget, setWidthTarget] = useState(5);
   const [ack, setAck] = useState(false);
   const [useAnyway, setUseAnyway] = useState(false);
+  const [contracts, setContracts] = useState(1);
+  const [riskBudget, setRiskBudget] = useState("");
 
   const loadTicker = useCallback(async (sym: string) => {
     const t = sym.trim().toUpperCase();
@@ -296,6 +302,33 @@ export function OptionsGuidePage() {
     if (k === undefined) return null;
     return rows.find((r) => r.shortLeg.strike === k) ?? null;
   }, [rows, line, side]);
+
+  /**
+   * The position at the chosen size.
+   *
+   * The API ships every figure PER CONTRACT, so this is pure scaling by an
+   * integer — deliberately not a re-derivation. `capitalHeld` is the number the
+   * broker actually withholds, and it equals max loss on a defined-risk
+   * vertical; the credit is paid TO you, so nothing is "spent" to open.
+   */
+  const position = useMemo(() => {
+    if (!chosen || chosen.maxProfitContract === null || chosen.maxLossContract === null) return null;
+    const n = Math.max(1, Math.floor(contracts) || 1);
+    return {
+      contracts: n,
+      creditReceived: chosen.maxProfitContract * n,
+      capitalHeld: chosen.maxLossContract * n,
+      maxProfit: chosen.maxProfitContract * n,
+      maxLoss: chosen.maxLossContract * n,
+    };
+  }, [chosen, contracts]);
+
+  /** How many contracts a risk budget buys. FLOORS — never size above budget. */
+  const suggestedContracts = useMemo(() => {
+    const b = Number(riskBudget);
+    if (!chosen?.maxLossContract || !Number.isFinite(b) || b <= 0) return null;
+    return Math.floor(b / chosen.maxLossContract);
+  }, [chosen, riskBudget]);
 
   const ackKey = chosen && data
     ? `${data.ticker}|${data.expiration}|${chosen.side}|${chosen.shortLeg.strike}`
@@ -533,6 +566,45 @@ export function OptionsGuidePage() {
               )}
             </div>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] uppercase tracking-wide text-text-secondary">Contracts</span>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => setContracts((c) => Math.max(1, c - 1))}
+                className="px-2 py-0.5 rounded border border-border text-text-secondary hover:text-text-primary">−</button>
+              <input
+                value={contracts}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                  setContracts(Number.isFinite(v) && v > 0 ? v : 1);
+                }}
+                inputMode="numeric"
+                className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary w-16 text-center tabular-nums"
+              />
+              <button type="button" onClick={() => setContracts((c) => c + 1)}
+                className="px-2 py-0.5 rounded border border-border text-text-secondary hover:text-text-primary">+</button>
+            </div>
+            {/* Sizing from a risk budget, because "how many" is really "how much
+                am I willing to lose". Floors, so it can never suggest a size
+                that exceeds the budget. */}
+            <span className="text-[11px] text-text-secondary">or risk at most</span>
+            <input
+              value={riskBudget} onChange={(e) => setRiskBudget(e.target.value)}
+              placeholder="$500" inputMode="decimal"
+              className="bg-bg-secondary border border-border rounded px-2 py-1 text-text-primary w-20 tabular-nums"
+            />
+            {suggestedContracts !== null && (
+              suggestedContracts > 0 ? (
+                <button type="button" onClick={() => setContracts(suggestedContracts)}
+                  className="text-[11px] text-accent hover:underline">
+                  → {suggestedContracts} contract{suggestedContracts === 1 ? "" : "s"}
+                </button>
+              ) : (
+                <span className="text-[11px] text-gold">
+                  one contract already risks {fmtUsd(chosen?.maxLossContract, 0)}
+                </span>
+              )
+            )}
+          </div>
           <div className="flex flex-wrap gap-1">
             {data.rules.widths.map((w) => (
               <button key={w} type="button" onClick={() => setWidthTarget(w)}
@@ -562,7 +634,7 @@ export function OptionsGuidePage() {
               <div>
                 <span className="text-signal-bear font-bold">SELL to Open</span>{" "}
                 <span className="text-text-primary">
-                  1x {data.ticker} {data.expiration} ${chosen.shortLeg.strike} {sideWord}
+                  {position?.contracts ?? 1}x {data.ticker} {data.expiration} ${chosen.shortLeg.strike} {sideWord}
                 </span>
                 <span className="text-dim text-xs">
                   {" "}· bid {fmtUsd(chosen.shortLeg.bid)}
@@ -572,7 +644,7 @@ export function OptionsGuidePage() {
               <div>
                 <span className="text-signal-bull font-bold">BUY to Open</span>{" "}
                 <span className="text-text-primary">
-                  1x {data.ticker} {data.expiration} ${chosen.longLeg.strike} {sideWord}
+                  {position?.contracts ?? 1}x {data.ticker} {data.expiration} ${chosen.longLeg.strike} {sideWord}
                 </span>
                 <span className="text-dim text-xs"> · ask {fmtUsd(chosen.longLeg.ask)}</span>
               </div>
@@ -596,32 +668,96 @@ export function OptionsGuidePage() {
           )}
 
           <div className="flex flex-wrap gap-2">
-            <Tile label="You collect" value={chosen.maxProfitContract === null ? "n/a" : `$${chosen.maxProfitContract.toFixed(0)}`}
-              sub={chosen.creditMid !== null ? `$${(chosen.creditMid * 100).toFixed(0)} at mid` : undefined}
+            <Tile label="Cash in now" value={position ? `$${position.creditReceived.toFixed(0)}` : "n/a"}
+              sub={chosen.creditMid !== null && position
+                ? `$${(chosen.creditMid * 100 * position.contracts).toFixed(0)} at mid`
+                : undefined}
               tone="text-signal-bull" />
-            <Tile label="You risk" value={chosen.maxLossContract === null ? "n/a" : `$${chosen.maxLossContract.toFixed(0)}`}
-              sub="worst case" tone="text-signal-bear" />
+            {/* A credit spread costs nothing to open — you are PAID. What it
+                consumes is collateral, which the broker releases on close.
+                Labelling that "cost" would imply money leaving the account. */}
+            <Tile label="Capital held" value={position ? `$${position.capitalHeld.toFixed(0)}` : "n/a"}
+              sub="buying power, returned on close" />
+            <Tile label="Worst case" value={position ? `−$${position.maxLoss.toFixed(0)}` : "n/a"}
+              sub={position && position.contracts > 1 ? `all ${position.contracts} contracts` : "if it goes wrong"}
+              tone="text-signal-bear" />
             <Tile label="Breakeven" value={fmtUsd(chosen.breakeven)}
               sub={isPut ? "wins above this" : "wins below this"} />
             <Tile label="Win probability" value={fmtPct(chosen.popShort)}
               sub={chosen.popBreakeven !== null ? `${fmtPct(chosen.popBreakeven)} to breakeven` : "from short delta"} />
-            <Tile label="Return on risk"
+            <Tile label="Return on capital"
               value={chosen.maxProfitContract && chosen.maxLossContract && chosen.maxLossContract > 0
                 ? `${((chosen.maxProfitContract / chosen.maxLossContract) * 100).toFixed(0)}%` : "n/a"}
-              sub="max profit ÷ max loss" />
+              sub="if held to expiry" />
           </div>
 
           <div className="bg-bg-card border border-border rounded p-3">
             <div className="text-[11px] uppercase tracking-wide text-text-secondary mb-1">
               Profit and loss at expiry
             </div>
-            <PayoffChart row={chosen} spot={data.spot} />
+            <PayoffChart row={chosen} spot={data.spot} contracts={position?.contracts ?? 1} />
             <p className="text-[10px] text-dim mt-1">
               Win probability comes from the short leg's delta — a risk-neutral approximation, not a forecast.
               The spread is still profitable between the strike you sold and the breakeven, so the true
               probability is a little better than the headline. Early assignment and dividends are not modelled.
             </p>
           </div>
+
+          {chosen.closeTargets.length > 0 && position && (
+            <div className="bg-bg-card border border-border rounded p-3">
+              <div className="text-[11px] uppercase tracking-wide text-text-secondary mb-1">
+                Closing the position · {position.contracts} contract{position.contracts === 1 ? "" : "s"}
+              </div>
+              <p className="text-[11px] text-text-secondary mb-1.5">
+                You sold this spread for {fmtUsd(chosen.credit)}. You close it by BUYING it back cheaper —
+                the price below is what the spread has to be worth.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="text-sm">
+                  <thead>
+                    <tr className="text-[11px] uppercase tracking-wide text-text-secondary border-b border-border">
+                      <th className="px-2 py-1 text-left font-semibold">Take</th>
+                      <th className="px-2 py-1 text-right font-semibold">Buy it back at</th>
+                      <th className="px-2 py-1 text-right font-semibold">You keep</th>
+                      <th className="px-2 py-1 text-right font-semibold">On capital</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chosen.closeTargets.map((t) => {
+                      const total = t.pnlPerContract * position.contracts;
+                      const win = total >= 0;
+                      return (
+                        <tr key={t.label}
+                          className={`border-b border-border/40 last:border-0 ${t.isStop ? "border-t border-t-border" : ""}`}>
+                          <td className={`px-2 py-1 whitespace-nowrap ${t.isStop ? "text-signal-bear" : "text-text-secondary"}`}>
+                            {t.label}
+                            {/* 50% is the conventional exit: the back half of the
+                                premium takes the longest to collect and carries
+                                the most gamma risk. */}
+                            {t.pctOfMax === 0.5 && <span className="text-[9px] text-dim ml-1">· usual exit</span>}
+                          </td>
+                          <td className="px-2 py-1 text-right tabular-nums text-text-primary">
+                            {fmtUsd(t.closePrice)}
+                          </td>
+                          <td className={`px-2 py-1 text-right tabular-nums font-bold ${win ? "text-signal-bull" : "text-signal-bear"}`}>
+                            {win ? "+" : "−"}${Math.abs(total).toFixed(0)}
+                          </td>
+                          <td className={`px-2 py-1 text-right tabular-nums ${win ? "text-signal-bull" : "text-signal-bear"}`}>
+                            {t.returnOnCapital === null ? "n/a"
+                              : `${t.returnOnCapital >= 0 ? "" : "−"}${Math.abs(t.returnOnCapital * 100).toFixed(1)}%`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-dim mt-1">
+                Closing early also frees the {fmtUsd(position.capitalHeld, 0)} the broker is holding, which is
+                the part a return-per-day comparison turns on. Commissions are not modelled.
+              </p>
+            </div>
+          )}
 
           <div className="bg-bg-card border border-border rounded p-3">
             <div className="flex items-center justify-between mb-1">
