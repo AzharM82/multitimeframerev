@@ -114,8 +114,9 @@ async function handler(req: HttpRequest): Promise<HttpResponseInit> {
           // the tab must label off this rather than assuming "today".
           cross_day: snap.crossDay,
           cross_day_is_current: snap.crossDayIsCurrent,
-          // Window `slope` was measured over, echoed from the publisher.
+          // Window `slope` was measured over, and where it came from.
           slope_bars: snap.slopeBars,
+          slope_source: snap.slopeSource,
         },
       };
     } catch (err) {

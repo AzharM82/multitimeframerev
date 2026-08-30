@@ -85,6 +85,8 @@ interface Snapshot {
   crossDayIsCurrent: boolean;
   /** Bars the publisher measured `slope` over, so the column labels itself. */
   slopeBars: number;
+  /** "published" | "derived" | "mixed" | "" — a derived slope has a warm-up. */
+  slopeSource: string;
   loaded: boolean;
 }
 
@@ -95,7 +97,7 @@ const EMPTY_CROSS = () =>
 const EMPTY: Snapshot = {
   rows: [], barUtc: "", publishedAt: "", host: "",
   stale: true, failed: [], quoteSource: "", todayCross: EMPTY_CROSS(),
-  crossDay: "", crossDayIsCurrent: true, slopeBars: 0, loaded: false,
+  crossDay: "", crossDayIsCurrent: true, slopeBars: 0, slopeSource: "", loaded: false,
 };
 
 type SortKey = LevelKey | "ticker" | "close" | "chg" | "chgOpen" | "nearest" | "cross" | "slope";
@@ -153,6 +155,7 @@ async function fetchSnapshot(): Promise<Snapshot> {
       crossDay: String(raw.cross_day ?? ""),
       crossDayIsCurrent: raw.cross_day_is_current !== false,
       slopeBars: Number(raw.slope_bars ?? 0),
+      slopeSource: String(raw.slope_source ?? ""),
       loaded: true,
     };
   } catch {
@@ -395,11 +398,13 @@ export function AvwapEarningsPage() {
   /**
    * Whether the trend metric has any data behind it at all.
    *
-   * `slopeBars` only becomes non-zero once a publisher that knows about slope
-   * has posted a sweep, so this stays false through the whole window between
-   * deploying the cloud side and DESKTOP2 picking up the publisher change.
+   * True once ANY row carries a slope, from either source: read off the chart
+   * by the publisher, or derived here from values stored on earlier sweeps. The
+   * derived path needs ~1.5 sessions of sweeps to warm up, which is what
+   * "warming up" means — it is no longer waiting on another machine.
    */
-  const hasSlope = snap.slopeBars > 0;
+  const hasSlope = snap.slopeBars > 0
+    && snap.rows.some((r) => r.slope[SMA5] !== null);
 
   const smaCrossRising = useMemo(() => {
     const names = new Set(snap.todayCross[SMA5]?.up ?? []);
@@ -548,8 +553,9 @@ export function AvwapEarningsPage() {
             confident wrong answer where the honest one is "not measured yet". */}
         <Tile label="5D SMA rising"
               value={hasSlope ? `${trendCounts.aboveSma5Rising}/${trendCounts.aboveSma5}` : "—"}
-              sub={hasSlope ? `above & rising · ${snap.slopeBars}-bar`
-                            : "awaiting publisher"}
+              sub={hasSlope
+                ? `above & rising · ${snap.slopeBars}-bar${snap.slopeSource === "published" ? "" : " · derived"}`
+                : "warming up"}
               tone={hasSlope ? "text-signal-bull" : "text-dim"}
               active={trendFilter === "sma5Rising"}
               onClick={hasSlope
