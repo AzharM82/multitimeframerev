@@ -1070,8 +1070,11 @@ export interface CloseTarget {
 
 export interface SpreadRow {
   side: SpreadSide;
+  /** "spread" has a protective long leg; "single" is a naked short option. */
+  structure: "spread" | "single";
   shortLeg: SpreadLeg;
-  longLeg: SpreadLeg;
+  /** Null on a single leg — nothing is bought, and nothing caps the loss. */
+  longLeg: SpreadLeg | null;
   widthTarget: number;
   /** What the strike grid actually allowed — label from THIS, not the target. */
   widthActual: number;
@@ -1083,7 +1086,13 @@ export interface SpreadRow {
   maxProfit: number | null;
   maxLoss: number | null;
   maxProfitContract: number | null;
+  /** NULL on a naked call: loss is unbounded, so no such number exists. */
   maxLossContract: number | null;
+  /** Collateral held per contract. NOT the same as max loss on a single leg. */
+  capitalPerContract: number | null;
+  capitalBasis: "spread" | "cash-secured" | "margin";
+  /** True only when the worst case is genuinely unbounded (a naked call). */
+  unlimitedRisk: boolean;
   breakeven: number | null;
   popShort: number | null;
   popBreakeven: number | null;

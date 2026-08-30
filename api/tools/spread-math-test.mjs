@@ -15,6 +15,7 @@ import {
   pickShortStrike, pickLongStrike, recommendShort,
   checkDte, checkVix, checkLiquidity, verdict, dteBetween,
   closeLadder, sizePosition, contractsForRisk, CLOSE_TARGETS, STOP_MULTIPLE,
+  nakedMaxLoss, cashSecuredPerShare, nakedMarginPerShare, payoffPointsSingle,
   DTE_MIN, DTE_MAX, DTE_IDEAL_MIN, DTE_IDEAL_MAX,
   DELTA_MIN, DELTA_MAX, DELTA_TARGET,
   VIX_MIN, VIX_MAX, MIN_OPEN_INTEREST, MAX_SPREAD_PCT,
@@ -346,9 +347,63 @@ check("a debit has no exits", closeLadder(-0.3, 5), []);
 check("close targets are the shipped rungs", [...CLOSE_TARGETS], [0.25, 0.5, 0.75, 1]);
 check("stop multiple", STOP_MULTIPLE, 2);
 
+// -- Single leg (naked) ----------------------------------------------------
+// Selling one option keeps the whole premium instead of paying part of it away
+// for protection. The long leg was the only thing capping the loss, so removing
+// it removes the cap - and for a CALL there is no cap at all.
+
+// A naked put bottoms out at the stock reaching zero.
+check("naked put worst case is the strike less the credit",
+  nakedMaxLoss("put", 305, 4.80), 300.2);
+check("...which is $30,020 per contract", toContract(nakedMaxLoss("put", 305, 4.80)), 30020);
+
+// THE central fact about a naked call, and the one a number would misrepresent.
+// null here means "no such value exists", not "not computed" - the UI must
+// print "unlimited" rather than any figure at all.
+check("a naked call has NO worst case - loss is unbounded",
+  nakedMaxLoss("call", 340, 4.25), null);
+check("that stays null however rich the premium", nakedMaxLoss("call", 340, 99), null);
+check("null credit -> null, not a strike", nakedMaxLoss("put", 305, null), null);
+
+check("cash-secured collateral is the strike less the credit",
+  cashSecuredPerShare(305, 4.80), 300.2);
+check("cash-secured with no credit", cashSecuredPerShare(305, null), null);
+
+// The comparison that actually matters. The naked put collects 4.8x the credit
+// of the $5-wide spread and ties up 75x the capital, so its return on capital
+// is far WORSE. Selling more premium is not the same as making more money.
+const spreadRoc = sizePosition(1.0, 5, 1).returnOnCapital;
+const nakedCredit = 4.80;
+const nakedCapital = cashSecuredPerShare(305, nakedCredit);
+const nakedRoc = Number(((nakedCredit / nakedCapital)).toFixed(4));
+check("the naked put collects more premium", nakedCredit > 1.0, true);
+check("but its return on capital is far worse", nakedRoc < spreadRoc, true);
+check("spread ROC", spreadRoc, 0.25);
+check("naked put ROC", nakedRoc, 0.016);
+
+// Reg-T naked margin: premium + max(20% of spot - OTM amount, 10% of strike).
+check("naked margin on a 5% OTM put",
+  nakedMarginPerShare(319.70, 305, 4.80, "put"), 54.04);
+check("deep OTM falls back to the 10%-of-strike floor",
+  nakedMarginPerShare(319.70, 200, 0.50, "put"), 20.5);
+check("margin needs a real spot", nakedMarginPerShare(0, 305, 4.80, "put"), null);
+
+// The payoff SLOPES at the outer edge instead of flattening. That missing floor
+// is the entire visual difference from a spread.
+const np = payoffPointsSingle("put", 305, 4.80, 280, 330);
+check("naked put payoff has three vertices", np.length, 3);
+check("it keeps the premium above the strike",
+  { at: np[1].pl, far: np[2].pl }, { at: 480, far: 480 });
+check("and is still falling at the left edge - no floor",
+  np[0].pl, -2020);
+const nc = payoffPointsSingle("call", 340, 4.25, 300, 380);
+check("naked call keeps the premium below the strike", nc[1].pl, 425);
+check("and is still falling at the right edge", nc[2].pl, -3575);
+check("an unpriced single leg draws nothing", payoffPointsSingle("put", 305, null, 280, 330), []);
+
 if (failures.length) {
   console.error(`FAIL — ${failures.length} of ${pass + failures.length}\n`);
   for (const f of failures) console.error(`  x ${f}`);
   process.exit(1);
 }
-console.log(`PASS — ${pass} assertions (spread math + selection + checklist + sizing + exits)`);
+console.log(`PASS — ${pass} assertions (spread math + selection + checklist + sizing + exits + single leg)`);

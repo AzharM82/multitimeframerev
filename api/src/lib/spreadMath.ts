@@ -534,3 +534,83 @@ export function contractsForRisk(maxLossPerContract: number | null, budget: numb
   if (maxLossPerContract <= 0 || budget <= 0) return 0;
   return Math.floor(budget / maxLossPerContract);
 }
+
+// ─── Single-leg (naked) variants ────────────────────────────────────────────
+/**
+ * Selling ONE option instead of a spread.
+ *
+ * You keep the whole premium instead of paying part of it away for the long
+ * leg, so the credit is several times larger. What you give up is the long leg
+ * itself — and that leg was the only thing capping the loss.
+ *
+ *   NAKED PUT  — loss is bounded, but only by the stock reaching zero.
+ *                Max loss = (strike − credit) × 100. On a $305 put that is
+ *                $30,425, against $400 on the equivalent $5-wide spread.
+ *   NAKED CALL — loss is UNBOUNDED. There is no ceiling on the share price, so
+ *                there is no worst case to quote. maxLoss returns null and
+ *                every caller must render that as "unlimited", never as a
+ *                number and never as zero.
+ *
+ * The honest comparison is not the credit, it is the return on capital: a
+ * cash-secured put collects more dollars while tying up ~75x the collateral.
+ */
+
+/** Reg-T style naked-option margin, per share. An ESTIMATE — brokers differ. */
+export function nakedMarginPerShare(
+  spot: number, strike: number, credit: number, type: "put" | "call",
+): number | null {
+  if (!isNum(spot) || !isNum(strike) || !isNum(credit)) return null;
+  if (spot <= 0 || strike <= 0) return null;
+  const otm = type === "call" ? Math.max(0, strike - spot) : Math.max(0, spot - strike);
+  // The standard formula: premium + the greater of (20% of underlying less the
+  // out-of-the-money amount) and 10% of the strike.
+  const a = 0.20 * spot - otm;
+  const b = 0.10 * strike;
+  return r4(credit + Math.max(a, b));
+}
+
+/**
+ * Worst case on a single short option, per share.
+ *
+ * Returns null for a CALL because the loss is genuinely unbounded — that null
+ * means "no such number exists", which is different from "not computed yet",
+ * and the UI must say unlimited rather than print anything.
+ */
+export function nakedMaxLoss(
+  type: "put" | "call", strike: unknown, credit: number | null,
+): number | null {
+  if (type === "call") return null;
+  if (!isNum(strike) || credit === null) return null;
+  return r4(strike - credit);
+}
+
+/** Cash-secured put collateral, per share: the strike, less what you were paid. */
+export function cashSecuredPerShare(strike: unknown, credit: number | null): number | null {
+  if (!isNum(strike) || credit === null) return null;
+  return r4(strike - credit);
+}
+
+/**
+ * Payoff vertices for a single short option. Three points, and the outer one
+ * keeps sloping — there is no flat floor, which is the whole visual difference
+ * from a spread and the thing the operator most needs to see.
+ */
+export function payoffPointsSingle(
+  type: "put" | "call", strike: number, credit: number | null,
+  domainLo: number, domainHi: number,
+): { price: number; pl: number }[] {
+  if (credit === null || !isNum(strike)) return [];
+  const keep = r2(credit * 100);
+  if (type === "put") {
+    return [
+      { price: r4(domainLo), pl: r2((domainLo - strike + credit) * 100) },
+      { price: r4(strike), pl: keep },
+      { price: r4(domainHi), pl: keep },
+    ];
+  }
+  return [
+    { price: r4(domainLo), pl: keep },
+    { price: r4(strike), pl: keep },
+    { price: r4(domainHi), pl: r2((strike - domainHi + credit) * 100) },
+  ];
+}

@@ -23,6 +23,7 @@ import {
   breakeven, creditMid, creditNatural, maxLoss, maxProfit, payoffPoints,
   pickLongStrike, pickShortStrike, popAtBreakeven, popShort, recommendShort,
   toContract, width, normDelta, closeLadder, type CloseTarget,
+  nakedMaxLoss, cashSecuredPerShare, nakedMarginPerShare, payoffPointsSingle,
   WIDTH_BASIC, WIDTH_FULL, WIDTH_MAX,
   type SpreadSide,
 } from "./spreadMath.js";
@@ -54,8 +55,11 @@ export interface LegQuote {
 
 export interface SpreadRow {
   side: SpreadSide;
+  /** "spread" has a protective long leg; "single" is a naked short option. */
+  structure: "spread" | "single";
   shortLeg: LegQuote;
-  longLeg: LegQuote;
+  /** Null on a single leg — there is nothing bought, and nothing capping loss. */
+  longLeg: LegQuote | null;
   widthTarget: number;
   widthActual: number;
   widthShort: boolean;
@@ -64,7 +68,13 @@ export interface SpreadRow {
   maxProfit: number | null;
   maxLoss: number | null;
   maxProfitContract: number | null;
+  /** NULL on a naked call: the loss is unbounded, so no such number exists. */
   maxLossContract: number | null;
+  /** Collateral the broker holds, per contract. Not the same as max loss. */
+  capitalPerContract: number | null;
+  capitalBasis: "spread" | "cash-secured" | "margin";
+  /** True only when the worst case is genuinely unbounded (a naked call). */
+  unlimitedRisk: boolean;
   breakeven: number | null;
   popShort: number | null;
   popBreakeven: number | null;
@@ -171,6 +181,7 @@ export function buildRow(
 
   return {
     side,
+    structure: "spread",
     shortLeg: legOf(shortC),
     longLeg: legOf(longC),
     widthTarget: targetWidth,
@@ -182,11 +193,88 @@ export function buildRow(
     maxLoss: ml,
     maxProfitContract: toContract(mp),
     maxLossContract: toContract(ml),
+    // On a vertical the collateral IS the max loss — the long leg guarantees it.
+    capitalPerContract: toContract(ml),
+    capitalBasis: "spread",
+    unlimitedRisk: false,
     breakeven: be,
     popShort: popShort(shortC.delta, shortC.type),
     popBreakeven: popAtBreakeven(be, lower, upper),
     payoff: payoffPoints(side, shortC.strike, longC.strike, credit, lo - pad, hi + pad),
     closeTargets: closeLadder(credit, w),
+    viable,
+    reason,
+  };
+}
+
+/**
+ * One SINGLE short option — no long leg, no cap.
+ *
+ * The credit is just the bid on the leg you sell, so it is several times a
+ * spread's. What disappears with the long leg is the floor under the loss:
+ *   put  — bounded only by the stock reaching zero
+ *   call — genuinely unbounded, so maxLoss is null and stays null
+ *
+ * Collateral is the honest comparison. A cash-secured put ties up the strike,
+ * which is why its return on capital is far worse than the spread's despite the
+ * bigger premium. `capitalBasis` names which rule produced the number so the UI
+ * never presents a margin estimate as if it were a settled requirement.
+ */
+export function buildSingleRow(
+  side: SpreadSide, shortC: OptionContract, spot: number, chainLegs: OptionContract[],
+): SpreadRow {
+  const isPut = side === "floor";
+  const type: "put" | "call" = isPut ? "put" : "call";
+  // Selling one option: the credit is simply what the bid pays you.
+  const credit = shortC.bid !== null && shortC.bid > 0 ? shortC.bid : null;
+  const cMid = shortC.bid !== null && shortC.ask !== null
+    ? Number(((shortC.bid + shortC.ask) / 2).toFixed(4)) : null;
+  const mp = maxProfit(credit);
+  const ml = nakedMaxLoss(type, shortC.strike, credit);
+  const be = breakeven(side, shortC.strike, credit);
+
+  // A put can be cash-secured, so quote the collateral that actually gets held.
+  // A call cannot be, so the only number available is a margin ESTIMATE.
+  const capital = isPut
+    ? cashSecuredPerShare(shortC.strike, credit)
+    : nakedMarginPerShare(spot, shortC.strike, credit ?? 0, type);
+
+  let viable = true;
+  let reason = "";
+  if (credit === null) { viable = false; reason = "short_not_bid"; }
+
+  let lower: { strike: number; delta: number | null } | null = null;
+  let upper: { strike: number; delta: number | null } | null = null;
+  if (be !== null) {
+    for (const c of chainLegs) {
+      if (c.strike <= be && (!lower || c.strike > lower.strike)) lower = { strike: c.strike, delta: c.delta };
+      if (c.strike >= be && (!upper || c.strike < upper.strike)) upper = { strike: c.strike, delta: c.delta };
+    }
+  }
+
+  const pad = Math.max(0.12 * shortC.strike, 10);
+  return {
+    side,
+    structure: "single",
+    shortLeg: legOf(shortC),
+    longLeg: null,
+    widthTarget: 0,
+    widthActual: 0,
+    widthShort: false,
+    credit,
+    creditMid: cMid,
+    maxProfit: mp,
+    maxLoss: ml,
+    maxProfitContract: toContract(mp),
+    maxLossContract: toContract(ml),
+    capitalPerContract: toContract(capital),
+    capitalBasis: isPut ? "cash-secured" : "margin",
+    unlimitedRisk: !isPut,
+    breakeven: be,
+    popShort: popShort(shortC.delta, shortC.type),
+    popBreakeven: popAtBreakeven(be, lower, upper),
+    payoff: payoffPointsSingle(type, shortC.strike, credit, shortC.strike - pad, shortC.strike + pad),
+    closeTargets: closeLadder(credit, capital),
     viable,
     reason,
   };
@@ -236,6 +324,10 @@ export function buildLadder(chain: OptionChain): Ladder {
       }
       out[side][`w${targetWidth}`] = rows;
     }
+
+    // The no-protection variant, under its own key so the UI can offer it as a
+    // deliberate choice rather than as another width.
+    out[side].single = cands.map((c) => buildSingleRow(side, c, chain.spot, legs));
   }
 
   return out;
