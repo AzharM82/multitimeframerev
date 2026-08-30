@@ -37,6 +37,14 @@ the rules that matter when changing it:
   (`classifyCross`, `planPrune`) precisely so they can be tested without a live
   publish — you cannot exercise them by POSTing, because a crossing sends real
   alerts and a prune deletes real rows. 33 assertions, no network.
+- **Run `cd api && npm run build && node tools/spread-math-test.mjs` before
+  touching the Options Guide's arithmetic.** 114 assertions, no network. The tab
+  hands the operator a trade to place at a broker, so every credit, max loss,
+  breakeven and probability is a pure function in `lib/spreadMath.ts` rather
+  than inline in the view — the payoff chart is drawn from the same vertices the
+  numbers come from, so the two cannot disagree. The suite pins the exported
+  thresholds at their exact values, so a silent retune fails rather than quietly
+  changing what gets recommended.
 - **One alert rule, symmetric, all four levels, no exceptions.** Previous closed
   candle below → closes at/above = `CROSS_UP`; previous above → closes at/below =
   `CROSS_DOWN`. Nothing else alerts. The AVWAP-only `TOUCH_DOWN` ("extended
