@@ -12,6 +12,10 @@ import {
   classifyCross, planPrune, encodeLastCross, decodeLastCross, PRUNE_MIN_SWEPT,
   classifySlope, sessionDayStr,
 } from "../dist/lib/avwapEarnings.js";
+import {
+  parseHist, encodeHist, appendHist, slopeFromHist, barsUntilSlope,
+  BAR_SECONDS, HIST_MAX, HIST_TOLERANCE,
+} from "../dist/lib/slopeHistory.js";
 
 let pass = 0;
 const failures = [];
@@ -202,9 +206,119 @@ check("21:00 PT (past ET midnight) still shows that day's session",
 check("premarket next morning still shows the previous session",
   at("2026-08-26T12:00:00Z"), "2026-08-25");
 
+// -- Slope history ---------------------------------------------------------
+// The fallback that lets the slope be DERIVED from values we already receive,
+// instead of waiting on the publisher to send a new field. The whole point is
+// that it must never fabricate a slope it cannot actually support.
+
+const B = BAR_SECONDS;                 // 39 minutes
+const T0 = 1787947200;                 // an arbitrary bar time
+const pt = (t, sma) => ({ t, v: { avwap: 1, sma50: sma, ema21d: 2, sma50d: 3 } });
+
+check("bar seconds is 39 minutes", BAR_SECONDS, 2340);
+
+// Round-trip. Nulls survive as nulls rather than becoming zeros.
+check("encode/parse round-trips a value",
+  parseHist(encodeHist([pt(T0, 75.5)]))[0].v.sma50, 75.5);
+check("a missing level stays null through a round trip",
+  parseHist(encodeHist([{ t: T0, v: { avwap: 1, sma50: null, ema21d: 2, sma50d: 3 } }]))[0].v.sma50, null);
+check("empty history parses to nothing", parseHist(""), []);
+check("garbage parses to nothing, it does not throw", parseHist("not-a-history"), []);
+check("null input", parseHist(null), []);
+
+// One entry per bar. Re-scoring a bar must REPLACE it: two entries for one bar
+// would consume two slots and silently shorten the lookback window.
+{
+  let h = [];
+  h = appendHist(h, pt(T0, 10));
+  h = appendHist(h, pt(T0, 11));
+  check("re-scoring the same bar replaces, never appends", h.length, 1);
+  check("and keeps the newer value", h[0].v.sma50, 11);
+}
+{
+  let h = [];
+  for (let i = 0; i < HIST_MAX + 6; i++) h = appendHist(h, pt(T0 + i * B, i));
+  check("history is trimmed to its cap", h.length, HIST_MAX);
+  check("and it is the NEWEST that survive", h[h.length - 1].v.sma50, HIST_MAX + 5);
+}
+check("a bar with no time cannot enter the history",
+  appendHist([pt(T0, 1)], { t: 0, v: { sma50: 9 } }).length, 1);
+
+// The slope itself.
+{
+  const h = [];
+  for (let i = 0; i < 20; i++) h.push(pt(T0 + i * B, 100 * Math.pow(1.002, i)));
+  const now = T0 + 20 * B;
+  const nowVal = 100 * Math.pow(1.002, 20);
+  // 15 bars back from bar 20 is bar 5. 1.002^15 - 1 = 3.0421%.
+  // 1.002^15 = 1.0304238. Note the derived path rounds to 4dp where the
+  // published path (chart_js.mjs) rounds to 3 — both display at 2dp, so they
+  // agree everywhere the operator can see.
+  check("derives the exact 15-bar slope",
+    slopeFromHist(h, "sma50", now, nowVal, 15), 3.0424);
+  check("a shorter lookback gives a smaller slope",
+    slopeFromHist(h, "sma50", now, nowVal, 10) < slopeFromHist(h, "sma50", now, nowVal, 15), true);
+  // This is the number the published path produced for the same ramp, so the
+  // two sources agree on what "the slope" means.
+  check("10-bar matches the published path's value",
+    slopeFromHist(h, "sma50", now, nowVal, 10), 2.0181);
+}
+
+// NOT ENOUGH HISTORY IS NULL. During the warm-up the honest answer is "unknown",
+// never a slope measured over whatever short window happens to exist.
+{
+  const h = [pt(T0, 100), pt(T0 + B, 101)];
+  check("too little history -> null, not a short-window slope",
+    slopeFromHist(h, "sma50", T0 + 2 * B, 102, 15), null);
+  check("warm-up remaining is reported", barsUntilSlope(h, 15), 13);
+  check("warm-up is zero once covered", barsUntilSlope(new Array(15).fill(pt(T0, 1)), 15), 0);
+}
+
+// THE RULE THAT MATTERS. A gap must not be bridged by counting entries: doing so
+// measures a longer window than asked for while reporting the asked-for one.
+{
+  const h = [];
+  for (let i = 0; i < 20; i++) {
+    if (i >= 4 && i <= 9) continue;           // six bars missing where 15-back lands
+    h.push(pt(T0 + i * B, 100 + i));
+  }
+  check("a gap over the target bar yields null, not the nearest survivor",
+    slopeFromHist(h, "sma50", T0 + 20 * B, 130, 15), null);
+}
+// Just inside tolerance is still accepted - a bar half a period off IS the bar.
+{
+  const h = [pt(T0 + 5 * B + Math.floor(B * (HIST_TOLERANCE - 0.05)), 100)];
+  check("a bar just inside tolerance is used",
+    slopeFromHist(h, "sma50", T0 + 20 * B, 110, 15) !== null, true);
+}
+{
+  const h = [pt(T0 + 5 * B + Math.ceil(B * (HIST_TOLERANCE + 0.05)), 100)];
+  check("a bar just outside tolerance is not",
+    slopeFromHist(h, "sma50", T0 + 20 * B, 110, 15), null);
+}
+
+// Never look forward, and never divide by a level that was not there.
+{
+  const h = [pt(T0 + 30 * B, 100)];
+  check("future bars are ignored", slopeFromHist(h, "sma50", T0 + 20 * B, 110, 15), null);
+}
+{
+  const h = [{ t: T0 + 5 * B, v: { sma50: null } }];
+  check("a null level at the far end -> null",
+    slopeFromHist(h, "sma50", T0 + 20 * B, 110, 15), null);
+}
+{
+  const h = [pt(T0 + 5 * B, 0)];
+  check("a zero level cannot be a denominator",
+    slopeFromHist(h, "sma50", T0 + 20 * B, 110, 15), null);
+}
+check("no current value -> null", slopeFromHist([pt(T0, 100)], "sma50", T0 + 15 * B, null, 15), null);
+check("a flat line derives exactly zero",
+  slopeFromHist([pt(T0, 100)], "sma50", T0 + 15 * B, 100, 15), 0);
+
 if (failures.length) {
   console.error(`FAIL — ${failures.length} of ${pass + failures.length}\n`);
   for (const f of failures) console.error(`  x ${f}`);
   process.exit(1);
 }
-console.log(`PASS — ${pass} assertions (alert rule + roster prune + slope + session day)`);
+console.log(`PASS — ${pass} assertions (alert rule + roster prune + slope + session day + slope history)`);

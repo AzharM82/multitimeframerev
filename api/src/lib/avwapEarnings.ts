@@ -49,6 +49,9 @@
 
 import { upsert, getOne, listByPartition, remove, TABLES } from "./tables.js";
 import { notifyBoth } from "./notifyBoth.js";
+import {
+  appendHist, encodeHist, parseHist, slopeFromHist, type HistPoint,
+} from "./slopeHistory.js";
 
 export const CURRENT_PK = "current";
 export const META_RK = "__meta__";
@@ -70,6 +73,16 @@ const DEFAULT_STALE_MIN = 15;
  * twice.
  */
 const DEFAULT_SLOPE_MIN_PCT = 0.10;
+
+/**
+ * Lookback used when DERIVING a slope from stored history.
+ *
+ * The publisher owns this number (TV_SLOPE_BARS) and echoes it as `slope_bars`.
+ * When it has not told us — an older publisher, or one that never will — we
+ * still need a window, and it must match the publisher's default or the two
+ * sources would disagree about what "the slope" means.
+ */
+export const DEFAULT_SLOPE_BARS = 15;
 
 export type SlopeDirection = "UP" | "DOWN" | "FLAT";
 
@@ -188,8 +201,15 @@ export interface AvwapSnapshot {
   crossDay: string;
   /** True when `crossDay` is the session currently in progress. */
   crossDayIsCurrent: boolean;
-  /** Bars the publisher measured `slope` over, so the tab can label the column. */
+  /** Bars the slope was measured over, so the tab can label the column. */
   slopeBars: number;
+  /**
+   * Where the slope came from: "published" (read off the chart by DESKTOP2),
+   * "derived" (computed from values we stored on previous sweeps), "mixed", or
+   * "" when none is available yet. A derived slope carries a warm-up caveat a
+   * published one does not, so the tab must be able to say which it is.
+   */
+  slopeSource: string;
 }
 
 /** Historical rows say TOUCH_DOWN; it means the same side as CROSS_DOWN. */
@@ -413,6 +433,9 @@ export async function recordSnapshot(
   const crossings: CrossEvent[] = [];
   let stored = 0;
   let skipped = 0;
+  const slopeBars = Number(opts.slopeBars) > 0 ? Number(opts.slopeBars) : DEFAULT_SLOPE_BARS;
+  /** Which source actually produced a slope this sweep — surfaced to the tab. */
+  const slopeSources = new Set<string>();
 
   // Every ticker the publisher MENTIONED, not just the ones we stored. A MASTER
   // symbol whose levels were unreadable is still in MASTER, so it must count
@@ -427,6 +450,12 @@ export async function recordSnapshot(
 
     const barTime = num(raw.closed_time) ?? 0;
     const closedClose = num(raw.closed_close) ?? close;
+
+    // `previous` was already loaded for the prune, so the history rides along at
+    // no extra read. Values for THIS bar are collected as the level loop runs
+    // and appended once, after it.
+    const prevHist = parseHist(previous[ticker]?.hist);
+    const thisBar: HistPoint = { t: barTime, v: {} };
 
     const entity: Record<string, unknown> = {
       ticker,
@@ -460,8 +489,24 @@ export async function recordSnapshot(
       // Slope of the level itself. Stored whether or not anything crossed: the
       // "above and rising" count is a live property of every row, not just of
       // the ones that crossed today.
-      const slope = num(raw[`slope_${level}`]);
+      //
+      // Two sources, in order of preference:
+      //   PUBLISHED — DESKTOP2 read the plotted value `slopeBars` back off the
+      //               chart. Exact from the very first sweep.
+      //   DERIVED   — computed from values we have already been sent and kept
+      //               (see slopeHistory.ts). Needs ~1.5 sessions to warm up,
+      //               but requires nothing of the publisher, so the metric is
+      //               never dark waiting on another machine to pull a change.
+      //
+      // Published always wins where present; derived only fills the gap.
+      thisBar.v[level] = value;
+      const published = num(raw[`slope_${level}`]);
+      const derived = published !== null
+        ? null
+        : slopeFromHist(prevHist, level, barTime, value, slopeBars);
+      const slope = published ?? derived;
       entity[`slope_${level}`] = slope;
+      if (slope !== null) slopeSources.add(published !== null ? "published" : "derived");
 
       const c = num(raw[`c_pct_${level}`]);
       const p = num(raw[`p_pct_${level}`]);
@@ -511,6 +556,15 @@ export async function recordSnapshot(
       if (prevRow?.lastCrossAt) entity.lastCrossAt = prevRow.lastCrossAt;
     }
 
+    // Persist this bar into the rolling history so the next sweep has something
+    // to measure against. Only when the bar time is real — a zero would collapse
+    // every entry onto one slot and the lookback would never fill.
+    if (barTime > 0) {
+      entity.hist = encodeHist(appendHist(prevHist, thisBar));
+    } else if (previous[ticker]?.hist) {
+      entity.hist = previous[ticker].hist;
+    }
+
     await upsert(TABLES.AVWAP_EARNINGS, CURRENT_PK, ticker, entity);
     stored++;
   }
@@ -532,7 +586,13 @@ export async function recordSnapshot(
     // Carried so the tab labels the slope column with the window actually used,
     // not one hardcoded in the frontend that silently goes stale the moment
     // TV_SLOPE_BARS is retuned on the publisher.
-    slopeBars: Number(opts.slopeBars) > 0 ? Number(opts.slopeBars) : 0,
+    slopeBars,
+    // "published" (read off the chart) / "derived" (from stored history) /
+    // "mixed" / "" when nothing produced one yet. The tab says which, because a
+    // derived slope carries a warm-up caveat a published one does not.
+    slopeSource: slopeSources.size === 0 ? ""
+      : slopeSources.size > 1 ? "mixed"
+      : [...slopeSources][0],
     // A dead feed must never look like a quiet market — carry the publisher's
     // own failure list through to the tab.
     failed: opts.failed.join(",").slice(0, 30000),
@@ -628,7 +688,7 @@ export async function getSnapshot(): Promise<AvwapSnapshot> {
     rows: [], barUtc: "", publishedAt: "", receivedAt: "",
     host: "", ageMin: -1, stale: true, failed: [],
     todayCross: Object.fromEntries(LEVELS.map((l) => [l, { up: [], down: [] }])),
-    crossDay: "", crossDayIsCurrent: true, slopeBars: 0,
+    crossDay: "", crossDayIsCurrent: true, slopeBars: 0, slopeSource: "",
   };
 
   // The session's crossings, for the up/down matrix. Non-fatal: the levels are
@@ -671,6 +731,7 @@ export async function getSnapshot(): Promise<AvwapSnapshot> {
       out.host = String(e.host ?? "");
       out.failed = String(e.failed ?? "").split(",").filter(Boolean);
       out.slopeBars = num(e.slopeBars) ?? 0;
+      out.slopeSource = String(e.slopeSource ?? "");
       continue;
     }
     const levels: Record<string, number | null> = {};
