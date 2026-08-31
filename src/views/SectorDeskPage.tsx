@@ -174,11 +174,15 @@ const fmtDist = (v: number | null | undefined) => (hasNum(v) ? fmtPct(v) : "–"
 const distTone = (v: number | null | undefined) => (hasNum(v) ? pctTone(v) : "text-text-secondary");
 
 type SortKey =
-  | "ticker" | "chg" | "changeFromOpen" | "relVol" | "dollarVol"
+  | "ticker" | "close" | "chg" | "changeFromOpen" | "relVol" | "dollarVol"
   | "distEma10" | "distEma20" | "distSma50" | "distSma200" | "dist5day" | "score";
 
 const COLUMNS: SortColumn<SortKey>[] = [
   { key: "ticker", label: "Ticker", num: false },
+  // The last price. Every other column here is a DERIVED number — a percent, a
+  // ratio, a distance — and none of them answer "what does one share cost".
+  // It was in the payload all along and simply never rendered.
+  { key: "close", label: "Price", num: true },
   { key: "chg", label: "Chg", num: true },
   { key: "changeFromOpen", label: "Chg Open", num: true },
   { key: "relVol", label: "RVol", num: true },
@@ -239,6 +243,9 @@ function StockTable({ group }: { group: DeskGroup }) {
                       {f}
                     </span>
                   ))}
+                </td>
+                <td className="text-right px-2 py-1.5 tabular-nums text-text-primary">
+                  {hasNum(s.close) ? `$${s.close.toFixed(2)}` : "–"}
                 </td>
                 <td className={`text-right px-2 py-1.5 tabular-nums font-semibold ${pctTone(s.chg)}`}>{fmtPct(s.chg)}</td>
                 <td className={`text-right px-2 py-1.5 tabular-nums ${distTone(s.changeFromOpen)}`}>{fmtDist(s.changeFromOpen)}</td>
@@ -327,6 +334,11 @@ function IndexCard({ block }: { block: IndexBlock }) {
                   <a href={TV(l.ticker)} target="_blank" rel="noreferrer" className="font-bold hover:underline">
                     {l.ticker}
                   </a>
+                </td>
+                {/* Same omission as the group table: the price was in the
+                    payload and never shown. */}
+                <td className="py-1 text-right tabular-nums text-text-primary">
+                  {hasNum(l.close) ? `$${l.close.toFixed(2)}` : "–"}
                 </td>
                 <td className={`py-1 text-right tabular-nums font-semibold ${pctTone(l.chg)}`}>{fmtPct(l.chg)}</td>
                 <td className="py-1 text-right tabular-nums text-text-secondary">{fmtVol(l.volume)}</td>
