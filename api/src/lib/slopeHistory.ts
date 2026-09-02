@@ -22,11 +22,19 @@
  * limit.
  *
  * ── The rule that matters ─────────────────────────────────────────────────
- * A point is matched by its BAR TIME, never by its position in the array. A
- * missed sweep leaves a gap, and counting backwards N entries through a gap
- * measures a longer window than asked for while reporting the asked-for one.
- * When no stored bar sits near the target, the answer is null — an unknown
- * slope, not one quietly measured over the wrong span.
+ * The lookback is counted in BARS, walking back through the stored sequence —
+ * NOT in clock time. A session is ten 39-minute bars, so fifteen bars back
+ * always crosses a night; `now − 15 × 39min` lands in the small hours where no
+ * bar exists and matches nothing. That was shipped once and produced a slope
+ * that was null forever.
+ *
+ * A missed sweep is still a real hazard, because counting entries through a
+ * hole measures a longer window than asked for while reporting the asked-for
+ * one. So the window is rejected outright when two consecutive bars inside it
+ * fall on the same ET day more than GAP_TOLERANCE bars apart. Overnight and
+ * weekend gaps land on different days and are expected; a hole inside a session
+ * is not. Either way the answer is null — an unknown slope, never one quietly
+ * measured over the wrong span.
  *
  * PURE. No I/O, no clock. Exercised by api/tools/spread-math-test.mjs's sibling
  * assertions in avwap-rules-test.mjs.
@@ -41,11 +49,14 @@ export const BAR_SECONDS = 39 * 60;
 export const HIST_MAX = 24;
 
 /**
- * How far a stored bar may sit from the target and still be used, as a fraction
- * of one bar. Half a bar means "the nearest bar, and only if it really is the
- * one we meant" — beyond that the window is wrong and null is the honest answer.
+ * How much longer than one bar two CONSECUTIVE stored bars may sit apart before
+ * we call it a missed sweep. Anything under this is clock jitter; anything over
+ * means a bar is absent from the window.
+ *
+ * Applies only WITHIN a trading day. The overnight gap between one session's
+ * last bar and the next session's first is ~17 hours and entirely expected.
  */
-export const HIST_TOLERANCE = 0.5;
+export const GAP_TOLERANCE = 1.5;
 
 export interface HistPoint {
   /** Bar epoch SECONDS, matching the publisher's closed-bar time. */
@@ -107,15 +118,37 @@ export function appendHist(prev: HistPoint[], point: HistPoint, max = HIST_MAX):
   return kept.slice(-max);
 }
 
+/** ET calendar date of a bar — the boundary an overnight gap sits on. */
+function etDay(t: number): string {
+  return new Date(t * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
 /**
  * Percent change of one level between `bars` ago and now, or null.
  *
  * `nowValue` is passed in rather than read from the history because the current
  * bar is being written in the same pass — the caller has it before it is stored.
  *
- * Returns null when: the level is missing at either end, the earlier value is
- * not positive, or no stored bar lies within HIST_TOLERANCE of the target time.
- * That last case is the important one — see the module header.
+ * ── Counted in BARS, not in clock time ────────────────────────────────────
+ * The obvious implementation — target = now − bars × barSeconds, then match the
+ * nearest stored bar — is WRONG, and shipped wrong once. A session is only ten
+ * 39-minute bars, so fifteen bars back always crosses at least one overnight
+ * gap. Fifteen bars back and 9.75 hours back are 38 hours apart in real bar
+ * times, nothing lands near the target, and the function returns null forever.
+ *
+ * So walk back `bars` ENTRIES through the stored sequence, which is already in
+ * trading-time order and naturally skips nights and weekends.
+ *
+ * The reason clock matching was reached for in the first place still stands: a
+ * missed sweep leaves a gap, and counting entries through one measures a longer
+ * window than asked for while reporting the asked-for one. That is handled
+ * directly — the window is rejected if any two consecutive bars inside it sit
+ * on the SAME ET day more than GAP_TOLERANCE bars apart. Overnight and weekend
+ * gaps land on different days and are expected; a hole inside a session is not.
+ *
+ * Returns null when: too few bars are stored yet (the warm-up), a bar is missing
+ * inside the window, the level is absent at either end, or the earlier value is
+ * not positive.
  */
 export function slopeFromHist(
   points: HistPoint[],
@@ -129,20 +162,23 @@ export function slopeFromHist(
   if (!isNum(nowBarTime) || nowBarTime <= 0) return null;
   if (!isNum(bars) || bars < 1) return null;
 
-  const target = nowBarTime - bars * barSeconds;
-  const tolerance = barSeconds * HIST_TOLERANCE;
+  // Never look forward, and never let the current bar count as its own history.
+  const past = points.filter((p) => p.t < nowBarTime).sort((a, b) => a.t - b.t);
+  if (past.length < bars) return null;                    // still warming up
 
-  let best: HistPoint | null = null;
-  let bestGap = Infinity;
-  for (const p of points) {
-    if (p.t >= nowBarTime) continue;          // never look forward
-    const gap = Math.abs(p.t - target);
-    if (gap < bestGap) { bestGap = gap; best = p; }
-  }
-  if (!best || bestGap > tolerance) return null;
-
-  const then = best.v[level];
+  const window = past.slice(past.length - bars);          // the `bars` most recent
+  const then = window[0].v[level];
   if (!isNum(then) || then <= 0) return null;
+
+  // A hole inside the window would silently widen it. Check every adjacent pair,
+  // including the step from the last stored bar to the bar being scored now.
+  const seq = [...window.map((p) => p.t), nowBarTime];
+  for (let i = 1; i < seq.length; i++) {
+    const prev = seq[i - 1], cur = seq[i];
+    if (etDay(prev) !== etDay(cur)) continue;             // overnight — expected
+    if (cur - prev > barSeconds * GAP_TOLERANCE) return null;
+  }
+
   return r4(((nowValue - then) / then) * 100);
 }
 
