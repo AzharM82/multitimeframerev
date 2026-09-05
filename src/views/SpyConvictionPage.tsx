@@ -4,6 +4,7 @@ import type {
   SpyShadowResponse, ShadowTrade,
 } from "../types.js";
 import { getSpyConviction, forceSpyFlat, getSpyShadow, evaluateSpyShadow } from "../services/api.js";
+import { SpyHowItWorks } from "./spy/SpyHowItWorks.js";
 import { fmtTimePT, PT_LABEL } from "../utils/time.js";
 
 /**
@@ -579,6 +580,8 @@ export function SpyConvictionPage() {
   const [shadow, setShadow] = useState<SpyShadowResponse | null>(null);
   const [shadowBusy, setShadowBusy] = useState(false);
   const [shadowError, setShadowError] = useState<string | null>(null);
+  /** Two views of the same tab: the live ledger, and the explanation of the system. */
+  const [view, setView] = useState<"ledger" | "how">("ledger");
 
   const load = useCallback(async (d: string) => {
     setLoading(true); setError(null);
@@ -647,12 +650,28 @@ export function SpyConvictionPage() {
           </p>
         </div>
         <span className="flex-1" />
-        <label className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-secondary">
-          day
-          <input type="date" value={date} max={tradingDay()} onChange={(e) => setDate(e.target.value || tradingDay())}
-            className="bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary" />
-        </label>
+        <div className="flex items-center gap-1.5">
+          {([["ledger", "Ledger"], ["how", "How it works"]] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setView(k)}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
+                view === k ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {view === "ledger" && (
+          <label className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-secondary">
+            day
+            <input type="date" value={date} max={tradingDay()} onChange={(e) => setDate(e.target.value || tradingDay())}
+              className="bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary" />
+          </label>
+        )}
       </div>
+
+      {view === "how" && <SpyHowItWorks params={shadow?.params ?? null} rule={shadow?.rule ?? null} />}
+
+      {view === "ledger" && <>
 
       {/* Live state. Everything here answers "is it alive". */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -838,6 +857,7 @@ export function SpyConvictionPage() {
         onReevaluate={onReevaluate} busy={shadowBusy} error={shadowError} />
 
       <ResearchSection report={data.research} />
+      </>}
     </div>
   );
 }
