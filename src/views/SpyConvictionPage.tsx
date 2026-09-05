@@ -373,37 +373,26 @@ function barTimeToPT(barTime: string): string {
   return fmtTimePT(new Date(guess - offset).toISOString());
 }
 
-/** Two cumulative curves on one scale: all-in (solid) and one-third size (dashed). */
-function EquityCurve({ series }: { series: { label: string; points: { day: string; netUsd: number }[]; dashed?: boolean }[] }) {
-  const main = series[0]?.points ?? [];
-  if (main.length < 2) return <div className="text-[10px] text-dim">The curve appears after two trading days.</div>;
-  const W = 640, H = 104, L = 44, R = 8, TOP = 8, BOT = H - 18;
-  const vals = series.flatMap((s) => s.points.map((p) => p.netUsd));
+function EquityCurve({ points }: { points: { day: string; netUsd: number }[] }) {
+  if (points.length < 2) return <div className="text-[10px] text-dim">The curve appears after two trading days.</div>;
+  const W = 640, H = 96, L = 44, R = 8, TOP = 8, BOT = H - 18;
+  const vals = points.map((p) => p.netUsd);
   const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
   const span = hi - lo || 1;
-  const x = (i: number, n: number) => L + (i * (W - L - R)) / (n - 1);
+  const x = (i: number) => L + (i * (W - L - R)) / (points.length - 1);
   const y = (v: number) => TOP + ((hi - v) * (BOT - TOP)) / span;
+  const path = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.netUsd).toFixed(1)}`).join(" ");
+  const last = points[points.length - 1];
+  const cls = last.netUsd >= 0 ? "text-signal-bull" : "text-signal-bear";
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[420px]" role="img" aria-label="cumulative net dollars on the account, both sizings">
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[420px]" role="img" aria-label="cumulative net dollars per contract">
       <line x1={L} y1={y(0)} x2={W - R} y2={y(0)} stroke="currentColor" className="text-text-secondary" strokeWidth={1} />
       <text x={L - 4} y={y(hi) + 3} textAnchor="end" className="fill-current text-text-secondary" fontSize={9}>{usd(hi)}</text>
       <text x={L - 4} y={y(lo) + 3} textAnchor="end" className="fill-current text-text-secondary" fontSize={9}>{usd(lo)}</text>
-      {series.map((s) => {
-        if (s.points.length < 2) return null;
-        const n = s.points.length;
-        const path = s.points.map((p, i) => `${i ? "L" : "M"}${x(i, n).toFixed(1)},${y(p.netUsd).toFixed(1)}`).join(" ");
-        const last = s.points[n - 1];
-        const cls = last.netUsd >= 0 ? "text-signal-bull" : "text-signal-bear";
-        return (
-          <g key={s.label}>
-            <path d={path} fill="none" stroke="currentColor" strokeWidth={s.dashed ? 1.25 : 1.5} strokeDasharray={s.dashed ? "4 3" : undefined} className={cls} />
-            <circle cx={x(n - 1, n)} cy={y(last.netUsd)} r={2.5} fill="currentColor" className={cls} />
-            <text x={x(n - 1, n) - 4} y={y(last.netUsd) - 4} textAnchor="end" className={`fill-current ${cls}`} fontSize={9}>{s.label} {usd(last.netUsd)}</text>
-          </g>
-        );
-      })}
-      <text x={L} y={H - 4} className="fill-current text-dim" fontSize={9}>{main[0].day}</text>
-      <text x={W - R} y={H - 4} textAnchor="end" className="fill-current text-dim" fontSize={9}>{main[main.length - 1].day}</text>
+      <path d={path} fill="none" stroke="currentColor" strokeWidth={1.5} className={cls} />
+      <circle cx={x(points.length - 1)} cy={y(last.netUsd)} r={2.5} fill="currentColor" className={cls} />
+      <text x={L} y={H - 4} className="fill-current text-dim" fontSize={9}>{points[0].day}</text>
+      <text x={W - R} y={H - 4} textAnchor="end" className="fill-current text-dim" fontSize={9}>{last.day}</text>
     </svg>
   );
 }
@@ -425,9 +414,7 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
   const [open, setOpen] = useState(true);
   const s = shadow?.summary;
   const rows: ShadowTrade[] = shadow?.rows ?? [];
-  const third = s?.accounts?.third ?? null;
   const dayNet = rows.reduce((a, r) => a + (r.acct?.netUsd ?? 0), 0);
-  const dayNetThird = rows.reduce((a, r) => a + (r.accts?.third?.netUsd ?? 0), 0);
   const dayFilled = rows.filter((r) => r.status === "FILLED").length;
   const acctSize = shadow?.params.accountUsd ?? 0;
 
@@ -438,9 +425,8 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
         <span>Shadow ledger</span>
         {s ? (
           <span className="normal-case font-normal text-text-secondary">
-            · {s.filled} trades over {s.days} days · all-in <span className={tone(s.account.netUsd)}>{usd(s.account.netUsd)}</span>
-            {" "}({pct(s.account.retPct)}){s.accounts.third ? <> · 1/3 size <span className={tone(s.accounts.third.netUsd)}>{usd(s.accounts.third.netUsd)}</span> ({pct(s.accounts.third.retPct)})</> : null}
-            {" "}on ${s.account.sizeUsd.toLocaleString()}
+            · {s.filled} trades over {s.days} days · <span className={tone(s.account.netUsd)}>{usd(s.account.netUsd)}</span>
+            {" "}({pct(s.account.retPct)}) on ${s.account.sizeUsd.toLocaleString()}
           </span>
         ) : error ? (
           <span className="normal-case font-normal text-signal-bear">· {error}</span>
@@ -455,33 +441,24 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
         <div className="px-3 py-3 space-y-3">
           <div className="text-[11px] text-text-secondary">
             Rule, fixed in code: <span className="text-text-primary">{shadow.rule}</span>. ATM SPY option expiring that
-            Friday, scored after the close on a <span className="text-text-primary">${s.account.sizeUsd.toLocaleString()}</span> account
-            two ways: <span className="text-text-primary">all-in</span> (every contract the account buys at the entry) and{" "}
-            <span className="text-text-primary">1/3 size</span> (premium capped at one third of the account). Not compounded. Nothing is traded.
+            Friday, sized as every contract a <span className="text-text-primary">${s.account.sizeUsd.toLocaleString()}</span> account
+            buys at the entry (not compounded), scored after the close. Nothing is traded.
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-            <Stat label={`All-in on $${s.account.sizeUsd.toLocaleString()}`} value={`${usd(s.account.netUsd)} · ${pct(s.account.retPct)}`} cls={tone(s.account.netUsd)}
-              sub={`drawdown ${usd(s.account.maxDrawdownUsd)} (${pct(s.account.maxDrawdownPct)}) · avg ${s.account.avgContracts ?? "—"} contracts`} />
-            {third && (
-              <Stat label="1/3 size" value={`${usd(third.netUsd)} · ${pct(third.retPct)}`} cls={tone(third.netUsd)}
-                sub={`drawdown ${usd(third.maxDrawdownUsd)} (${pct(third.maxDrawdownPct)}) · avg ${third.avgContracts ?? "—"} contracts`} />
-            )}
+            <Stat label={`Net on $${s.account.sizeUsd.toLocaleString()}`} value={`${usd(s.account.netUsd)} · ${pct(s.account.retPct)}`} cls={tone(s.account.netUsd)}
+              sub={s.account.commissionUsd ? `gross ${usd(s.account.grossUsd)} · fees ${usd(-s.account.commissionUsd)}` : "commission-free (Tradier Pro, $10/mo flat not modelled)"} />
             <Stat label="Win rate" value={s.winRate === null ? "—" : `${s.winRate}%`} sub={`${s.wins}W / ${s.losses}L`} />
             <Stat label="Best / worst trade" value={`${usd(s.account.bestTradeUsd)} / ${usd(s.account.worstTradeUsd)}`}
-              sub={third ? `1/3 size ${usd(third.bestTradeUsd)} / ${usd(third.worstTradeUsd)}` : "all-in"} />
+              sub={`avg ${s.account.avgContracts ?? "—"} contracts`} />
+            <Stat label="Max drawdown" value={`${usd(s.account.maxDrawdownUsd)} · ${pct(s.account.maxDrawdownPct)}`} cls={tone(s.account.maxDrawdownUsd)} sub="on closing equity" />
             <Stat label="Calls / puts" value={`${usd(s.account.bySide.CALL)} / ${usd(s.account.bySide.PUT)}`}
-              sub={`${s.bySide.CALL.wins}/${s.bySide.CALL.filled} · ${s.bySide.PUT.wins}/${s.bySide.PUT.filled} won · all-in`} />
+              sub={`${s.bySide.CALL.wins}/${s.bySide.CALL.filled} · ${s.bySide.PUT.wins}/${s.bySide.PUT.filled} won`} />
             <Stat label="Signals" value={`${s.signals}`}
-              sub={`${s.filled} filled · ${s.noTouch} no touch${s.noData ? ` · ${s.noData} no data` : ""}${s.account.commissionUsd ? "" : " · commission-free"}`} />
+              sub={`${s.filled} filled · ${s.noTouch} no touch${s.noData ? ` · ${s.noData} no data` : ""}`} />
           </div>
 
-          <div className="overflow-x-auto">
-            <EquityCurve series={[
-              { label: "all-in", points: s.account.equity },
-              ...(third ? [{ label: "1/3", points: third.equity, dashed: true }] : []),
-            ]} />
-          </div>
+          <div className="overflow-x-auto"><EquityCurve points={s.account.equity} /></div>
           <div className="text-[10px] text-dim">
             Per single contract: {usd(s.netUsd)} net · avg win {usd(s.avgWinUsd)} / avg loss {usd(s.avgLossUsd)} gross · drawdown {usd(s.maxDrawdownUsd)}
           </div>
@@ -495,10 +472,8 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
             <div className="text-[10px] uppercase tracking-wider text-text-secondary">
               {date}
               {rows.length
-                ? <> · {dayFilled} of {rows.length} filled · all-in <span className={tone(dayNet)}>{usd(dayNet, 2)}</span>
-                    {acctSize ? <span className="text-dim"> ({pct((dayNet / acctSize) * 100)})</span> : null}
-                    {third ? <> · 1/3 <span className={tone(dayNetThird)}>{usd(dayNetThird, 2)}</span>
-                      {acctSize ? <span className="text-dim"> ({pct((dayNetThird / acctSize) * 100)})</span> : null}</> : null}</>
+                ? <> · {dayFilled} of {rows.length} filled · <span className={tone(dayNet)}>{usd(dayNet, 2)}</span>
+                    {acctSize ? <span className="text-dim"> ({pct((dayNet / acctSize) * 100)})</span> : null}</>
                 : " · no rows"}
             </div>
             <span className="flex-1" />
@@ -530,10 +505,8 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
                     <th className="text-left font-normal py-1 pr-3">Why</th>
                     <th className="text-right font-normal py-1 pr-3">Ret</th>
                     <th className="text-right font-normal py-1 pr-3">Qty</th>
-                    <th className="text-right font-normal py-1 pr-3">All-in $</th>
+                    <th className="text-right font-normal py-1 pr-3">Net $</th>
                     <th className="text-right font-normal py-1 pr-3">Acct %</th>
-                    <th className="text-right font-normal py-1 pr-3">1/3 qty</th>
-                    <th className="text-right font-normal py-1 pr-3">1/3 $</th>
                     <th className="text-right font-normal py-1 pr-3">Held</th>
                     <th className="text-right font-normal py-1 pr-3">Peak</th>
                     <th className="text-left font-normal py-1">10 / 15%</th>
@@ -570,9 +543,6 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
                       <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.acct?.netUsd)}`}
                         title={r.acct ? `per contract ${usd(r.netUsd, 2)}` : ""}>{usd(r.acct?.netUsd, 2)}</td>
                       <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.acct?.retPct)}`}>{pct(r.acct?.retPct)}</td>
-                      <td className="py-1 pr-3 text-right tabular-nums text-text-secondary">{r.accts?.third ? r.accts.third.contracts : "—"}</td>
-                      <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.accts?.third?.netUsd)}`}
-                        title={r.accts?.third ? `${pct(r.accts.third.retPct)} of the account` : ""}>{usd(r.accts?.third?.netUsd, 2)}</td>
                       <td className="py-1 pr-3 text-right tabular-nums text-text-secondary">{r.heldMin === null ? "—" : `${r.heldMin}m`}</td>
                       <td className="py-1 pr-3 text-right tabular-nums text-text-secondary">{pct(r.mfePct)}</td>
                       <td className="py-1 text-text-secondary">
@@ -584,8 +554,8 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
               </table>
               <div className="text-[10px] text-dim mt-1">
                 Times {PT_LABEL} · entry is the option&apos;s 1-minute midpoint at the touch · the stop is checked before
-                the target inside a bar · Qty is every contract ${acctSize.toLocaleString()} buys at the entry, 1/3 qty caps the premium at
-                one third of it · dollars are for those quantities{shadow.params.commissionRt ? " after commissions" : ", commission-free"} · &ldquo;10 / 15%&rdquo; marks whether those targets would have filled before the stop
+                the target inside a bar · Qty is every contract ${acctSize.toLocaleString()} buys at the entry · Net $ and Acct %
+                are for that quantity{shadow.params.commissionRt ? " after commissions" : ", commission-free"} · &ldquo;10 / 15%&rdquo; marks whether those targets would have filled before the stop
                 {rows.some((r) => r.backfilled) ? " · this day was backfilled from the alert log" : ""}
               </div>
             </div>
