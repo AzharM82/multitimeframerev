@@ -66,6 +66,17 @@ export const RULE = {
    * rewrites history.
    */
   ACCOUNT_USD: 2000,
+  /**
+   * The two position sizes the tab reports side by side. "full" is every
+   * contract the account buys; "third" caps the premium at one third of the
+   * account, which the drawdown study (2026-09-05) put at roughly −8% max
+   * drawdown against −38% for full size on the same trades. Both are read-time
+   * views of the same rows.
+   */
+  SIZINGS: [
+    { key: "full", label: "100% per trade", frac: 1 },
+    { key: "third", label: "1/3 per trade", frac: 1 / 3 },
+  ],
   /** Human-readable, rendered on the tab. Keep in step with the constants. */
   label: "2-min 9 EMA pullback within 10 min · +20% target · −9% stop · else close",
 } as const;
@@ -276,10 +287,11 @@ export interface AccountFill {
   retPct: number;
 }
 
-/** Size one filled trade for a fixed account. Zero contracts if the premium is
- *  larger than the account (it never is for ATM SPY weeklies at $2,000). */
-export function sizeForAccount(entry: number, grossPerContract: number, account: number = RULE.ACCOUNT_USD): AccountFill {
-  const contracts = entry > 0 ? Math.floor(account / (entry * 100)) : 0;
+/** Size one filled trade for a fixed account and a fraction of it per trade.
+ *  Zero contracts if the premium is larger than the budget. `retPct` is always
+ *  against the WHOLE account, so the two sizings are comparable. */
+export function sizeForAccount(entry: number, grossPerContract: number, account: number = RULE.ACCOUNT_USD, frac = 1): AccountFill {
+  const contracts = entry > 0 ? Math.floor((account * frac) / (entry * 100)) : 0;
   const gross = round2(grossPerContract * contracts);
   const commission = round2(RULE.COMMISSION_RT * contracts);
   const net = round2(gross - commission);
@@ -303,6 +315,9 @@ export interface LedgerRow {
 
 export interface AccountSummary {
   sizeUsd: number;
+  /** Fraction of the account used per trade (1 = all in). */
+  frac: number;
+  label: string;
   grossUsd: number;
   commissionUsd: number;
   netUsd: number;
@@ -337,13 +352,15 @@ export interface LedgerSummary {
   byExit: Record<"TP" | "SL" | "EOD", number>;
   /** Cumulative net $ after each trading day, oldest first. */
   equity: { day: string; netUsd: number }[];
-  /** The same ledger sized for RULE.ACCOUNT_USD. */
+  /** The same ledger sized for RULE.ACCOUNT_USD, all in (kept for callers). */
   account: AccountSummary;
+  /** Every sizing in RULE.SIZINGS, keyed by its `key`. */
+  accounts: Record<string, AccountSummary>;
 }
 
-function summarizeAccount(sorted: LedgerRow[], account: number): AccountSummary {
+function summarizeAccount(sorted: LedgerRow[], account: number, frac = 1, label = "100% per trade"): AccountSummary {
   const filled = sorted.filter((r) => r.status === "FILLED" && r.entry !== null && r.grossUsd !== null);
-  const fills = filled.map((r) => ({ r, f: sizeForAccount(r.entry!, r.grossUsd!, account) }));
+  const fills = filled.map((r) => ({ r, f: sizeForAccount(r.entry!, r.grossUsd!, account, frac) }));
   const byDay = new Map<string, number>();
   for (const { r, f } of fills) byDay.set(r.day, (byDay.get(r.day) ?? 0) + f.netUsd);
   const equity: { day: string; netUsd: number; pct: number }[] = [];
@@ -356,6 +373,7 @@ function summarizeAccount(sorted: LedgerRow[], account: number): AccountSummary 
   const net = round2(sum(nets));
   return {
     sizeUsd: account,
+    frac, label,
     grossUsd: round2(sum(fills.map(({ f }) => f.grossUsd))),
     commissionUsd: round2(sum(fills.map(({ f }) => f.commissionUsd))),
     netUsd: net,
@@ -421,6 +439,7 @@ export function summarize(rows: LedgerRow[], account: number = RULE.ACCOUNT_USD)
     },
     equity,
     account: summarizeAccount(sorted, account),
+    accounts: Object.fromEntries(RULE.SIZINGS.map((s) => [s.key, summarizeAccount(sorted, account, s.frac, s.label)])),
   };
 }
 

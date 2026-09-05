@@ -150,18 +150,21 @@ async function read(req: HttpRequest): Promise<HttpResponseInit> {
     void _p; void _k;
     // Account sizing is derived here, never stored, so a different account size
     // is a one-line change that re-prices the whole history consistently.
-    const acct = rest.status === "FILLED" && rest.entry !== null && rest.grossUsd !== null
-      ? sizeForAccount(rest.entry, rest.grossUsd) : null;
+    const filled = rest.status === "FILLED" && rest.entry !== null && rest.grossUsd !== null;
+    const acct = filled ? sizeForAccount(rest.entry!, rest.grossUsd!) : null;
+    const accts = filled
+      ? Object.fromEntries(RULE.SIZINGS.map((s) => [s.key, sizeForAccount(rest.entry!, rest.grossUsd!, RULE.ACCOUNT_USD, s.frac)]))
+      : null;
     // Same rule for the per-contract net: current commission, not the stored one.
     const netUsd = rest.status === "FILLED" && rest.grossUsd !== null
       ? Math.round((rest.grossUsd - RULE.COMMISSION_RT) * 100) / 100 : rest.netUsd;
-    return { ...rest, netUsd, acct };
+    return { ...rest, netUsd, acct, accts };
   };
   const lastEvaluated = all.reduce<string>((m, r) => (r.evaluatedAt > m ? r.evaluatedAt : m), "");
   return {
     jsonBody: {
       date, rule: RULE.label,
-      params: { waitMin: RULE.WAIT_MIN, emaLen: RULE.EMA_LEN, targetPct: RULE.TARGET_PCT, stopPct: RULE.STOP_PCT, commissionRt: RULE.COMMISSION_RT, accountUsd: RULE.ACCOUNT_USD },
+      params: { waitMin: RULE.WAIT_MIN, emaLen: RULE.EMA_LEN, targetPct: RULE.TARGET_PCT, stopPct: RULE.STOP_PCT, commissionRt: RULE.COMMISSION_RT, accountUsd: RULE.ACCOUNT_USD, sizings: RULE.SIZINGS },
       rows: dayRows.map(strip),
       summary: summarize(ledger),
       lastEvaluated: lastEvaluated || null,
