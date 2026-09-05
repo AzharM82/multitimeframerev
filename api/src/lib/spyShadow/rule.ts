@@ -49,6 +49,14 @@ export const RULE = {
   ALT_TARGETS: [10, 15] as const,
   /** Tradier Lite, $0.35 per contract per side. */
   COMMISSION_RT: 0.7,
+  /**
+   * The account the operator would fund. Sizing is "as many contracts as the
+   * account buys at the entry", not compounded, so every trade is judged
+   * against the same $2,000 and the percentages stay comparable day to day.
+   * Applied at READ time from the stored entry price, so changing it never
+   * rewrites history.
+   */
+  ACCOUNT_USD: 2000,
   /** Human-readable, rendered on the tab. Keep in step with the constants. */
   label: "2-min 9 EMA pullback within 10 min · +20% target · −9% stop · else close",
 } as const;
@@ -246,15 +254,59 @@ export function simulate(
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// ─── Account sizing ─────────────────────────────────────────────────────────
+
+export interface AccountFill {
+  contracts: number;
+  /** Premium paid, contracts × entry × 100. */
+  costUsd: number;
+  grossUsd: number;
+  commissionUsd: number;
+  netUsd: number;
+  /** Net as a percentage of the ACCOUNT, not of the premium. */
+  retPct: number;
+}
+
+/** Size one filled trade for a fixed account. Zero contracts if the premium is
+ *  larger than the account (it never is for ATM SPY weeklies at $2,000). */
+export function sizeForAccount(entry: number, grossPerContract: number, account: number = RULE.ACCOUNT_USD): AccountFill {
+  const contracts = entry > 0 ? Math.floor(account / (entry * 100)) : 0;
+  const gross = round2(grossPerContract * contracts);
+  const commission = round2(RULE.COMMISSION_RT * contracts);
+  const net = round2(gross - commission);
+  return {
+    contracts, costUsd: round2(contracts * entry * 100), grossUsd: gross, commissionUsd: commission, netUsd: net,
+    retPct: account > 0 ? round2((net / account) * 100) : 0,
+  };
+}
+
 // ─── Aggregates for the tab ─────────────────────────────────────────────────
 
 export interface LedgerRow {
   day: string;
   side: "CALL" | "PUT";
   status: ShadowStatus;
+  entry: number | null;
   grossUsd: number | null;
   netUsd: number | null;
   exitReason: ExitReason;
+}
+
+export interface AccountSummary {
+  sizeUsd: number;
+  grossUsd: number;
+  commissionUsd: number;
+  netUsd: number;
+  /** Net over the whole ledger as % of the account. */
+  retPct: number;
+  maxDrawdownUsd: number;
+  maxDrawdownPct: number;
+  avgContracts: number | null;
+  bestTradeUsd: number | null;
+  worstTradeUsd: number | null;
+  bySide: Record<"CALL" | "PUT", number>;
+  /** Cumulative net $ on the account after each trading day, oldest first. */
+  equity: { day: string; netUsd: number; pct: number }[];
 }
 
 export interface LedgerSummary {
@@ -276,9 +328,43 @@ export interface LedgerSummary {
   byExit: Record<"TP" | "SL" | "EOD", number>;
   /** Cumulative net $ after each trading day, oldest first. */
   equity: { day: string; netUsd: number }[];
+  /** The same ledger sized for RULE.ACCOUNT_USD. */
+  account: AccountSummary;
 }
 
-export function summarize(rows: LedgerRow[]): LedgerSummary {
+function summarizeAccount(sorted: LedgerRow[], account: number): AccountSummary {
+  const filled = sorted.filter((r) => r.status === "FILLED" && r.entry !== null && r.grossUsd !== null);
+  const fills = filled.map((r) => ({ r, f: sizeForAccount(r.entry!, r.grossUsd!, account) }));
+  const byDay = new Map<string, number>();
+  for (const { r, f } of fills) byDay.set(r.day, (byDay.get(r.day) ?? 0) + f.netUsd);
+  const equity: { day: string; netUsd: number; pct: number }[] = [];
+  let cum = 0; let peak = 0; let dd = 0;
+  for (const day of [...new Set(sorted.map((r) => r.day))]) {
+    cum += byDay.get(day) ?? 0; peak = Math.max(peak, cum); dd = Math.min(dd, cum - peak);
+    equity.push({ day, netUsd: round2(cum), pct: round2((cum / account) * 100) });
+  }
+  const nets = fills.map(({ f }) => f.netUsd);
+  const net = round2(sum(nets));
+  return {
+    sizeUsd: account,
+    grossUsd: round2(sum(fills.map(({ f }) => f.grossUsd))),
+    commissionUsd: round2(sum(fills.map(({ f }) => f.commissionUsd))),
+    netUsd: net,
+    retPct: round2((net / account) * 100),
+    maxDrawdownUsd: round2(dd),
+    maxDrawdownPct: round2((dd / account) * 100),
+    avgContracts: fills.length ? round2(sum(fills.map(({ f }) => f.contracts)) / fills.length) : null,
+    bestTradeUsd: nets.length ? Math.max(...nets) : null,
+    worstTradeUsd: nets.length ? Math.min(...nets) : null,
+    bySide: {
+      CALL: round2(sum(fills.filter(({ r }) => r.side === "CALL").map(({ f }) => f.netUsd))),
+      PUT: round2(sum(fills.filter(({ r }) => r.side === "PUT").map(({ f }) => f.netUsd))),
+    },
+    equity,
+  };
+}
+
+export function summarize(rows: LedgerRow[], account: number = RULE.ACCOUNT_USD): LedgerSummary {
   const sorted = [...rows].sort((a, b) => a.day.localeCompare(b.day));
   const filled = sorted.filter((r) => r.status === "FILLED" && r.netUsd !== null && r.grossUsd !== null);
   const wins = filled.filter((r) => (r.grossUsd ?? 0) > 0);
@@ -319,6 +405,7 @@ export function summarize(rows: LedgerRow[]): LedgerSummary {
       EOD: filled.filter((r) => r.exitReason === "EOD").length,
     },
     equity,
+    account: summarizeAccount(sorted, account),
   };
 }
 

@@ -414,8 +414,9 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
   const [open, setOpen] = useState(true);
   const s = shadow?.summary;
   const rows: ShadowTrade[] = shadow?.rows ?? [];
-  const dayNet = rows.reduce((a, r) => a + (r.netUsd ?? 0), 0);
+  const dayNet = rows.reduce((a, r) => a + (r.acct?.netUsd ?? 0), 0);
   const dayFilled = rows.filter((r) => r.status === "FILLED").length;
+  const acctSize = shadow?.params.accountUsd ?? 0;
 
   return (
     <div className="bg-bg-card border border-border rounded">
@@ -424,7 +425,8 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
         <span>Shadow ledger</span>
         {s ? (
           <span className="normal-case font-normal text-text-secondary">
-            · {s.filled} trades over {s.days} days · <span className={tone(s.netUsd)}>{usd(s.netUsd)}</span> net
+            · {s.filled} trades over {s.days} days · <span className={tone(s.account.netUsd)}>{usd(s.account.netUsd)}</span>
+            {" "}({pct(s.account.retPct)}) on ${s.account.sizeUsd.toLocaleString()}
           </span>
         ) : error ? (
           <span className="normal-case font-normal text-signal-bear">· {error}</span>
@@ -439,22 +441,27 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
         <div className="px-3 py-3 space-y-3">
           <div className="text-[11px] text-text-secondary">
             Rule, fixed in code: <span className="text-text-primary">{shadow.rule}</span>. ATM SPY option expiring that
-            Friday, one contract, scored after the close. Nothing is traded.
+            Friday, sized as every contract a <span className="text-text-primary">${s.account.sizeUsd.toLocaleString()}</span> account
+            buys at the entry (not compounded), scored after the close. Nothing is traded.
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-            <Stat label="Net after commissions" value={usd(s.netUsd)} cls={tone(s.netUsd)}
-              sub={`gross ${usd(s.grossUsd)} · fees ${usd(-s.commissionUsd)}`} />
+            <Stat label={`Net on $${s.account.sizeUsd.toLocaleString()}`} value={`${usd(s.account.netUsd)} · ${pct(s.account.retPct)}`} cls={tone(s.account.netUsd)}
+              sub={`gross ${usd(s.account.grossUsd)} · fees ${usd(-s.account.commissionUsd)}`} />
             <Stat label="Win rate" value={s.winRate === null ? "—" : `${s.winRate}%`} sub={`${s.wins}W / ${s.losses}L`} />
-            <Stat label="Avg win / loss" value={`${usd(s.avgWinUsd)} / ${usd(s.avgLossUsd)}`} sub="gross, per contract" />
-            <Stat label="Max drawdown" value={usd(s.maxDrawdownUsd)} cls={tone(s.maxDrawdownUsd)} sub="on closing equity" />
-            <Stat label="Calls / puts" value={`${usd(s.bySide.CALL.netUsd)} / ${usd(s.bySide.PUT.netUsd)}`}
+            <Stat label="Best / worst trade" value={`${usd(s.account.bestTradeUsd)} / ${usd(s.account.worstTradeUsd)}`}
+              sub={`avg ${s.account.avgContracts ?? "—"} contracts`} />
+            <Stat label="Max drawdown" value={`${usd(s.account.maxDrawdownUsd)} · ${pct(s.account.maxDrawdownPct)}`} cls={tone(s.account.maxDrawdownUsd)} sub="on closing equity" />
+            <Stat label="Calls / puts" value={`${usd(s.account.bySide.CALL)} / ${usd(s.account.bySide.PUT)}`}
               sub={`${s.bySide.CALL.wins}/${s.bySide.CALL.filled} · ${s.bySide.PUT.wins}/${s.bySide.PUT.filled} won`} />
             <Stat label="Signals" value={`${s.signals}`}
               sub={`${s.filled} filled · ${s.noTouch} no touch${s.noData ? ` · ${s.noData} no data` : ""}`} />
           </div>
 
-          <div className="overflow-x-auto"><EquityCurve points={s.equity} /></div>
+          <div className="overflow-x-auto"><EquityCurve points={s.account.equity} /></div>
+          <div className="text-[10px] text-dim">
+            Per single contract: {usd(s.netUsd)} net · avg win {usd(s.avgWinUsd)} / avg loss {usd(s.avgLossUsd)} gross · drawdown {usd(s.maxDrawdownUsd)}
+          </div>
           <div className="text-[10px] text-dim">
             Exits: {s.byExit.TP} target · {s.byExit.SL} stop · {s.byExit.EOD} close
             {shadow.firstDay ? ` · since ${shadow.firstDay}` : ""}
@@ -464,7 +471,10 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
           <div className="flex items-center gap-2 pt-1">
             <div className="text-[10px] uppercase tracking-wider text-text-secondary">
               {date}
-              {rows.length ? <> · {dayFilled} of {rows.length} filled · <span className={tone(dayNet)}>{usd(dayNet, 2)}</span></> : " · no rows"}
+              {rows.length
+                ? <> · {dayFilled} of {rows.length} filled · <span className={tone(dayNet)}>{usd(dayNet, 2)}</span>
+                    {acctSize ? <span className="text-dim"> ({pct((dayNet / acctSize) * 100)})</span> : null}</>
+                : " · no rows"}
             </div>
             <span className="flex-1" />
             <button onClick={onReevaluate} disabled={busy}
@@ -494,7 +504,9 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
                     <th className="text-right font-normal py-1 pr-3">Exit</th>
                     <th className="text-left font-normal py-1 pr-3">Why</th>
                     <th className="text-right font-normal py-1 pr-3">Ret</th>
+                    <th className="text-right font-normal py-1 pr-3">Qty</th>
                     <th className="text-right font-normal py-1 pr-3">Net $</th>
+                    <th className="text-right font-normal py-1 pr-3">Acct %</th>
                     <th className="text-right font-normal py-1 pr-3">Held</th>
                     <th className="text-right font-normal py-1 pr-3">Peak</th>
                     <th className="text-left font-normal py-1">10 / 15%</th>
@@ -524,7 +536,13 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
                         {r.exitReason === "TP" ? "target" : r.exitReason === "SL" ? "stop" : r.exitReason === "EOD" ? "close" : r.status === "NO_DATA" ? r.note : ""}
                       </td>
                       <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.retPct)}`}>{pct(r.retPct)}</td>
-                      <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.netUsd)}`}>{usd(r.netUsd, 2)}</td>
+                      <td className="py-1 pr-3 text-right tabular-nums text-text-secondary"
+                        title={r.acct ? `${r.acct.contracts} × ${r.entry?.toFixed(2)} × 100 = $${r.acct.costUsd.toLocaleString()} of $${acctSize.toLocaleString()}` : ""}>
+                        {r.acct ? r.acct.contracts : "—"}
+                      </td>
+                      <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.acct?.netUsd)}`}
+                        title={r.acct ? `per contract ${usd(r.netUsd, 2)}` : ""}>{usd(r.acct?.netUsd, 2)}</td>
+                      <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.acct?.retPct)}`}>{pct(r.acct?.retPct)}</td>
                       <td className="py-1 pr-3 text-right tabular-nums text-text-secondary">{r.heldMin === null ? "—" : `${r.heldMin}m`}</td>
                       <td className="py-1 pr-3 text-right tabular-nums text-text-secondary">{pct(r.mfePct)}</td>
                       <td className="py-1 text-text-secondary">
@@ -536,7 +554,8 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
               </table>
               <div className="text-[10px] text-dim mt-1">
                 Times {PT_LABEL} · entry is the option&apos;s 1-minute midpoint at the touch · the stop is checked before
-                the target inside a bar · &ldquo;10 / 15%&rdquo; marks whether those targets would have filled before the stop
+                the target inside a bar · Qty is every contract ${acctSize.toLocaleString()} buys at the entry · Net $ and Acct %
+                are for that quantity after commissions · &ldquo;10 / 15%&rdquo; marks whether those targets would have filled before the stop
                 {rows.some((r) => r.backfilled) ? " · this day was backfilled from the alert log" : ""}
               </div>
             </div>

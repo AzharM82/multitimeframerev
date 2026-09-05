@@ -1,6 +1,6 @@
 import { app, type HttpRequest, type HttpResponseInit, type InvocationContext } from "@azure/functions";
 import { upsert, listByPartition, listAll, TABLES } from "../lib/tables.js";
-import { RULE, simulate, summarize, type ShadowResult, type ShadowSignal, type LedgerRow } from "../lib/spyShadow/rule.js";
+import { RULE, simulate, summarize, sizeForAccount, type ShadowResult, type ShadowSignal, type LedgerRow } from "../lib/spyShadow/rule.js";
 import { fetchSpyBars, fetchOptionBars } from "../lib/spyShadow/data.js";
 
 /**
@@ -144,17 +144,21 @@ async function read(req: HttpRequest): Promise<HttpResponseInit> {
     listAll<ShadowRow>(TABLES.SPY_SHADOW),
   ]);
   dayRows.sort((a, b) => a.rowKey.localeCompare(b.rowKey));
-  const ledger: LedgerRow[] = all.map((r) => ({ day: r.day, side: r.side, status: r.status, grossUsd: r.grossUsd ?? null, netUsd: r.netUsd ?? null, exitReason: r.exitReason ?? "" }));
+  const ledger: LedgerRow[] = all.map((r) => ({ day: r.day, side: r.side, status: r.status, entry: r.entry ?? null, grossUsd: r.grossUsd ?? null, netUsd: r.netUsd ?? null, exitReason: r.exitReason ?? "" }));
   const strip = (r: ShadowRow) => {
     const { partitionKey: _p, rowKey: _k, ...rest } = r as ShadowRow & { partitionKey: string; rowKey: string };
     void _p; void _k;
-    return rest;
+    // Account sizing is derived here, never stored, so a different account size
+    // is a one-line change that re-prices the whole history consistently.
+    const acct = rest.status === "FILLED" && rest.entry !== null && rest.grossUsd !== null
+      ? sizeForAccount(rest.entry, rest.grossUsd) : null;
+    return { ...rest, acct };
   };
   const lastEvaluated = all.reduce<string>((m, r) => (r.evaluatedAt > m ? r.evaluatedAt : m), "");
   return {
     jsonBody: {
       date, rule: RULE.label,
-      params: { waitMin: RULE.WAIT_MIN, emaLen: RULE.EMA_LEN, targetPct: RULE.TARGET_PCT, stopPct: RULE.STOP_PCT, commissionRt: RULE.COMMISSION_RT },
+      params: { waitMin: RULE.WAIT_MIN, emaLen: RULE.EMA_LEN, targetPct: RULE.TARGET_PCT, stopPct: RULE.STOP_PCT, commissionRt: RULE.COMMISSION_RT, accountUsd: RULE.ACCOUNT_USD },
       rows: dayRows.map(strip),
       summary: summarize(ledger),
       lastEvaluated: lastEvaluated || null,

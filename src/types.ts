@@ -1056,6 +1056,31 @@ export interface ShadowTrade {
   note: string;
   evaluatedAt: string;
   backfilled: boolean;
+  /** The same trade sized for the configured account; null unless FILLED. */
+  acct: {
+    contracts: number;
+    costUsd: number;
+    grossUsd: number;
+    commissionUsd: number;
+    netUsd: number;
+    /** % of the ACCOUNT, not of the premium. */
+    retPct: number;
+  } | null;
+}
+
+export interface ShadowAccountSummary {
+  sizeUsd: number;
+  grossUsd: number;
+  commissionUsd: number;
+  netUsd: number;
+  retPct: number;
+  maxDrawdownUsd: number;
+  maxDrawdownPct: number;
+  avgContracts: number | null;
+  bestTradeUsd: number | null;
+  worstTradeUsd: number | null;
+  bySide: Record<"CALL" | "PUT", number>;
+  equity: { day: string; netUsd: number; pct: number }[];
 }
 
 export interface ShadowSummary {
@@ -1076,12 +1101,13 @@ export interface ShadowSummary {
   bySide: Record<"CALL" | "PUT", { filled: number; wins: number; netUsd: number }>;
   byExit: Record<"TP" | "SL" | "EOD", number>;
   equity: { day: string; netUsd: number }[];
+  account: ShadowAccountSummary;
 }
 
 export interface SpyShadowResponse {
   date: string;
   rule: string;
-  params: { waitMin: number; emaLen: number; targetPct: number; stopPct: number; commissionRt: number };
+  params: { waitMin: number; emaLen: number; targetPct: number; stopPct: number; commissionRt: number; accountUsd: number };
   rows: ShadowTrade[];
   summary: ShadowSummary;
   lastEvaluated: string | null;
