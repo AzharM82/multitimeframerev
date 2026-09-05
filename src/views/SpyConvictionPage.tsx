@@ -351,7 +351,7 @@ function ResearchSection({ report }: { report: SpyResearchReport | null }) {
 const usd = (n: number | null | undefined, dp = 0) =>
   n === null || n === undefined ? "—" : `${n < 0 ? "−" : n > 0 ? "+" : ""}$${Math.abs(n).toFixed(dp)}`;
 const pct = (n: number | null | undefined) =>
-  n === null || n === undefined ? "—" : `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
+  n === null || n === undefined ? "—" : `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n).toFixed(1)}%`;
 const tone = (n: number | null | undefined) =>
   n === null || n === undefined ? "text-dim" : n > 0 ? "text-signal-bull" : n < 0 ? "text-signal-bear" : "text-text-secondary";
 
