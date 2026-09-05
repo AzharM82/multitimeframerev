@@ -76,7 +76,7 @@ check("ema2 of a flat tape", Number(ema2(spy2Flat()).at(-1).ema.toFixed(2)), 773
   const r = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9] }));
   check("touch → FILLED at midpoint", [r.status, r.touchMinuteUtc, r.waitedMin, r.entry], ["FILLED", "18:45", 3, 2.9]);
   check("flat after entry → EOD exit", [r.exitReason, r.exit], ["EOD", 3.0]);
-  check("EOD ret% and $", [r.retPct, r.grossUsd, r.netUsd], [3.45, 10, 9.3]);
+  check("EOD ret% and $ (no commission)", [r.retPct, r.grossUsd, r.netUsd], [3.45, 10, 10]);
 }
 // 3. Target hit: +20% on a later bar's high → exit at exactly the target.
 {
@@ -144,19 +144,19 @@ check("ema2 of a flat tape", Number(ema2(spy2Flat()).at(-1).ema.toFixed(2)), 773
   ];
   const s = summarize(rows);
   check("counts", [s.signals, s.filled, s.noTouch, s.wins, s.losses, s.winRate], [4, 3, 1, 1, 2, 33]);
-  check("money", [s.grossUsd, s.commissionUsd, s.netUsd], [-18, 2.1, -20.1]);
-  check("drawdown from the peak", s.maxDrawdownUsd, -50.7);
-  check("equity curve per day", s.equity, [{ day: "2026-08-12", netUsd: 30.6 }, { day: "2026-08-13", netUsd: 30.6 }, { day: "2026-08-14", netUsd: -20.1 }]);
-  check("by side", s.bySide, { CALL: { filled: 2, wins: 1, netUsd: 6.6 }, PUT: { filled: 1, wins: 0, netUsd: -26.7 } });
+  check("money", [s.grossUsd, s.commissionUsd, s.netUsd], [-18, 0, -18]);
+  check("drawdown from the peak", s.maxDrawdownUsd, -50);
+  check("equity curve per day", s.equity, [{ day: "2026-08-12", netUsd: 32 }, { day: "2026-08-13", netUsd: 32 }, { day: "2026-08-14", netUsd: -18 }]);
+  check("by side", s.bySide, { CALL: { filled: 2, wins: 1, netUsd: 8 }, PUT: { filled: 1, wins: 0, netUsd: -26 } });
   check("by exit", s.byExit, { TP: 1, SL: 1, EOD: 1 });
 }
 // ─── Account sizing ─────────────────────────────────────────────────────────
 {
   check("account constant", RULE.ACCOUNT_USD, 2000);
   // $2.90 entry → 6 contracts ($1,740); +$58 gross per contract → $348 gross, $4.20 fees.
-  check("6 contracts at 2.90", sizeForAccount(2.9, 58), { contracts: 6, costUsd: 1740, grossUsd: 348, commissionUsd: 4.2, netUsd: 343.8, retPct: 17.19 });
+  check("6 contracts at 2.90", sizeForAccount(2.9, 58), { contracts: 6, costUsd: 1740, grossUsd: 348, commissionUsd: 0, netUsd: 348, retPct: 17.4 });
   // $0.88 entry → 22 contracts; a −9% stop on 0.88 is −$7.92/contract.
-  check("22 contracts at 0.88, losing", sizeForAccount(0.88, -7.92), { contracts: 22, costUsd: 1936, grossUsd: -174.24, commissionUsd: 15.4, netUsd: -189.64, retPct: -9.48 });
+  check("22 contracts at 0.88, losing", sizeForAccount(0.88, -7.92), { contracts: 22, costUsd: 1936, grossUsd: -174.24, commissionUsd: 0, netUsd: -174.24, retPct: -8.71 });
   check("premium above the account → 0 contracts", sizeForAccount(25, 100).contracts, 0);
   const rows = [
     { day: "2026-08-12", side: "CALL", status: "FILLED", entry: 2.9, grossUsd: 58, netUsd: 57.3, exitReason: "TP" },
@@ -164,11 +164,11 @@ check("ema2 of a flat tape", Number(ema2(spy2Flat()).at(-1).ema.toFixed(2)), 773
     { day: "2026-08-13", side: "PUT", status: "NO_TOUCH", entry: null, grossUsd: null, netUsd: null, exitReason: "" },
   ];
   const a = summarize(rows).account;
-  // CALL: 6 × 58 − 4.2 = 343.8 ; PUT: 10 × −18 − 7 = −187 ; total 156.8 = 7.84% of 2000.
-  check("account totals", [a.sizeUsd, a.grossUsd, a.commissionUsd, a.netUsd, a.retPct], [2000, 168, 11.2, 156.8, 7.84]);
-  check("account by side", a.bySide, { CALL: 343.8, PUT: -187 });
-  check("account equity in $ and %", a.equity, [{ day: "2026-08-12", netUsd: 156.8, pct: 7.84 }, { day: "2026-08-13", netUsd: 156.8, pct: 7.84 }]);
-  check("account best/worst/avg", [a.bestTradeUsd, a.worstTradeUsd, a.avgContracts], [343.8, -187, 8]);
+  // CALL: 6 × 58 = 348 ; PUT: 10 × −18 = −180 ; total 168 = 8.4% of 2000. No commissions.
+  check("account totals", [a.sizeUsd, a.grossUsd, a.commissionUsd, a.netUsd, a.retPct], [2000, 168, 0, 168, 8.4]);
+  check("account by side", a.bySide, { CALL: 348, PUT: -180 });
+  check("account equity in $ and %", a.equity, [{ day: "2026-08-12", netUsd: 168, pct: 8.4 }, { day: "2026-08-13", netUsd: 168, pct: 8.4 }]);
+  check("account best/worst/avg", [a.bestTradeUsd, a.worstTradeUsd, a.avgContracts], [348, -180, 8]);
   check("account drawdown never positive", a.maxDrawdownUsd <= 0 && a.maxDrawdownPct <= 0, true);
 }
 check("rule label mentions its own numbers", RULE.label.includes(`${RULE.TARGET_PCT}%`) && RULE.label.includes(`${RULE.STOP_PCT}%`), true);

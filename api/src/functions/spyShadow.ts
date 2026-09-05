@@ -152,7 +152,10 @@ async function read(req: HttpRequest): Promise<HttpResponseInit> {
     // is a one-line change that re-prices the whole history consistently.
     const acct = rest.status === "FILLED" && rest.entry !== null && rest.grossUsd !== null
       ? sizeForAccount(rest.entry, rest.grossUsd) : null;
-    return { ...rest, acct };
+    // Same rule for the per-contract net: current commission, not the stored one.
+    const netUsd = rest.status === "FILLED" && rest.grossUsd !== null
+      ? Math.round((rest.grossUsd - RULE.COMMISSION_RT) * 100) / 100 : rest.netUsd;
+    return { ...rest, netUsd, acct };
   };
   const lastEvaluated = all.reduce<string>((m, r) => (r.evaluatedAt > m ? r.evaluatedAt : m), "");
   return {

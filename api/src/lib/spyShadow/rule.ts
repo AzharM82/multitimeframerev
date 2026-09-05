@@ -47,8 +47,17 @@ export const RULE = {
   STOP_PCT: 9,
   /** Informational: would these targets have filled before the stop? */
   ALT_TARGETS: [10, 15] as const,
-  /** Tradier Lite, $0.35 per contract per side. */
-  COMMISSION_RT: 0.7,
+  /**
+   * Per-contract round-trip commission. ZERO on purpose: the operator would
+   * run this on Tradier Pro ($10/month flat), where SPY options carry no
+   * per-contract commission. On the Lite tier ($0.35 a side) the backfill's
+   * ~325 contracts would have cost $227.50 — more than the subscription — so
+   * the flat fee is the realistic case and is not modelled per trade.
+   * Exchange/regulatory pass-through fees (a few cents a contract) are also
+   * excluded at the operator's request. Applied at read time like the account
+   * size, so changing it re-prices history.
+   */
+  COMMISSION_RT: 0,
   /**
    * The account the operator would fund. Sizing is "as many contracts as the
    * account buys at the entry", not compounded, so every trade is judged
@@ -365,7 +374,13 @@ function summarizeAccount(sorted: LedgerRow[], account: number): AccountSummary 
 }
 
 export function summarize(rows: LedgerRow[], account: number = RULE.ACCOUNT_USD): LedgerSummary {
-  const sorted = [...rows].sort((a, b) => a.day.localeCompare(b.day));
+  // Net is re-derived from gross with the CURRENT commission constant, never
+  // read from the stored row: a stored net would freeze whichever commission
+  // was in force on the day it was scored, and the account view would then
+  // disagree with the per-contract footnote.
+  const sorted = [...rows]
+    .map((r) => (r.status === "FILLED" && r.grossUsd !== null ? { ...r, netUsd: round2(r.grossUsd - RULE.COMMISSION_RT) } : r))
+    .sort((a, b) => a.day.localeCompare(b.day));
   const filled = sorted.filter((r) => r.status === "FILLED" && r.netUsd !== null && r.grossUsd !== null);
   const wins = filled.filter((r) => (r.grossUsd ?? 0) > 0);
   const losses = filled.filter((r) => (r.grossUsd ?? 0) <= 0);

@@ -447,7 +447,7 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
 
           <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
             <Stat label={`Net on $${s.account.sizeUsd.toLocaleString()}`} value={`${usd(s.account.netUsd)} · ${pct(s.account.retPct)}`} cls={tone(s.account.netUsd)}
-              sub={`gross ${usd(s.account.grossUsd)} · fees ${usd(-s.account.commissionUsd)}`} />
+              sub={s.account.commissionUsd ? `gross ${usd(s.account.grossUsd)} · fees ${usd(-s.account.commissionUsd)}` : "commission-free (Tradier Pro, $10/mo flat not modelled)"} />
             <Stat label="Win rate" value={s.winRate === null ? "—" : `${s.winRate}%`} sub={`${s.wins}W / ${s.losses}L`} />
             <Stat label="Best / worst trade" value={`${usd(s.account.bestTradeUsd)} / ${usd(s.account.worstTradeUsd)}`}
               sub={`avg ${s.account.avgContracts ?? "—"} contracts`} />
@@ -555,7 +555,7 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
               <div className="text-[10px] text-dim mt-1">
                 Times {PT_LABEL} · entry is the option&apos;s 1-minute midpoint at the touch · the stop is checked before
                 the target inside a bar · Qty is every contract ${acctSize.toLocaleString()} buys at the entry · Net $ and Acct %
-                are for that quantity after commissions · &ldquo;10 / 15%&rdquo; marks whether those targets would have filled before the stop
+                are for that quantity{shadow.params.commissionRt ? " after commissions" : ", commission-free"} · &ldquo;10 / 15%&rdquo; marks whether those targets would have filled before the stop
                 {rows.some((r) => r.backfilled) ? " · this day was backfilled from the alert log" : ""}
               </div>
             </div>
