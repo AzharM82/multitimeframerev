@@ -67,6 +67,32 @@ the rules that matter when changing it:
   crossing is structurally impossible (`c_pct_* == p_pct_*`). Got wrong twice.
 - **A change under `tools/` alone needs no deploy** — that code runs on DESKTOP2.
 
+## SPY Conviction shadow ledger
+
+The ledger exists to judge ONE fixed rule on days it has not seen. Rules that keep it honest:
+
+- **Run `cd api && npm run build && node tools/spy-shadow-test.mjs` before touching
+  `api/src/lib/spyShadow/rule.ts`.** 43 pure checks, no network. They pin the touch
+  window edge, the completed-bar EMA, stop-before-target, no target fill in the entry
+  minute, the account sizing arithmetic, and the summary/equity/drawdown maths.
+- **The rule's numbers live only in `RULE` in `rule.ts`** (wait window, EMA length,
+  target, stop, commission, account). The tab and the "How it works" view read them
+  from `GET /api/spy-shadow` `params`; never type a rule number into a view.
+- **Never trust a stored `netUsd`.** Net, quantity and account P&L are derived at
+  read time from the stored `entry` and `grossUsd` with the CURRENT constants, so a
+  commission or account change re-prices history consistently. Storing net once
+  froze the old $0.70 commission into 33 rows and the two views disagreed.
+- **Re-scoring is idempotent** (PK day / RK `HHMM|SIDE`), so `POST /api/spy-shadow?date=`
+  is safe to repeat; `?from=&to=` backfills weekdays. The POST accepts the timer
+  secret OR a portal session (the tab has a re-score button).
+- **Do not "improve" the rule from the ledger's own numbers.** Eight variants were
+  tried on the same 39 trades on 2026-09-05 (see README); a rule fitted to that sample
+  will look good here and fail forward. Change the rule only with the operator, and
+  record the previous rule's forward record first.
+- `SpyShadowTrades` is deliberately excluded from `purge-history`. Do not add it.
+- Local scoring needs `ALPACA_API_KEY` / `ALPACA_API_SECRET` in `api/local.settings.json`;
+  Core Tools does not inherit them from the shell.
+
 ## How to validate a change end-to-end
 
 Never report "done" before completing every step below and producing the evidence.
@@ -74,7 +100,8 @@ Never report "done" before completing every step below and producing the evidenc
 1. Build both: `npm run build` and `cd api && npm run build`
 2. Run locally: `npx swa start dist --api-location api` → http://localhost:4280
    (API needs `api/local.settings.json` with POLYGON_API_KEY, AZURE_STORAGE_CONNECTION_STRING, REDIS_CONNECTION_STRING etc. — never commit it)
-3. Exercise the real feature: open the affected tab in the browser and drive the changed behavior — tabs are hash deep-linkable (e.g. http://localhost:4280/#uoa), handy for headless screenshots; for API changes also curl the endpoint (e.g. `curl http://localhost:4280/api/paper-trades`)
+3. Exercise the real feature: open the affected tab in the browser and drive the changed behavior — tabs are hash deep-linkable (e.g. http://localhost:4280/#uoa), handy for headless screenshots; for API changes also curl the endpoint (e.g. `curl http://localhost:4280/api/paper-trades`).
+   Routes gated on the `portal` role need the emulator's session cookie — mint it with `document.cookie = "StaticWebAppsAuthCookie=" + btoa(JSON.stringify({identityProvider:"google",userId:"e2e",userDetails:"e2e@local",userRoles:["anonymous","authenticated","portal"],claims:[]})) + "; path=/"` (the mock `/.auth/login/google` page does not work with the custom OIDC provider); the same value works as a `Cookie:` header for curl.
 4. Evidence: screenshot of the tab + curl/log output proving the change works
 
 ## Branch & PR conventions
@@ -119,4 +146,5 @@ anonymous (`/api/breadth`, `/api/health`) to confirm they return 200 and not a 3
 - `az` on Windows is a `.cmd` wrapper, so cmd re-parses arguments: JMESPath **functions** in `--query` (`keys(...)`, `length(...)`) fail with `-o was unexpected at this time`. Plain paths (`--query properties.FOO`) are fine; otherwise filter in PowerShell.
 - Legacy v1 functions (scan, phaseScan, capitulation*, screener*) are still in the repo — dormant, don't wire new work into them
 - Local scanners (`screening-machine/`, `tools/bigdog-scanner/`, `tools/whatsapp-sidecar/`) run on desktops via Task Scheduler, not in Azure — changes there are validated on the desktop, not via swa start
+- **Headless Chrome for screenshots: run it standalone with a fresh `--user-data-dir`.** Chained after other commands in one shell call, or sharing the signed-in profile, it hangs until the tool timeout. The Claude-in-Chrome extension's `screenshot` also times out on the portal tab; use `zoom` on a small region or read the DOM instead.
 - The Unusual Options tab's scanner lives in a separate repo (github.com/AzharM82/UnusualOptions, a GitHub Actions cron writing JSON to the `uoa-signals` blob container) — this repo only holds the read proxy `GET /api/uoa-signals`; OI-dependent UI shows `n/a` when a scan payload has `oi_available=false` (Polygon plan without the options snapshot)
