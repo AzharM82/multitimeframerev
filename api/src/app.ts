@@ -81,6 +81,7 @@ import "./functions/journalSummary.js";
 // regime system on 2026-08-12: the indicator now emits the decision itself, so
 // there is no regime lookup and no regime cron.
 import "./functions/spyConviction.js";
+import "./functions/spyShadow.js";
 
 // Options Strategy Guide — plain-English credit-spread builder (Floor Bet =
 // bull put, Ceiling Bet = bear call). The handlers only fetch and shape; all

@@ -153,6 +153,12 @@ export const TABLES = {
    */
   SPY_CONVICTION: "SpyConviction",
   /**
+   * SPY Conviction shadow ledger: every accepted BUY scored after the close
+   * against ONE fixed rule (lib/spyShadow/rule.ts). PK = ET day, RK = bar time
+   * + side. Never purged — it exists so the rule can be judged weeks later.
+   */
+  SPY_SHADOW: "SpyShadowTrades",
+  /**
    * AVWAP-from-Earnings: the MASTER TradingView watchlist swept on DESKTOP2
    * against the 39-minute anchored-VWAP study.
    *

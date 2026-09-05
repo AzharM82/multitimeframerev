@@ -100,6 +100,14 @@ app.timer("indexLeadersCron", {
 
 // History retention — trim SectorDeskHistory + OpeningDrive to 30 days.
 // Daily at 6:10 PM ET, after all same-day writes have settled.
+// SPY Conviction shadow ledger: score the day's BUY alerts against the fixed
+// 9-EMA pullback rule once the session is closed and Alpaca's 15-min delay has
+// passed. Re-runs are idempotent.
+app.timer("spyShadowCron", {
+  schedule: "0 20 16 * * 1-5",
+  handler: async (_timer, ctx) => fire("spy-shadow", ctx),
+});
+
 app.timer("purgeHistoryCron", {
   schedule: "0 10 18 * * *",
   handler: async (_t, ctx) => fire("purge-history", ctx),

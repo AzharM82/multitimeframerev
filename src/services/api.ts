@@ -25,6 +25,7 @@ import type {
   TvHistoryResponse,
   OpeningDriveResponse,
   SpyConvictionResponse,
+  SpyShadowResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -186,6 +187,15 @@ export function getSectorDeskHistory(days = 30): Promise<SectorDeskHistoryRespon
 
 export function getSpyConviction(date?: string): Promise<SpyConvictionResponse> {
   return request<SpyConvictionResponse>(`/spy-conviction${date ? `?date=${date}` : ""}`);
+}
+
+export function getSpyShadow(date?: string): Promise<SpyShadowResponse> {
+  return request<SpyShadowResponse>(`/spy-shadow${date ? `?date=${date}` : ""}`);
+}
+
+/** Re-score one day against the shadow rule. Idempotent; session-authed like forceSpyFlat. */
+export function evaluateSpyShadow(date: string): Promise<{ status: string; filled: number; noTouch: number; noData: number; netUsd: number }> {
+  return request(`/spy-shadow?date=${date}`, { method: "POST" });
 }
 
 /** Reset the believed position. The browser never holds the timer secret — the

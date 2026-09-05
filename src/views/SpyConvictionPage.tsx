@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   SpyConvictionResponse, ConvictionEvent, ConvictionState, SpyResearchReport,
+  SpyShadowResponse, ShadowTrade,
 } from "../types.js";
-import { getSpyConviction, forceSpyFlat } from "../services/api.js";
+import { getSpyConviction, forceSpyFlat, getSpyShadow, evaluateSpyShadow } from "../services/api.js";
 import { fmtTimePT, PT_LABEL } from "../utils/time.js";
 
 /**
@@ -338,6 +339,214 @@ function ResearchSection({ report }: { report: SpyResearchReport | null }) {
   );
 }
 
+// ─── Shadow ledger ───────────────────────────────────────────────────────────
+//
+// Every accepted BUY, scored after the close against ONE fixed rule that lives
+// in api/src/lib/spyShadow/rule.ts and is applied by the 4:20 PM ET cron. The
+// rows accumulate for as long as the table exists, so the operator can judge
+// the rule on trades it has never seen — which is the only test that counts.
+// Nothing here is traded. The view performs no arithmetic beyond formatting
+// and a per-day sum of the rows it is showing.
+
+const usd = (n: number | null | undefined, dp = 0) =>
+  n === null || n === undefined ? "—" : `${n < 0 ? "−" : n > 0 ? "+" : ""}$${Math.abs(n).toFixed(dp)}`;
+const pct = (n: number | null | undefined) =>
+  n === null || n === undefined ? "—" : `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
+const tone = (n: number | null | undefined) =>
+  n === null || n === undefined ? "text-dim" : n > 0 ? "text-signal-bull" : n < 0 ? "text-signal-bear" : "text-text-secondary";
+
+/** A UTC "HH:MM" on a given day → Pacific clock for display. */
+function utcMinuteToPT(day: string, hhmm: string): string {
+  return hhmm ? fmtTimePT(`${day}T${hhmm}:00Z`) : "";
+}
+
+/** ET "YYYY-MM-DD HH:MM:SS" bar time → Pacific clock for display. */
+function barTimeToPT(barTime: string): string {
+  const [d, t] = barTime.split(" ");
+  if (!d || !t) return barTime;
+  const guess = Date.parse(`${d}T${t}Z`);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ET, hourCycle: "h23", hour: "2-digit", minute: "2-digit", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(guess));
+  const g = (k: string) => Number(parts.find((p) => p.type === k)?.value);
+  const offset = Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute")) - guess;
+  return fmtTimePT(new Date(guess - offset).toISOString());
+}
+
+function EquityCurve({ points }: { points: { day: string; netUsd: number }[] }) {
+  if (points.length < 2) return <div className="text-[10px] text-dim">The curve appears after two trading days.</div>;
+  const W = 640, H = 96, L = 44, R = 8, TOP = 8, BOT = H - 18;
+  const vals = points.map((p) => p.netUsd);
+  const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+  const span = hi - lo || 1;
+  const x = (i: number) => L + (i * (W - L - R)) / (points.length - 1);
+  const y = (v: number) => TOP + ((hi - v) * (BOT - TOP)) / span;
+  const path = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.netUsd).toFixed(1)}`).join(" ");
+  const last = points[points.length - 1];
+  const cls = last.netUsd >= 0 ? "text-signal-bull" : "text-signal-bear";
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[420px]" role="img" aria-label="cumulative net dollars per contract">
+      <line x1={L} y1={y(0)} x2={W - R} y2={y(0)} stroke="currentColor" className="text-text-secondary" strokeWidth={1} />
+      <text x={L - 4} y={y(hi) + 3} textAnchor="end" className="fill-current text-text-secondary" fontSize={9}>{usd(hi)}</text>
+      <text x={L - 4} y={y(lo) + 3} textAnchor="end" className="fill-current text-text-secondary" fontSize={9}>{usd(lo)}</text>
+      <path d={path} fill="none" stroke="currentColor" strokeWidth={1.5} className={cls} />
+      <circle cx={x(points.length - 1)} cy={y(last.netUsd)} r={2.5} fill="currentColor" className={cls} />
+      <text x={L} y={H - 4} className="fill-current text-dim" fontSize={9}>{points[0].day}</text>
+      <text x={W - R} y={H - 4} textAnchor="end" className="fill-current text-dim" fontSize={9}>{last.day}</text>
+    </svg>
+  );
+}
+
+function Stat({ label, value, sub, cls }: { label: string; value: string; sub?: string; cls?: string }) {
+  return (
+    <div className="bg-bg-primary/40 border border-border rounded px-2.5 py-1.5">
+      <div className="text-[10px] uppercase tracking-wider text-text-secondary">{label}</div>
+      <div className={`text-sm font-bold tabular-nums ${cls ?? "text-text-primary"}`}>{value}</div>
+      {sub && <div className="text-[10px] text-dim">{sub}</div>}
+    </div>
+  );
+}
+
+function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
+  shadow: SpyShadowResponse | null; date: string; isToday: boolean;
+  onReevaluate: () => void; busy: boolean; error: string | null;
+}) {
+  const [open, setOpen] = useState(true);
+  const s = shadow?.summary;
+  const rows: ShadowTrade[] = shadow?.rows ?? [];
+  const dayNet = rows.reduce((a, r) => a + (r.netUsd ?? 0), 0);
+  const dayFilled = rows.filter((r) => r.status === "FILLED").length;
+
+  return (
+    <div className="bg-bg-card border border-border rounded">
+      <button onClick={() => setOpen((v) => !v)}
+        className="w-full text-left card-header px-3 pt-2.5 pb-1.5 border-b-2 border-text-primary flex items-center gap-2">
+        <span>Shadow ledger</span>
+        {s ? (
+          <span className="normal-case font-normal text-text-secondary">
+            · {s.filled} trades over {s.days} days · <span className={tone(s.netUsd)}>{usd(s.netUsd)}</span> net
+          </span>
+        ) : error ? (
+          <span className="normal-case font-normal text-signal-bear">· {error}</span>
+        ) : (
+          <span className="normal-case font-normal text-text-secondary">· loading…</span>
+        )}
+        <span className="flex-1" />
+        <span className="text-[10px] normal-case font-normal text-text-secondary">{open ? "hide" : "show"}</span>
+      </button>
+
+      {open && shadow && s && (
+        <div className="px-3 py-3 space-y-3">
+          <div className="text-[11px] text-text-secondary">
+            Rule, fixed in code: <span className="text-text-primary">{shadow.rule}</span>. ATM SPY option expiring that
+            Friday, one contract, scored after the close. Nothing is traded.
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+            <Stat label="Net after commissions" value={usd(s.netUsd)} cls={tone(s.netUsd)}
+              sub={`gross ${usd(s.grossUsd)} · fees ${usd(-s.commissionUsd)}`} />
+            <Stat label="Win rate" value={s.winRate === null ? "—" : `${s.winRate}%`} sub={`${s.wins}W / ${s.losses}L`} />
+            <Stat label="Avg win / loss" value={`${usd(s.avgWinUsd)} / ${usd(s.avgLossUsd)}`} sub="gross, per contract" />
+            <Stat label="Max drawdown" value={usd(s.maxDrawdownUsd)} cls={tone(s.maxDrawdownUsd)} sub="on closing equity" />
+            <Stat label="Calls / puts" value={`${usd(s.bySide.CALL.netUsd)} / ${usd(s.bySide.PUT.netUsd)}`}
+              sub={`${s.bySide.CALL.wins}/${s.bySide.CALL.filled} · ${s.bySide.PUT.wins}/${s.bySide.PUT.filled} won`} />
+            <Stat label="Signals" value={`${s.signals}`}
+              sub={`${s.filled} filled · ${s.noTouch} no touch${s.noData ? ` · ${s.noData} no data` : ""}`} />
+          </div>
+
+          <div className="overflow-x-auto"><EquityCurve points={s.equity} /></div>
+          <div className="text-[10px] text-dim">
+            Exits: {s.byExit.TP} target · {s.byExit.SL} stop · {s.byExit.EOD} close
+            {shadow.firstDay ? ` · since ${shadow.firstDay}` : ""}
+            {shadow.lastEvaluated ? ` · last scored ${fmtTimePT(shadow.lastEvaluated)} ${PT_LABEL}` : ""}
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <div className="text-[10px] uppercase tracking-wider text-text-secondary">
+              {date}
+              {rows.length ? <> · {dayFilled} of {rows.length} filled · <span className={tone(dayNet)}>{usd(dayNet, 2)}</span></> : " · no rows"}
+            </div>
+            <span className="flex-1" />
+            <button onClick={onReevaluate} disabled={busy}
+              title={isToday ? "Scores after the close; before ~4:15 PM ET it sees an incomplete session." : "Re-score this day. Overwrites the same rows."}
+              className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-border text-text-secondary hover:text-text-primary disabled:opacity-40">
+              {busy ? "scoring…" : rows.length ? "re-score day" : "score day"}
+            </button>
+          </div>
+          {error && <div className="text-[11px] text-signal-bear">{error}</div>}
+
+          {rows.length === 0 ? (
+            <div className="text-xs text-text-secondary">
+              {isToday
+                ? "Today's BUY alerts are scored by the 4:20 PM ET cron once the session is closed."
+                : "No BUY alerts were scored for this day."}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead className="text-text-secondary">
+                  <tr className="border-b border-border">
+                    <th className="text-left font-normal py-1 pr-3">Alert</th>
+                    <th className="text-left font-normal py-1 pr-3">Side</th>
+                    <th className="text-left font-normal py-1 pr-3">Contract</th>
+                    <th className="text-left font-normal py-1 pr-3">Touch</th>
+                    <th className="text-right font-normal py-1 pr-3">Entry</th>
+                    <th className="text-right font-normal py-1 pr-3">Exit</th>
+                    <th className="text-left font-normal py-1 pr-3">Why</th>
+                    <th className="text-right font-normal py-1 pr-3">Ret</th>
+                    <th className="text-right font-normal py-1 pr-3">Net $</th>
+                    <th className="text-right font-normal py-1 pr-3">Held</th>
+                    <th className="text-right font-normal py-1 pr-3">Peak</th>
+                    <th className="text-left font-normal py-1">10 / 15%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={`${r.barHhmm}|${r.side}`} className="border-b border-border/40 last:border-b-0">
+                      <td className="py-1 pr-3 whitespace-nowrap tabular-nums"
+                        title={`bar ${r.barHhmm} ET · score ${r.signalScore} · ${r.entryTrigger}`}>
+                        {barTimeToPT(r.barTime)}
+                      </td>
+                      <td className={`py-1 pr-3 font-semibold ${r.side === "CALL" ? "text-signal-bull" : "text-signal-bear"}`}>{r.side}</td>
+                      <td className="py-1 pr-3 whitespace-nowrap text-text-secondary">{r.contract}</td>
+                      <td className="py-1 pr-3 whitespace-nowrap">
+                        {r.touchMinuteUtc
+                          ? <span title={`EMA ${r.emaAtTouch ?? "—"} · SPY ${r.spyAtTouch ?? "—"}`}>
+                              {utcMinuteToPT(r.day, r.touchMinuteUtc)} <span className="text-dim">+{r.waitedMin}m</span>
+                            </span>
+                          : r.status === "NO_TOUCH"
+                            ? <span className="text-text-secondary">no touch in 10m</span>
+                            : <span className="text-signal-bear" title={r.note}>no data</span>}
+                      </td>
+                      <td className="py-1 pr-3 text-right tabular-nums">{r.entry?.toFixed(2) ?? "—"}</td>
+                      <td className="py-1 pr-3 text-right tabular-nums">{r.exit?.toFixed(2) ?? "—"}</td>
+                      <td className={`py-1 pr-3 ${r.exitReason === "TP" ? "text-signal-bull" : r.exitReason === "SL" ? "text-signal-bear" : "text-text-secondary"}`}>
+                        {r.exitReason === "TP" ? "target" : r.exitReason === "SL" ? "stop" : r.exitReason === "EOD" ? "close" : r.status === "NO_DATA" ? r.note : ""}
+                      </td>
+                      <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.retPct)}`}>{pct(r.retPct)}</td>
+                      <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.netUsd)}`}>{usd(r.netUsd, 2)}</td>
+                      <td className="py-1 pr-3 text-right tabular-nums text-text-secondary">{r.heldMin === null ? "—" : `${r.heldMin}m`}</td>
+                      <td className="py-1 pr-3 text-right tabular-nums text-text-secondary">{pct(r.mfePct)}</td>
+                      <td className="py-1 text-text-secondary">
+                        {r.status === "FILLED" ? `${r.tp10Hit ? "✓" : "·"} / ${r.tp15Hit ? "✓" : "·"}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="text-[10px] text-dim mt-1">
+                Times {PT_LABEL} · entry is the option&apos;s 1-minute midpoint at the touch · the stop is checked before
+                the target inside a bar · &ldquo;10 / 15%&rdquo; marks whether those targets would have filled before the stop
+                {rows.some((r) => r.backfilled) ? " · this day was backfilled from the alert log" : ""}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export function SpyConvictionPage() {
@@ -348,6 +557,9 @@ export function SpyConvictionPage() {
   const [busy, setBusy] = useState(false);
   const [showHits, setShowHits] = useState(false);
   const [showSilent, setShowSilent] = useState(false);
+  const [shadow, setShadow] = useState<SpyShadowResponse | null>(null);
+  const [shadowBusy, setShadowBusy] = useState(false);
+  const [shadowError, setShadowError] = useState<string | null>(null);
 
   const load = useCallback(async (d: string) => {
     setLoading(true); setError(null);
@@ -357,6 +569,20 @@ export function SpyConvictionPage() {
   }, []);
 
   useEffect(() => { void load(date); }, [date, load]);
+
+  const loadShadow = useCallback(async (d: string) => {
+    setShadowError(null);
+    try { setShadow(await getSpyShadow(d)); }
+    catch (e) { setShadowError(e instanceof Error ? e.message : "ledger failed to load"); }
+  }, []);
+  useEffect(() => { void loadShadow(date); }, [date, loadShadow]);
+
+  const onReevaluate = async () => {
+    setShadowBusy(true); setShadowError(null);
+    try { await evaluateSpyShadow(date); await loadShadow(date); }
+    catch (e) { setShadowError(e instanceof Error ? e.message : "could not score the day"); }
+    finally { setShadowBusy(false); }
+  };
 
   // The page's job is "is it alive right now", so it must not go stale itself.
   useEffect(() => {
@@ -588,6 +814,9 @@ export function SpyConvictionPage() {
           )
         )}
       </div>
+
+      <ShadowSection shadow={shadow} date={date} isToday={isToday}
+        onReevaluate={onReevaluate} busy={shadowBusy} error={shadowError} />
 
       <ResearchSection report={data.research} />
     </div>
