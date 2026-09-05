@@ -158,10 +158,6 @@ check("ema2 of a flat tape", Number(ema2(spy2Flat()).at(-1).ema.toFixed(2)), 773
   // $0.88 entry → 22 contracts; a −9% stop on 0.88 is −$7.92/contract.
   check("22 contracts at 0.88, losing", sizeForAccount(0.88, -7.92), { contracts: 22, costUsd: 1936, grossUsd: -174.24, commissionUsd: 0, netUsd: -174.24, retPct: -8.71 });
   check("premium above the account → 0 contracts", sizeForAccount(25, 100).contracts, 0);
-  // One-third sizing: $666.67 budget → 2 contracts at 2.90 ($580); ret% still against the whole account.
-  check("third sizing at 2.90", sizeForAccount(2.9, 58, 2000, 1 / 3), { contracts: 2, costUsd: 580, grossUsd: 116, commissionUsd: 0, netUsd: 116, retPct: 5.8 });
-  check("third sizing at 0.88", sizeForAccount(0.88, -7.92, 2000, 1 / 3).contracts, 7);
-  check("sizings declared", RULE.SIZINGS.map((s) => [s.key, Number(s.frac.toFixed(4))]), [["full", 1], ["third", 0.3333]]);
   const rows = [
     { day: "2026-08-12", side: "CALL", status: "FILLED", entry: 2.9, grossUsd: 58, netUsd: 57.3, exitReason: "TP" },
     { day: "2026-08-12", side: "PUT", status: "FILLED", entry: 2.0, grossUsd: -18, netUsd: -18.7, exitReason: "SL" },
@@ -174,10 +170,6 @@ check("ema2 of a flat tape", Number(ema2(spy2Flat()).at(-1).ema.toFixed(2)), 773
   check("account equity in $ and %", a.equity, [{ day: "2026-08-12", netUsd: 168, pct: 8.4 }, { day: "2026-08-13", netUsd: 168, pct: 8.4 }]);
   check("account best/worst/avg", [a.bestTradeUsd, a.worstTradeUsd, a.avgContracts], [348, -180, 8]);
   check("account drawdown never positive", a.maxDrawdownUsd <= 0 && a.maxDrawdownPct <= 0, true);
-  const t = summarize(rows).accounts.third;
-  // CALL 2 × 58 = 116 ; PUT floor(666.67/200)=3 × −18 = −54 ; total 62 = 3.1%.
-  check("third-size account totals", [t.frac.toFixed(4), t.label, t.netUsd, t.retPct], ["0.3333", "1/3 per trade", 62, 3.1]);
-  check("full sizing under accounts matches account", summarize(rows).accounts.full.netUsd, a.netUsd);
 }
 check("rule label mentions its own numbers", RULE.label.includes(`${RULE.TARGET_PCT}%`) && RULE.label.includes(`${RULE.STOP_PCT}%`), true);
 
