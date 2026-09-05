@@ -206,12 +206,12 @@ function Pipeline() {
     ["Fixed rule", "entry · exit · size"],
     ["Ledger", "kept forever"],
   ];
-  const W = 760, bw = 92, gap = 18, y = 14, h = 34;
+  const W = 790, bw = 102, gap = 12, y = 14, h = 34;
   return (
     <div className="overflow-x-auto">
       <svg viewBox={`0 0 ${W} 62`} className="w-full min-w-[720px]" role="img" aria-label="signal pipeline">
         {steps.map(([a, b], i) => {
-          const x = 6 + i * (bw + gap);
+          const x = 4 + i * (bw + gap);
           return (
             <g key={a}>
               <Box x={x} y={y} w={bw} h={h} lines={[a, b]} strong={i === 5} />
@@ -219,7 +219,7 @@ function Pipeline() {
             </g>
           );
         })}
-        <text x={6} y={58} fontSize={8} className="fill-current text-dim">Phone alerts leave at step 3. Nothing after step 3 can place an order.</text>
+        <text x={4} y={58} fontSize={8} className="fill-current text-dim">Phone alerts leave at step 3. Nothing after step 3 can place an order.</text>
       </svg>
     </div>
   );
@@ -227,7 +227,7 @@ function Pipeline() {
 
 function LegsToScore() {
   const legs = ["Cumulative TICK", "Volume pressure", "SPY vs VWAP", "SPY vs EMA 9", "SPY / RSP lead", "VIX"];
-  const W = 760, H = 150;
+  const W = 760, H = 168;
   return (
     <div className="overflow-x-auto">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[720px]" role="img" aria-label="six legs to one score">
@@ -247,9 +247,9 @@ function LegsToScore() {
         <line x1={396} y1={78} x2={456} y2={78} stroke="currentColor" className="text-signal-bear" strokeWidth={4} strokeLinecap="round" />
         <line x1={536} y1={78} x2={596} y2={78} stroke="currentColor" className="text-signal-bull" strokeWidth={4} strokeLinecap="round" />
         <text x={396} y={94} fontSize={8} className="fill-current text-signal-bear">−100 · strong put</text>
-        <text x={496} y={94} fontSize={8} textAnchor="middle" className="fill-current text-text-secondary">weak · stand aside</text>
+        <text x={496} y={66} fontSize={8} textAnchor="middle" className="fill-current text-text-secondary">weak · stand aside</text>
         <text x={596} y={94} fontSize={8} textAnchor="end" className="fill-current text-signal-bull">strong call · +100</text>
-        <text x={496} y={66} fontSize={8} textAnchor="middle" className="fill-current text-text-secondary">grade: WEAK / STRONG · bias: upside / downside</text>
+        <text x={496} y={52} fontSize={8} textAnchor="middle" className="fill-current text-dim">grade: WEAK / STRONG · bias: upside / downside</text>
         <Box x={620} y={48} w={130} h={60} lines={["Decision", "ARM · BUY · HOLD", "REDUCE · SELL", "STAND_ASIDE"]} />
         <Arrow x1={598} y1={78} x2={618} y2={78} />
         <text x={6} y={H - 4} fontSize={8} className="fill-current text-dim">A BUY needs a strong score, most legs agreeing, and an entry trigger (VWAP or EMA-9 reclaim) that is not already too extended.</text>
@@ -259,41 +259,53 @@ function LegsToScore() {
 }
 
 function StateMachine() {
-  const W = 760, H = 120;
+  const W = 760, H = 214;
   return (
     <div className="overflow-x-auto">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[720px]" role="img" aria-label="position states">
-        <Box x={330} y={44} w={100} h={30} lines={["FLAT"]} strong />
-        <Box x={110} y={10} w={110} h={26} lines={["ARMED_CALL"]} />
-        <Box x={110} y={84} w={110} h={26} lines={["ARMED_PUT"]} />
-        <Box x={540} y={10} w={110} h={26} lines={["LONG_CALL"]} />
-        <Box x={540} y={84} w={110} h={26} lines={["LONG_PUT"]} />
-        {/* FLAT -> ARMED */}
-        <Arrow x1={330} y1={52} x2={222} y2={26} />
-        <text x={262} y={32} fontSize={8} textAnchor="middle" className="fill-current text-text-secondary">ARM_CALL</text>
-        <Arrow x1={330} y1={66} x2={222} y2={94} />
-        <text x={262} y={92} fontSize={8} textAnchor="middle" className="fill-current text-text-secondary">ARM_PUT</text>
-        {/* ARMED -> FLAT (cancel) */}
-        <Arrow x1={200} y1={36} x2={330} y2={60} />
-        <text x={278} y={56} fontSize={8} textAnchor="middle" className="fill-current text-dim">ARM_CANCEL</text>
-        <Arrow x1={200} y1={84} x2={330} y2={62} />
-        {/* ARMED -> LONG (buy) across the top/bottom */}
-        <path d="M 220 16 Q 380 -6 540 16" fill="none" stroke="currentColor" className="text-signal-bull" strokeWidth={1.25} />
-        <polygon points="540,16 533,12 534,19" fill="currentColor" className="text-signal-bull" />
-        <text x={380} y={8} fontSize={8} textAnchor="middle" className="fill-current text-signal-bull">BUY_CALL  ← the ledger trades this</text>
-        <path d="M 220 104 Q 380 126 540 104" fill="none" stroke="currentColor" className="text-signal-bear" strokeWidth={1.25} />
-        <polygon points="540,104 533,101 534,108" fill="currentColor" className="text-signal-bear" />
-        <text x={380} y={118} fontSize={8} textAnchor="middle" className="fill-current text-signal-bear">BUY_PUT  ← and this</text>
-        {/* FLAT -> LONG direct (buy without arm) */}
-        <Arrow x1={430} y1={52} x2={540} y2={26} />
-        <Arrow x1={430} y1={66} x2={540} y2={94} />
-        {/* LONG -> FLAT (sell) */}
-        <Arrow x1={560} y1={36} x2={430} y2={58} />
-        <text x={498} y={54} fontSize={8} textAnchor="middle" className="fill-current text-dim">SELL / STAND_ASIDE</text>
-        <Arrow x1={560} y1={84} x2={430} y2={64} />
-        <text x={595} y={62} fontSize={8} className="fill-current text-dim">HOLD · REDUCE stay</text>
+        <Chain y={30} side="CALL" />
+        <Chain y={130} side="PUT" />
+        <text x={6} y={H - 4} fontSize={8} className="fill-current text-dim">
+          The portal only mirrors these states from the indicator&apos;s messages; a message that does not fit the current state is flagged as an anomaly, never dropped.
+        </text>
       </svg>
     </div>
+  );
+}
+
+/** One side's lifecycle as a left-to-right chain, with the two shortcuts drawn as arcs. */
+function Chain({ y, side }: { y: number; side: "CALL" | "PUT" }) {
+  const bull = side === "CALL";
+  const cls = bull ? "text-signal-bull" : "text-signal-bear";
+  const bw = 100, bh = 24, xs = [6, 200, 394, 588];
+  const mid = (i: number) => xs[i] + bw / 2;
+  const labels = [`ARM_${side}`, `BUY_${side}`, `SELL_${side}`];
+  const notes = ["too extended", "ledger trades this", "or STAND_ASIDE"];
+  return (
+    <g>
+      <Box x={xs[0]} y={y} w={bw} h={bh} lines={["FLAT"]} />
+      <Box x={xs[1]} y={y} w={bw} h={bh} lines={[`ARMED_${side}`]} />
+      <Box x={xs[2]} y={y} w={bw} h={bh} lines={[`LONG_${side}`]} strong />
+      <Box x={xs[3]} y={y} w={bw} h={bh} lines={["FLAT"]} />
+      {[0, 1, 2].map((i) => (
+        <g key={i}>
+          <Arrow x1={xs[i] + bw} y1={y + bh / 2} x2={xs[i + 1]} y2={y + bh / 2} />
+          <text x={(xs[i] + bw + xs[i + 1]) / 2} y={y + bh / 2 - 5} fontSize={8} textAnchor="middle"
+            className={`fill-current ${i === 1 ? cls : "text-text-primary"}`} fontWeight={i === 1 ? 700 : 400}>{labels[i]}</text>
+          <text x={(xs[i] + bw + xs[i + 1]) / 2} y={y + bh / 2 + 12} fontSize={7.5} textAnchor="middle" className="fill-current text-dim">{notes[i]}</text>
+        </g>
+      ))}
+      {/* ARM_CANCEL: back from ARMED to FLAT, arc above */}
+      <path d={`M ${mid(1)} ${y} Q ${(mid(0) + mid(1)) / 2} ${y - 22} ${mid(0) + 6} ${y}`} fill="none" stroke="currentColor" className="text-text-secondary" strokeWidth={1} strokeDasharray="3 2" />
+      <polygon points={`${mid(0) + 6},${y} ${mid(0) + 12},${y - 6} ${mid(0) + 4},${y - 7}`} fill="currentColor" className="text-text-secondary" />
+      <text x={(mid(0) + mid(1)) / 2} y={y - 13} fontSize={7.5} textAnchor="middle" className="fill-current text-text-secondary">ARM_CANCEL</text>
+      {/* BUY straight from FLAT, arc below */}
+      <path d={`M ${mid(0)} ${y + bh} Q ${(mid(0) + mid(2)) / 2} ${y + bh + 54} ${mid(2) - 6} ${y + bh}`} fill="none" stroke="currentColor" className={cls} strokeWidth={1} strokeDasharray="3 2" />
+      <polygon points={`${mid(2) - 6},${y + bh} ${mid(2) - 13},${y + bh + 5} ${mid(2) - 5},${y + bh + 7}`} fill="currentColor" className={cls} />
+      <text x={(mid(0) + mid(2)) / 2} y={y + bh + 38} fontSize={7.5} textAnchor="middle" className={`fill-current ${cls}`}>{`BUY_${side} can also fire straight from FLAT`}</text>
+      {/* HOLD / REDUCE keep the state: note above the LONG box, clear of both arcs */}
+      <text x={mid(2)} y={y - 7} fontSize={7.5} textAnchor="middle" className="fill-current text-dim">{`HOLD_${side} · REDUCE_${side} keep this state`}</text>
+    </g>
   );
 }
 
@@ -326,7 +338,8 @@ function EntryDiagram({ waitMin, emaLen }: { waitMin: number; emaLen: number }) 
         {touchIdx > 0 && (
           <g>
             <circle cx={x(touchIdx) + slot / 2} cy={TOP + price[touchIdx]} r={4} fill="currentColor" className="text-signal-bull" />
-            <text x={x(touchIdx) + slot / 2 + 7} y={TOP + price[touchIdx] - 6} fontSize={8} className="fill-current text-signal-bull">touch → buy at this minute&apos;s option midpoint</text>
+            <line x1={x(touchIdx) + slot / 2} y1={TOP + price[touchIdx] - 4} x2={x(touchIdx) + slot / 2} y2={TOP + price[touchIdx] - 22} stroke="currentColor" className="text-signal-bull" strokeWidth={0.75} />
+            <text x={x(touchIdx) + slot / 2 + 4} y={TOP + price[touchIdx] - 25} fontSize={8} className="fill-current text-signal-bull">touch → buy at this minute&apos;s option midpoint</text>
           </g>
         )}
         <text x={x(0) + slot / 2} y={BOT + 14} fontSize={8} textAnchor="middle" className="fill-current text-dim">before</text>
