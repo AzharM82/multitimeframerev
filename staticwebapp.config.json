@@ -85,6 +85,15 @@
       ]
     },
     {
+      "route": "/api/spy-shadow",
+      "methods": [
+        "POST"
+      ],
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/purge-history",
       "allowedRoles": [
         "anonymous"

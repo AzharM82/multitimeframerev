@@ -1028,6 +1028,102 @@ export interface SpyConvictionResponse {
   research: SpyResearchReport | null;
 }
 
+/** One BUY alert scored after the close against the fixed shadow rule. */
+export interface ShadowTrade {
+  day: string;
+  side: "CALL" | "PUT";
+  barTime: string;
+  barHhmm: string;
+  signalSpy: number;
+  signalScore: number;
+  entryTrigger: string;
+  status: "FILLED" | "NO_TOUCH" | "NO_DATA";
+  contract: string;
+  touchMinuteUtc: string;
+  waitedMin: number;
+  emaAtTouch: number | null;
+  spyAtTouch: number | null;
+  entry: number | null;
+  exit: number | null;
+  exitReason: "TP" | "SL" | "EOD" | "";
+  retPct: number | null;
+  grossUsd: number | null;
+  netUsd: number | null;
+  heldMin: number | null;
+  mfePct: number | null;
+  tp10Hit: boolean;
+  tp15Hit: boolean;
+  note: string;
+  evaluatedAt: string;
+  backfilled: boolean;
+  /** The same trade sized for the configured account; null unless FILLED. */
+  acct: ShadowAccountFill | null;
+  /** The same trade under every sizing in `params.sizings`, keyed by sizing key. */
+  accts: Record<string, ShadowAccountFill> | null;
+}
+
+export interface ShadowAccountFill {
+  contracts: number;
+  costUsd: number;
+  grossUsd: number;
+  commissionUsd: number;
+  netUsd: number;
+  /** % of the ACCOUNT, not of the premium. */
+  retPct: number;
+}
+
+export interface ShadowAccountSummary {
+  sizeUsd: number;
+  frac: number;
+  label: string;
+  grossUsd: number;
+  commissionUsd: number;
+  netUsd: number;
+  retPct: number;
+  maxDrawdownUsd: number;
+  maxDrawdownPct: number;
+  avgContracts: number | null;
+  bestTradeUsd: number | null;
+  worstTradeUsd: number | null;
+  bySide: Record<"CALL" | "PUT", number>;
+  equity: { day: string; netUsd: number; pct: number }[];
+}
+
+export interface ShadowSummary {
+  days: number;
+  signals: number;
+  filled: number;
+  noTouch: number;
+  noData: number;
+  wins: number;
+  losses: number;
+  winRate: number | null;
+  grossUsd: number;
+  commissionUsd: number;
+  netUsd: number;
+  maxDrawdownUsd: number;
+  avgWinUsd: number | null;
+  avgLossUsd: number | null;
+  bySide: Record<"CALL" | "PUT", { filled: number; wins: number; netUsd: number }>;
+  byExit: Record<"TP" | "SL" | "EOD", number>;
+  equity: { day: string; netUsd: number }[];
+  account: ShadowAccountSummary;
+  accounts: Record<string, ShadowAccountSummary>;
+}
+
+export interface SpyShadowResponse {
+  date: string;
+  rule: string;
+  params: {
+    waitMin: number; emaLen: number; targetPct: number; stopPct: number; commissionRt: number; accountUsd: number;
+    sizings: { key: string; label: string; frac: number }[];
+  };
+  rows: ShadowTrade[];
+  summary: ShadowSummary;
+  lastEvaluated: string | null;
+  firstDay: string | null;
+}
+
 // ─── Options Strategy Guide ──────────────────────────────────────────────────
 // Credit-spread builder. "Floor Bet" = bull put spread (stays ABOVE a line),
 // "Ceiling Bet" = bear call spread (stays BELOW). Every number below is computed
