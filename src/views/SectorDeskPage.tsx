@@ -539,6 +539,23 @@ export function SectorDeskPage() {
         </button>
       </div>
 
+      {/* Index leaders — first on the page (operator request 2026-09-05): the
+          quickest read of what is actually moving, before the group logic. */}
+      <div>
+        <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-2">
+          Index Leaders — top-3 high-volume gainers
+          {idx.data && <span className="ml-2 text-dim normal-case tracking-normal">· as of {idx.data.generatedEt} ET</span>}
+        </h2>
+        {idx.error && !idx.data && <p className="text-sm text-text-secondary">{idx.error} — filled by the scheduled refresh.</p>}
+        {idx.data && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {idx.data.indices.map((b) => (
+              <IndexCard key={b.key} block={b} />
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Regime banner */}
       {desk.loading && !desk.data && <div className="text-sm text-text-secondary">Loading…</div>}
       {desk.error && !desk.data && (
@@ -628,22 +645,6 @@ export function SectorDeskPage() {
           </div>
         </div>
       )}
-
-      {/* Index leaders */}
-      <div>
-        <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-2">
-          Index Leaders — top-3 high-volume gainers
-          {idx.data && <span className="ml-2 text-dim normal-case tracking-normal">· as of {idx.data.generatedEt} ET</span>}
-        </h2>
-        {idx.error && !idx.data && <p className="text-sm text-text-secondary">{idx.error} — filled by the scheduled refresh.</p>}
-        {idx.data && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            {idx.data.indices.map((b) => (
-              <IndexCard key={b.key} block={b} />
-            ))}
-          </div>
-        )}
-      </div>
 
       <p className="text-[10px] text-dim text-center">
         Real-time via FinViz Elite, cron-warmed ~5 min. Not financial advice.
