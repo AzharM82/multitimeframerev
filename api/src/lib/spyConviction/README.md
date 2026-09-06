@@ -96,3 +96,12 @@ node tools/spy-conviction-seed.mjs    # post a realistic session; --clean remove
 
 The parity check mirrors `dev/spy-conviction/tests/test_webhook.py`, the Python
 reference this was ported from, case for case.
+
+## Shadow ledger (2026-09-05)
+
+The sink above never trades. A sibling module, `api/src/lib/spyShadow/`, scores every
+accepted BUY after the close against one fixed rule (2-min 9 EMA pullback within 10 min,
++20% target, −9% stop checked first, else the close, $2,000 all-in, commission 0) and keeps
+the result in `SpyShadowTrades`. Rule, data, endpoints, backtest history and the decision
+log are in the repo README under "SPY Conviction — alerts, the shadow ledger, and How it
+works"; the operating rules are in CLAUDE.md under "SPY Conviction shadow ledger".
