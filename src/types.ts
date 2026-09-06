@@ -1140,9 +1140,37 @@ export interface SwingRow {
   extras: Record<string, number>;
   asOf: string | null;
   ma: SwingMaStack | null;
-  reversal: null;
+  reversal: SwingReversal | null;
   stage: null;
   error?: string;
+}
+
+export type SwingReversalState = "bull-triggered" | "bull-inprogress" | "bear-triggered" | "bear-inprogress";
+
+/** Lens 2 — the operator's TOS "Jonesy Signals" study, ported. */
+export interface SwingReversal {
+  /** The study's "Bullish" plot on the last bar: a turn detector on the zig-zag's provisional extremes. */
+  bullish: boolean | null;
+  /** Bars since the plot last changed (0 = turned today). */
+  turnBarsAgo: number | null;
+  /** The operator's four states: a turn within 2 bars is "triggered", older is "in progress". */
+  state: SwingReversalState | null;
+  /** ZigZagHighLow leg direction on the last bar (context). */
+  legUp: boolean | null;
+  legBars: number | null;
+  legExtreme: number | null;
+  legFrom: number | null;
+  thresholdPct: number | null;
+  fullK: number | null;
+  fullD: number | null;
+  goingUp: boolean;
+  goingDown: boolean;
+  goingUpBarsAgo: number | null;
+  goingDownBarsAgo: number | null;
+  /** Badge: the more recent stochastic cross if it fired within the window. */
+  signal: "bull" | "bear" | null;
+  signalBarsAgo: number | null;
+  bars: number;
 }
 
 export interface SwingResultsResponse {
