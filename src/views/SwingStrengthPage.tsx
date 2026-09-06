@@ -65,6 +65,22 @@ function Check({ v }: { v: boolean | null | undefined }) {
   return <span className={v ? "text-signal-bull" : "text-signal-bear"}>{v ? "✓" : "✗"}</span>;
 }
 
+type Tri = "" | "y" | "n";
+
+/** A three-state filter chip: any → ✓ only → ✗ only → any. */
+function TriChip({ label, value, onChange, yes = "✓", no = "✗", title }: {
+  label: string; value: Tri; onChange: (v: Tri) => void; yes?: string; no?: string; title?: string;
+}) {
+  const next: Record<Tri, Tri> = { "": "y", y: "n", n: "" };
+  const cls = value === "y" ? "border-signal-bull text-signal-bull bg-bg-card" : value === "n" ? "border-signal-bear text-signal-bear bg-bg-card" : "border-border text-text-secondary hover:text-text-primary";
+  return (
+    <button onClick={() => onChange(next[value])} title={title ?? `${label}: click to cycle any → ${yes} → ${no}`}
+      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${cls}`}>
+      {label} <span className="ml-1">{value === "y" ? yes : value === "n" ? no : "any"}</span>
+    </button>
+  );
+}
+
 function Tile({ label, value, sub, cls, onClick, active }: { label: string; value: string; sub?: string; cls?: string; onClick?: () => void; active?: boolean }) {
   const inner = (
     <>
@@ -88,6 +104,13 @@ export function SwingStrengthPage() {
   const [fIndustry, setFIndustry] = useState<string>("");
   const [fStack, setFStack] = useState<SwingStack | "">("");
   const [q, setQ] = useState("");
+  /** Condition filters that sit on top of the table. Each is any / ✓ / ✗. */
+  const [f1, setF1] = useState<Tri>("");      // 10 EMA > 20 EMA
+  const [f2, setF2] = useState<Tri>("");      // 20 EMA > 50 SMA
+  const [f3, setF3] = useState<Tri>("");      // 50 SMA > 200 SMA
+  const [fP50, setFP50] = useState<Tri>("");  // price above 50 SMA
+  const [fP200, setFP200] = useState<Tri>(""); // price above 200 SMA
+  const [minScore, setMinScore] = useState<number>(0);
   const [showUpload, setShowUpload] = useState(false);
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState<"" | "upload" | "scan">("");
@@ -112,11 +135,18 @@ export function SwingStrengthPage() {
     () => [...new Set(rows.filter((r) => !fSector || r.sector === fSector).map((r) => r.industry).filter(Boolean))].sort(),
     [rows, fSector],
   );
+  const tri = (v: Tri, actual: boolean | null | undefined) => v === "" || (actual !== null && actual !== undefined && actual === (v === "y"));
   const filtered = useMemo(() => rows.filter((r) =>
     (!fSector || r.sector === fSector) && (!fIndustry || r.industry === fIndustry)
     && (!fStack || r.ma?.stack === fStack)
-    && (!q || r.ticker.includes(q.toUpperCase()) || r.company.toUpperCase().includes(q.toUpperCase()))),
-    [rows, fSector, fIndustry, fStack, q]);
+    && (!q || r.ticker.includes(q.toUpperCase()) || r.company.toUpperCase().includes(q.toUpperCase()))
+    && tri(f1, r.ma?.c10over20) && tri(f2, r.ma?.c20over50) && tri(f3, r.ma?.c50over200)
+    && tri(fP50, r.ma?.d50 === null || r.ma?.d50 === undefined ? null : r.ma.d50 > 0)
+    && tri(fP200, r.ma?.d200 === null || r.ma?.d200 === undefined ? null : r.ma.d200 > 0)
+    && (minScore === 0 || (r.ma?.score ?? -1) >= minScore)),
+    [rows, fSector, fIndustry, fStack, q, f1, f2, f3, fP50, fP200, minScore]);
+  const anyCondition = f1 || f2 || f3 || fP50 || fP200 || minScore > 0;
+  const clearConditions = () => { setF1(""); setF2(""); setF3(""); setFP50(""); setFP200(""); setMinScore(0); };
   const { rows: sorted, sortKey, sortDir, onSort } = useTableSort<SwingRow, SortKey>(filtered, sortValue, "score", "desc");
 
   const counts = useMemo(() => {
@@ -226,14 +256,34 @@ export function SwingStrengthPage() {
             </select>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ticker or name" className="bg-bg-primary border border-border rounded px-2 py-1 text-text-primary w-40" />
             <span className="text-dim">{sorted.length} of {rows.length}</span>
-            {(fSector || fIndustry || fStack || q) && (
-              <button onClick={() => { setFSector(""); setFIndustry(""); setFStack(""); setQ(""); }} className="text-text-secondary hover:text-text-primary underline">clear</button>
+            {(fSector || fIndustry || fStack || q || anyCondition) && (
+              <button onClick={() => { setFSector(""); setFIndustry(""); setFStack(""); setQ(""); clearConditions(); }} className="text-text-secondary hover:text-text-primary underline">clear all</button>
             )}
             <span className="flex-1" />
             <span className="text-dim">Lens 2 (reversal) and Lens 3 (Weinstein stage) arrive in the next phases.</span>
           </div>
 
-          <div className="bg-bg-card border border-border rounded overflow-x-auto">
+          <div className="bg-bg-card border border-border rounded">
+            <div className="flex items-center gap-1.5 flex-wrap px-2 py-1.5 border-b border-border text-[10px]">
+              <span className="uppercase tracking-wider text-text-secondary mr-1">Conditions</span>
+              <TriChip label="10 > 20" value={f1} onChange={setF1} title="10 EMA above 20 EMA" />
+              <TriChip label="20 > 50" value={f2} onChange={setF2} title="20 EMA above 50 SMA" />
+              <TriChip label="50 > 200" value={f3} onChange={setF3} title="50 SMA above 200 SMA" />
+              <span className="w-px h-4 bg-border mx-1" />
+              <TriChip label="price vs 50" value={fP50} onChange={setFP50} yes="above" no="below" title="Price above or below the 50 SMA" />
+              <TriChip label="price vs 200" value={fP200} onChange={setFP200} yes="above" no="below" title="Price above or below the 200 SMA" />
+              <span className="w-px h-4 bg-border mx-1" />
+              <label className="flex items-center gap-1 text-text-secondary">
+                score ≥
+                <select value={minScore} onChange={(e) => setMinScore(Number(e.target.value))} className="bg-bg-primary border border-border rounded px-1 py-0.5 text-[10px] text-text-primary">
+                  {[0, 1, 2, 3].map((n) => <option key={n} value={n}>{n === 0 ? "any" : `${n}/3`}</option>)}
+                </select>
+              </label>
+              <span className="flex-1" />
+              <span className="text-text-secondary tabular-nums">{sorted.length} shown</span>
+              {anyCondition && <button onClick={clearConditions} className="text-text-secondary hover:text-text-primary underline">reset conditions</button>}
+            </div>
+            <div className="overflow-x-auto">
             <table className="w-full text-[12px]">
               <thead>
                 <SortHeaderRow columns={COLUMNS} sortKey={sortKey} sortDir={sortDir} onSort={onSort}
@@ -263,6 +313,7 @@ export function SwingStrengthPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
           <p className="text-[10px] text-dim">
             Daily closes from Polygon (adjusted), two years. 10/20 are exponential, 50/200 simple. Distances are price vs the average. Snapshots are stored per trading day and never overwritten by a later day.
