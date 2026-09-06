@@ -103,6 +103,13 @@ app.timer("indexLeadersCron", {
 // SPY Conviction shadow ledger: score the day's BUY alerts against the fixed
 // 9-EMA pullback rule once the session is closed and Alpaca's 15-min delay has
 // passed. Re-runs are idempotent.
+// Swing Strength: re-score the curated universe after the close (Polygon daily
+// bars are final by then). Idempotent per ET day.
+app.timer("swingScanCron", {
+  schedule: "0 0 17 * * 1-5",
+  handler: async (_timer, ctx) => fire("swing-scan", ctx),
+});
+
 app.timer("spyShadowCron", {
   schedule: "0 20 16 * * 1-5",
   handler: async (_timer, ctx) => fire("spy-shadow", ctx),

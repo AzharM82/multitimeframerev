@@ -10,12 +10,13 @@ import { TradingViewPage } from "./views/TradingViewPage.js";
 import { OpeningDrivePage } from "./views/OpeningDrivePage.js";
 import { JournalPage } from "./views/JournalPage.js";
 import { SpyConvictionPage } from "./views/SpyConvictionPage.js";
+import { SwingStrengthPage } from "./views/SwingStrengthPage.js";
 import { ErrorBoundary } from "./views/ErrorBoundary.js";
 import { AboutPage } from "./views/AboutPage.js";
 import { AvwapEarningsPage } from "./views/AvwapEarningsPage.js";
 import { OptionsGuidePage } from "./views/OptionsGuidePage.js";
 
-type Page = "gate" | "desk" | "atr" | "avwap" | "cve" | "rotation" | "chart" | "opening" | "spy" | "options" | "journal" | "about";
+type Page = "gate" | "desk" | "atr" | "avwap" | "cve" | "rotation" | "chart" | "opening" | "spy" | "swing" | "options" | "journal" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "gate", label: "Gate" },
@@ -27,6 +28,7 @@ const TABS: { key: Page; label: string }[] = [
   { key: "chart", label: "Chart Analysis" },
   { key: "opening", label: "Opening Drive" },
   { key: "spy", label: "SPY Conviction" },
+  { key: "swing", label: "Swing Strength" },
   { key: "options", label: "Options Guide" },
   { key: "journal", label: "Journal" },
   { key: "about", label: "About" },
@@ -125,6 +127,7 @@ function App() {
           {page === "chart" && <TradingViewPage />}
           {page === "opening" && <OpeningDrivePage />}
           {page === "spy" && <SpyConvictionPage />}
+          {page === "swing" && <SwingStrengthPage />}
           {page === "options" && <OptionsGuidePage />}
           {page === "journal" && <JournalPage />}
           {page === "about" && <AboutPage />}

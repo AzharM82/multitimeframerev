@@ -85,6 +85,15 @@
       ]
     },
     {
+      "route": "/api/swing-scan",
+      "methods": [
+        "POST"
+      ],
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/spy-shadow",
       "methods": [
         "POST"

@@ -1,0 +1,286 @@
+"No.","Ticker","Company","Sector","Industry","Market Cap","EPS Surprise","Short Interest","Performance (15 Minutes)","Performance (30 Minutes)","Performance (1 Hour)","Performance (Week)","Performance (Month)","Change from Open","Volume","Price","Change"
+1,"AEHR","Aehr Test Systems","Technology","Semiconductor Equipment & Materials",2813.84,1566.67%,4.34,0.11%,-0.01%,0.10%,6.74%,-13.52%,10.56%,4520762,86.26,13.10%
+2,"SNDK","Sandisk Corp","Technology","Computer Hardware",254769.07,12.26%,7.68,0.14%,0.13%,0.07%,17.17%,38.25%,9.71%,16556967,1740.00,11.90%
+3,"ALAB","Astera Labs Inc","Technology","Semiconductors",53849.78,15.77%,8.75,0.12%,0.21%,0.34%,7.23%,-6.37%,8.53%,6536259,310.40,9.75%
+4,"NBIS","Nebius Group NV","Technology","Software - Infrastructure",61545.31,83.36%,55.36,-0.07%,0.09%,-0.09%,8.23%,19.23%,7.71%,14970670,226.39,7.48%
+5,"COHU","Cohu Inc","Technology","Semiconductor Equipment & Materials",2401.01,86.38%,8.95,0.24%,0.24%,-1.00%,5.67%,-2.07%,7.57%,873315,50.72,10.31%
+6,"SKHY","SK Hynix Inc ADR","Technology","Semiconductors",1290091.05,89.46%,27.23,0.03%,0.07%,0.05%,9.91%,23.32%,7.53%,20803242,177.00,8.14%
+7,"AXTI","AXT Inc","Technology","Semiconductor Equipment & Materials",4041.93,163.89%,10.75,0.02%,-0.47%,-0.21%,5.13%,-18.00%,6.85%,10899283,61.64,9.68%
+8,"BE","Bloom Energy Corp","Industrials","Electrical Equipment & Parts",74477.13,92.07%,18.26,0.03%,-0.03%,-0.55%,19.97%,10.44%,6.78%,16469363,252.87,7.35%
+9,"SMTC","Semtech Corp","Technology","Semiconductors",13801.46,15.62%,7.21,0.54%,0.27%,0.41%,12.74%,9.72%,6.61%,2801670,147.88,9.22%
+10,"TTMI","TTM Technologies Inc","Technology","Electronic Components",13231.82,10.74%,2.91,-0.33%,-0.02%,-0.14%,5.86%,-7.89%,5.92%,2321384,125.60,8.85%
+11,"UCTT","Ultra Clean Hldgs Inc","Technology","Semiconductor Equipment & Materials",3279.42,31.88%,3.16,0.00%,0.97%,0.97%,4.25%,-12.88%,5.74%,1466289,72.43,8.77%
+12,"MRVL","Marvell Technology Inc","Technology","Semiconductors",196031.00,0.69%,28.39,0.14%,0.14%,0.07%,3.20%,6.18%,5.62%,21218082,223.55,7.05%
+13,"FIVE","Five Below Inc","Consumer Cyclical","Specialty Retail",13884.63,19.82%,1.73,0.00%,-0.24%,-0.39%,4.26%,9.12%,5.58%,1907674,252.20,5.10%
+14,"TSEM","Tower Semiconductor Ltd","Technology","Semiconductors",25084.93,16.09%,2.50,0.04%,-0.04%,0.16%,6.89%,-1.05%,5.55%,1725294,222.34,7.85%
+15,"CEG","Constellation Energy Corp","Utilities","Utilities - Independent Power Producers",105923.73,11.23%,9.41,0.09%,0.10%,0.01%,8.03%,14.50%,5.25%,2898472,298.96,4.88%
+16,"XPO","XPO Inc","Industrials","Trucking",22609.40,15.12%,6.02,0.00%,0.00%,-0.05%,2.41%,-1.66%,5.13%,1380472,193.10,4.49%
+17,"VSAT","Viasat Inc","Technology","Communication Equipment",10375.77,-19.84%,11.21,0.13%,-0.23%,0.02%,11.80%,-8.14%,4.99%,1555019,75.32,5.02%
+18,"BETA","BETA Technologies Inc","Industrials","Aerospace & Defense",5193.49,-16.43%,8.56,0.49%,-0.36%,-0.36%,10.12%,-2.29%,4.96%,2820823,22.20,6.68%
+19,"SHOO","Steven Madden Ltd","Consumer Cyclical","Footwear & Accessories",3196.38,37.07%,3.41,0.00%,0.00%,0.00%,-1.27%,-9.49%,4.92%,1108858,43.68,3.26%
+20,"TREX","TREX Co Inc","Industrials","Building Products & Equipment",4648.11,-2.13%,10.16,0.81%,0.81%,0.81%,-0.31%,-5.78%,4.85%,957177,45.63,4.44%
+21,"MU","Micron Technology Inc","Technology","Semiconductors",1148129.73,20.36%,30.02,0.13%,0.15%,0.12%,8.98%,15.33%,4.66%,35249519,1016.59,6.10%
+22,"COHR","Coherent Corp","Technology","Scientific & Technical Instruments",55197.27,7.61%,10.03,0.07%,0.11%,-0.07%,0.95%,-15.67%,4.51%,5043680,281.86,6.60%
+23,"ACMR","ACM Research Inc","Technology","Semiconductor Equipment & Materials",5184.69,45.72%,3.29,0.00%,0.00%,0.00%,0.03%,-5.75%,4.48%,643525,74.44,7.23%
+24,"KLAC","KLA Corp","Technology","Semiconductor Equipment & Materials",242495.09,4.51%,25.34,-0.01%,0.01%,0.02%,5.73%,-3.94%,4.33%,12725635,185.60,7.32%
+25,"WERN","Werner Enterprises Inc","Industrials","Trucking",2401.49,-6.94%,4.07,0.00%,0.00%,0.00%,4.22%,8.60%,4.33%,584625,40.04,4.00%
+26,"FORM","FormFactor Inc","Technology","Semiconductor Equipment & Materials",8116.74,34.54%,2.72,-0.20%,-0.87%,-0.87%,2.17%,-9.82%,4.28%,1100435,103.90,7.38%
+27,"MXL","MaxLinear Inc","Technology","Semiconductors",5690.09,6.29%,4.31,0.00%,0.14%,0.36%,1.64%,-10.63%,4.19%,1726788,62.74,5.53%
+28,"VECO","Veeco Instruments Inc","Technology","Semiconductor Equipment & Materials",2730.66,28.01%,5.91,0.00%,0.00%,0.00%,0.85%,-13.45%,4.17%,401991,44.67,4.98%
+29,"SWKS","Skyworks Solutions Inc","Technology","Semiconductors",11137.99,4.90%,29.79,0.00%,0.00%,0.00%,12.51%,10.74%,4.12%,4805405,74.02,3.52%
+30,"MSTR","Strategy Inc","Technology","Software - Application",54867.40,-1017.00%,31.88,0.02%,-0.11%,0.14%,12.17%,47.44%,3.97%,27162650,142.80,-1.39%
+31,"KNX","Knight-Swift Transportation Holdings Inc","Industrials","Trucking",11716.80,22.62%,10.08,0.00%,0.00%,0.00%,7.06%,3.91%,3.93%,3764376,71.99,3.48%
+32,"GLW","Corning Inc","Technology","Electronic Components",132912.22,3.26%,16.80,0.08%,0.03%,-0.02%,3.57%,-1.83%,3.88%,8554794,154.30,5.68%
+33,"RXO","RXO Inc","Industrials","Trucking",3407.37,67.13%,14.56,0.00%,0.00%,0.00%,-5.71%,2.08%,3.87%,1589867,20.66,3.30%
+34,"ADEA","Adeia Inc","Technology","Software - Application",2922.42,10.39%,7.62,0.00%,0.00%,0.99%,3.03%,-6.39%,3.80%,848617,26.50,4.08%
+35,"BLSH","Bullish","Technology","Software - Infrastructure",5410.88,7.65%,8.33,-0.17%,-0.03%,0.25%,9.46%,56.25%,3.78%,1126095,36.00,-0.61%
+36,"NRIX","Nurix Therapeutics Inc","Healthcare","Biotechnology",2712.85,-12.05%,17.98,0.00%,2.03%,2.03%,-0.27%,3.65%,3.77%,1232151,26.14,3.24%
+37,"CVI","CVR Energy Inc","Energy","Oil & Gas Refining & Marketing",4473.61,31.68%,5.90,0.00%,0.00%,-0.02%,6.56%,41.86%,3.75%,1031264,44.50,2.11%
+38,"SMCI","Super Micro Computer Inc","Technology","Computer Hardware",26009.26,84.18%,91.22,0.03%,0.04%,0.05%,6.77%,34.75%,3.75%,53633172,39.59,4.54%
+39,"ENTG","Entegris Inc","Technology","Semiconductor Equipment & Materials",21199.47,13.10%,7.98,1.12%,-0.90%,-0.01%,2.83%,-2.74%,3.75%,1884998,138.74,6.15%
+40,"CXW","CoreCivic Inc","Industrials","Security & Protection Services",3432.59,7.56%,15.42,0.00%,0.00%,0.00%,2.66%,7.66%,3.74%,1038363,34.71,3.12%
+41,"STX","Seagate Technology Holdings Plc","Technology","Computer Hardware",192484.66,11.95%,8.16,0.13%,0.09%,-0.00%,2.35%,-0.43%,3.73%,2559714,849.28,6.34%
+42,"VGNT","Versigent Plc","Consumer Cyclical","Auto Parts",3557.35,30.57%,3.48,0.00%,0.00%,0.02%,4.17%,17.28%,3.67%,524180,50.22,3.72%
+43,"INTC","Intel Corp","Technology","Semiconductors",503383.64,93.28%,135.69,0.16%,0.19%,0.14%,7.07%,-4.02%,3.62%,97654325,95.80,4.51%
+44,"FA","First Advantage Corp","Industrials","Specialty Business Services",3672.09,20.07%,10.80,0.00%,0.00%,0.00%,1.62%,-11.36%,3.59%,1499824,21.38,1.71%
+45,"AAOI","Applied Optoelectronics Inc","Technology","Communication Equipment",8960.16,297.35%,10.42,0.00%,0.04%,0.05%,-0.66%,-15.05%,3.55%,6840210,105.53,5.13%
+46,"ICHR","Ichor Holdings Ltd","Technology","Semiconductor Equipment & Materials",2111.67,10.71%,2.07,0.02%,0.00%,0.02%,1.69%,-13.70%,3.54%,692786,56.38,6.74%
+47,"PENG","Penguin Solutions Inc","Technology","Information Technology Services",2652.32,55.76%,6.34,0.04%,0.02%,0.23%,4.54%,-8.00%,3.50%,1132469,51.76,6.44%
+48,"GEO","Geo Group Inc","Industrials","Security & Protection Services",4181.55,28.70%,10.22,0.00%,0.00%,0.00%,-1.58%,5.41%,3.49%,1476011,31.77,2.88%
+49,"ONTO","Onto Innovation Inc","Technology","Semiconductor Equipment & Materials",13152.39,14.13%,2.56,0.00%,0.74%,0.37%,-1.03%,-0.26%,3.47%,722592,268.01,6.16%
+50,"DHT","DHT Holdings Inc","Energy","Oil & Gas Midstream",3364.99,4.02%,13.16,-0.11%,-0.10%,0.47%,6.15%,13.73%,3.42%,5259041,20.87,3.37%
+51,"MOS","Mosaic Company","Basic Materials","Agricultural Inputs",8217.60,7.71%,29.01,0.00%,0.00%,0.47%,9.53%,10.19%,3.40%,8510359,25.85,1.41%
+52,"AMD","Advanced Micro Devices Inc","Technology","Semiconductors",779621.09,2.71%,40.07,-0.01%,0.04%,0.03%,2.58%,-2.39%,3.37%,19678742,477.57,4.69%
+53,"WDC","Western Digital Corp","Technology","Computer Hardware",168538.46,7.54%,20.28,0.13%,0.11%,0.10%,1.74%,3.53%,3.37%,5812273,467.46,5.86%
+54,"EL","Estee Lauder Cos. Inc","Consumer Defensive","Household & Personal Products",37576.40,22.22%,7.61,0.19%,-0.19%,-0.19%,0.45%,21.49%,3.33%,4713160,103.86,2.97%
+55,"OC","Owens Corning","Industrials","Building Products & Equipment",10965.63,27.18%,2.05,0.00%,0.00%,-0.56%,-3.08%,-7.89%,3.33%,1421482,138.72,2.98%
+56,"SFM","Sprouts Farmers Market Inc","Consumer Defensive","Grocery Stores",7590.36,1.89%,10.03,1.68%,1.68%,1.68%,-0.07%,-6.65%,3.33%,1512926,81.40,2.87%
+57,"VKTX","Viking Therapeutics Inc","Healthcare","Biotechnology",4067.69,10.77%,22.29,0.32%,-0.06%,0.32%,8.43%,4.71%,3.32%,1402465,34.87,2.62%
+58,"AXGN","Axogen Inc","Healthcare","Medical Devices",2595.61,-1.15%,3.37,0.00%,0.00%,0.00%,-6.20%,8.86%,3.32%,550070,48.28,2.51%
+59,"ANF","Abercrombie & Fitch Co","Consumer Cyclical","Apparel Retail",6650.09,109.68%,4.04,-0.23%,-0.09%,-0.14%,0.84%,35.47%,3.30%,1457606,149.67,4.27%
+60,"TER","Teradyne Inc","Technology","Semiconductor Equipment & Materials",55818.34,17.97%,6.85,0.19%,0.06%,-0.01%,0.58%,-7.24%,3.22%,2247433,357.03,5.45%
+61,"EWTX","Edgewise Therapeutics Inc","Healthcare","Biotechnology",4677.58,-13.32%,9.68,0.00%,2.00%,2.00%,0.72%,-3.04%,3.21%,826754,43.07,2.67%
+62,"LAUR","Laureate Education Inc","Consumer Defensive","Education & Training Services",5063.67,3.76%,3.30,0.00%,0.00%,0.00%,-5.26%,-1.47%,3.20%,968098,36.76,2.25%
+63,"BBY","Best Buy Co Inc","Consumer Cyclical","Specialty Retail",19025.95,5.77%,14.06,-0.00%,-0.00%,0.01%,9.50%,12.81%,3.19%,3955628,90.27,3.18%
+64,"GTES","Gates Industrial Corp Ltd","Industrials","Specialty Industrial Machinery",6569.27,5.36%,10.08,0.00%,0.00%,0.00%,0.31%,-9.23%,3.14%,1274626,25.95,3.02%
+65,"ATI","ATI Inc","Industrials","Metal Fabrication",28684.29,18.88%,3.45,0.00%,0.02%,0.02%,-0.05%,-5.72%,3.09%,1790319,210.65,2.99%
+66,"HOG","Harley-Davidson Inc","Consumer Cyclical","Recreational Vehicles",2945.25,16.28%,18.71,0.00%,0.00%,0.00%,0.71%,10.12%,2.95%,1300011,28.30,2.28%
+67,"SYRE","Spyre Therapeutics Inc","Healthcare","Biotechnology",7845.70,52.56%,11.76,0.00%,0.00%,0.00%,-1.53%,-13.96%,2.93%,803857,88.98,1.98%
+68,"VOYG","Voyager Technologies Inc","Industrials","Aerospace & Defense",2071.33,20.28%,9.81,-1.73%,-1.15%,-1.35%,-1.02%,-11.41%,2.79%,990832,33.94,3.86%
+69,"ORKA","Oruka Therapeutics Inc","Healthcare","Biotechnology",6125.06,-7.32%,8.30,0.00%,0.00%,0.00%,1.50%,-6.00%,2.72%,600471,92.51,1.67%
+70,"ESI","Element Solutions Inc","Basic Materials","Specialty Chemicals",8775.31,8.70%,6.49,0.00%,0.00%,0.00%,3.09%,-6.30%,2.71%,4272516,36.01,2.94%
+71,"HNGE","Hinge Health Inc","Healthcare","Health Information Services",7453.74,-4.07%,5.63,-0.48%,-0.48%,-0.48%,5.75%,15.35%,2.63%,1179621,92.37,1.77%
+72,"VSXY","Victoria's Secret & Co","Consumer Cyclical","Apparel Retail",6006.39,22.68%,10.17,-0.07%,-0.07%,-0.42%,-13.99%,-19.20%,2.62%,3761193,75.56,2.61%
+73,"BEAM","Beam Therapeutics Inc","Healthcare","Biotechnology",3063.51,-6.65%,24.37,0.00%,1.17%,-0.50%,1.16%,8.84%,2.59%,1183164,29.66,0.68%
+74,"VSH","Vishay Intertechnology Inc","Technology","Semiconductors",4877.47,30.85%,13.58,0.63%,-0.11%,0.63%,4.06%,-2.99%,2.58%,3987213,31.80,4.43%
+75,"W","Wayfair Inc","Consumer Cyclical","Internet Retail",13618.74,5.05%,10.14,0.41%,0.41%,0.50%,-4.17%,-4.46%,2.51%,1720285,99.43,2.53%
+76,"CDNA","Caredx Inc","Healthcare","Diagnostics & Research",2632.24,59.41%,5.79,0.00%,1.76%,1.76%,2.19%,13.55%,2.48%,1307394,50.88,2.05%
+77,"ELF","e.l.f. Beauty Inc","Consumer Defensive","Household & Personal Products",6471.41,145.03%,4.19,-0.26%,-0.01%,-0.28%,5.35%,18.81%,2.43%,1641499,109.67,2.10%
+78,"VRT","Vertiv Holdings Co","Industrials","Electrical Equipment & Parts",108000.74,6.87%,13.06,-0.07%,-0.04%,-0.07%,9.12%,1.95%,2.40%,3322756,280.53,4.35%
+79,"ALSN","Allison Transmission Holdings Inc","Consumer Cyclical","Auto Parts",10837.54,-13.27%,3.13,0.00%,0.00%,0.00%,3.89%,12.90%,2.40%,528618,131.24,2.18%
+80,"PCVX","Vaxcyte Inc","Healthcare","Biotechnology",9100.93,4.16%,14.80,-0.28%,-0.28%,-0.28%,2.21%,3.85%,2.39%,986706,61.16,-0.02%
+81,"CVNA","Carvana Co","Consumer Cyclical","Auto & Truck Dealerships",82083.59,13.73%,65.23,-0.11%,-0.27%,-0.27%,0.74%,9.15%,2.39%,3699645,74.59,1.58%
+82,"LITE","Lumentum Holdings Inc","Technology","Communication Equipment",79048.57,8.80%,7.27,-0.10%,-0.04%,-0.02%,-1.54%,5.15%,2.31%,3563409,881.26,4.00%
+83,"CSTM","Constellium SE","Basic Materials","Aluminum",3678.22,11.01%,6.72,0.00%,0.00%,1.49%,0.59%,-5.14%,2.18%,1496732,27.14,2.49%
+84,"HPQ","HP Inc","Technology","Computer Hardware",29434.46,24.98%,81.14,-0.09%,-0.03%,-0.15%,6.95%,15.83%,2.16%,13304000,32.64,2.22%
+85,"AMLX","Amylyx Pharmaceuticals Inc","Healthcare","Drug Manufacturers - Specialty & Generic",4279.99,-8.06%,13.43,-0.61%,-0.64%,-0.64%,-1.84%,40.97%,2.16%,885518,34.10,0.41%
+86,"ROIV","Roivant Sciences Ltd","Healthcare","Biotechnology",25230.74,-11.72%,30.60,0.00%,-0.08%,-0.11%,0.63%,-0.54%,2.13%,5240613,34.93,1.51%
+87,"DAN","Dana Inc","Consumer Cyclical","Auto Parts",3446.76,-73.04%,4.76,0.00%,0.00%,0.00%,5.57%,17.28%,2.04%,1483748,32.04,1.65%
+88,"DELL","Dell Technologies Inc","Technology","Computer Hardware",339790.04,43.34%,14.01,-0.05%,-0.04%,0.02%,14.88%,19.76%,2.02%,11118764,524.14,1.50%
+89,"IRM","Iron Mountain Inc","Real Estate","REIT - Specialty",34789.55,10.44%,7.10,0.00%,0.00%,0.00%,-0.46%,-4.18%,2.00%,1343242,116.86,1.64%
+90,"MAN","ManpowerGroup","Industrials","Staffing & Employment Services",2882.42,4.09%,4.86,0.00%,-0.02%,-0.02%,-0.66%,12.00%,1.97%,548483,61.98,0.76%
+91,"BAX","Baxter International Inc","Healthcare","Medical Instruments & Supplies",13354.01,52.80%,23.91,0.00%,0.00%,-2.67%,-1.15%,-4.37%,1.97%,3415413,25.83,1.02%
+92,"CGAU","Centerra Gold Inc","Basic Materials","Gold",4483.38,-9.56%,4.40,0.00%,0.00%,0.00%,-2.22%,15.70%,1.96%,932905,22.92,-0.52%
+93,"FRPT","Freshpet Inc","Consumer Defensive","Packaged Foods",3375.60,75.01%,7.48,0.00%,0.00%,0.00%,-0.82%,5.26%,1.93%,763398,70.24,0.80%
+94,"GPN","Global Payments Inc","Technology","Software - Infrastructure",24487.78,0.18%,14.69,0.00%,0.00%,0.00%,0.78%,5.53%,1.93%,2970797,92.54,0.84%
+95,"OUST","Ouster Inc","Technology","Electronic Components",2627.05,47.15%,6.24,0.00%,0.03%,-0.06%,5.23%,-20.07%,1.87%,1861529,36.43,1.67%
+96,"CMC","Commercial Metals Co","Industrials","Metal Fabrication",7774.68,1.84%,4.90,0.00%,-0.72%,-0.72%,3.92%,-4.63%,1.84%,731075,70.28,2.23%
+97,"QRVO","Qorvo Inc","Technology","Semiconductors",9072.71,47.14%,5.03,0.00%,0.00%,0.00%,8.56%,7.88%,1.82%,718294,102.84,2.45%
+98,"GTLB","Gitlab Inc","Technology","Software - Infrastructure",8302.43,33.48%,15.43,-0.05%,-0.26%,-0.20%,11.05%,39.66%,1.82%,5599235,49.83,1.05%
+99,"URBN","Urban Outfitters Inc","Consumer Cyclical","Apparel Retail",6935.11,-0.25%,6.85,0.00%,0.00%,0.00%,-0.15%,4.25%,1.79%,681381,80.97,0.48%
+100,"TOST","Toast Inc","Technology","Software - Infrastructure",19724.95,11.73%,31.35,0.00%,0.00%,-0.03%,-3.41%,-2.22%,1.68%,5808902,33.95,0.06%
+101,"RBRK","Rubrik Inc","Technology","Software - Infrastructure",19418.21,411.51%,14.97,0.36%,0.37%,0.37%,0.67%,10.72%,1.66%,2116108,93.67,1.66%
+102,"TEX","Terex Corp","Industrials","Farm & Heavy Construction Machinery",7227.19,11.20%,5.99,0.00%,0.00%,0.00%,-0.78%,-3.24%,1.66%,642578,63.23,0.75%
+103,"NVT","nVent Electric plc","Industrials","Electrical Equipment & Parts",25254.69,25.04%,3.04,-1.10%,-1.86%,-1.52%,5.08%,-4.45%,1.65%,1611277,156.03,2.59%
+104,"NTAP","Netapp Inc","Technology","Software - Infrastructure",36453.40,21.55%,10.70,0.00%,-0.36%,-0.36%,-0.76%,-3.08%,1.64%,2247795,185.59,0.11%
+105,"P","Everpure Inc","Technology","Computer Hardware",33077.62,20.67%,8.81,-0.31%,-0.22%,-0.49%,6.54%,14.04%,1.54%,2151131,99.51,1.39%
+106,"KLIC","Kulicke & Soffa Industries Inc","Technology","Semiconductor Equipment & Materials",4270.84,13.61%,2.03,0.00%,0.00%,0.00%,0.72%,-9.98%,1.54%,641711,81.61,3.55%
+107,"THC","Tenet Healthcare Corp","Healthcare","Medical Care Facilities",21341.56,43.63%,2.52,0.00%,0.00%,0.00%,-0.66%,3.28%,1.54%,557839,265.05,0.59%
+108,"MDT","Medtronic Plc","Healthcare","Medical Devices",120456.41,4.44%,14.35,0.02%,0.02%,0.02%,3.22%,9.60%,1.52%,9013902,94.17,1.15%
+109,"AEM","Agnico Eagle Mines Ltd","Basic Materials","Gold",104305.84,4.81%,5.89,-0.23%,0.07%,0.00%,-0.74%,21.92%,1.50%,1733131,204.73,-1.16%
+110,"VIAV","Viavi Solutions Inc","Technology","Communication Equipment",8601.70,14.13%,8.85,1.14%,1.05%,1.43%,-4.60%,-14.12%,1.48%,3315544,34.86,3.66%
+111,"OR","OR Royalties Inc","Basic Materials","Gold",6953.09,2.14%,2.69,0.00%,0.00%,0.00%,-0.24%,16.05%,1.47%,700026,37.31,-0.98%
+112,"DOCN","DigitalOcean Holdings Inc","Technology","Software - Infrastructure",13224.17,72.94%,8.26,0.01%,0.01%,0.45%,1.13%,-7.98%,1.43%,1505904,112.47,2.81%
+113,"UMC","United Micro Electronics ADR","Technology","Semiconductors",52216.20,165.11%,29.70,-0.96%,0.00%,-0.92%,4.95%,8.18%,1.42%,10014427,20.77,4.58%
+114,"FCX","Freeport-McMoRan Inc","Basic Materials","Copper",104441.55,20.25%,25.98,0.03%,-0.01%,-0.01%,-4.87%,6.67%,1.41%,7269347,72.73,0.23%
+115,"ARM","Arm Holdings Plc ADR","Technology","Semiconductors",269232.12,11.94%,18.26,0.05%,0.17%,0.13%,5.45%,-12.07%,1.41%,4132412,252.09,3.92%
+116,"EAT","Brinker International Inc","Consumer Cyclical","Restaurants",9615.14,-0.59%,6.00,-1.21%,0.41%,0.41%,0.01%,1.30%,1.39%,815601,230.22,0.59%
+117,"MTSI","MACOM Technology Solutions Holdings Inc","Technology","Semiconductors",20539.96,3.52%,2.43,-0.32%,-0.32%,-0.25%,1.39%,-10.84%,1.39%,1011826,268.95,3.46%
+118,"LRCX","Lam Research Corp","Technology","Semiconductor Equipment & Materials",384968.91,7.90%,28.42,0.33%,0.00%,-0.08%,1.90%,0.61%,1.38%,8359371,307.65,5.12%
+119,"SCCO","Southern Copper Corp","Basic Materials","Copper",167821.75,1.33%,11.24,0.00%,0.00%,0.00%,-5.26%,4.20%,1.36%,840398,198.76,-0.39%
+120,"NESR","National Energy Services Reunited Corp","Energy","Oil & Gas Equipment & Services",3504.60,24.75%,4.91,0.03%,-0.55%,-0.23%,0.90%,20.45%,1.34%,1618432,34.75,0.72%
+121,"OKTA","Okta Inc","Technology","Software - Infrastructure",29824.42,8.77%,6.45,-0.09%,-0.08%,0.03%,2.63%,18.88%,1.32%,2341649,170.60,0.11%
+122,"A","Agilent Technologies Inc","Healthcare","Diagnostics & Research",42531.78,8.85%,5.17,0.00%,0.00%,0.00%,-1.94%,6.74%,1.27%,1825452,150.86,0.59%
+123,"AG","First Majestic Silver Corp","Basic Materials","Silver",10336.32,-14.81%,20.84,0.00%,-0.12%,-0.14%,1.01%,21.35%,1.26%,7559028,20.97,-1.96%
+124,"YPF","YPF ADR","Energy","Oil & Gas Integrated",20693.34,27.28%,4.60,0.97%,0.97%,0.98%,4.82%,6.07%,1.25%,714673,52.62,0.40%
+125,"ELAN","Elanco Animal Health Inc","Healthcare","Drug Manufacturers - Specialty & Generic",12240.74,26.30%,29.72,0.00%,-1.22%,-1.22%,1.62%,1.24%,1.24%,3718144,24.50,0.33%
+126,"SW","Smurfit WestRock plc","Consumer Cyclical","Packaging & Containers",23964.01,-13.54%,21.01,0.00%,0.00%,0.00%,-5.09%,-2.34%,1.24%,2737021,45.83,1.26%
+127,"MBGL","Mobility Global Inc","Technology","Software - Infrastructure",6067.42,-1.11%,5.84,-0.30%,-0.22%,-0.57%,1.68%,-0.72%,1.23%,3369597,20.58,0.59%
+128,"AUGO","Aura Minerals Inc","Basic Materials","Gold",7114.54,-8.15%,5.44,0.78%,0.78%,0.78%,0.45%,29.38%,1.23%,849466,84.91,-3.63%
+129,"AVT","Avnet Inc","Technology","Electronics & Computer Distribution",7555.64,26.95%,7.98,0.00%,0.56%,0.56%,3.87%,-4.90%,1.15%,1119973,92.06,1.37%
+130,"ADM","Archer Daniels Midland Co","Consumer Defensive","Farm Products",40778.60,23.42%,12.25,-0.09%,0.76%,0.76%,3.77%,9.16%,1.12%,2363066,84.61,0.27%
+131,"LQDA","Liquidia Corp","Healthcare","Drug Manufacturers - Specialty & Generic",6145.68,-2.34%,11.86,0.00%,0.00%,-0.41%,1.43%,-23.22%,1.10%,902384,68.66,0.04%
+132,"ARE","Alexandria Real Estate Equities Inc","Real Estate","REIT - Office",9174.13,-557.93%,6.81,0.00%,0.00%,0.00%,2.09%,8.60%,1.09%,909381,52.65,-0.08%
+133,"PANW","Palo Alto Networks Inc","Technology","Software - Infrastructure",271606.91,4.35%,22.41,0.02%,0.08%,-0.01%,-10.32%,-7.30%,1.09%,5639384,333.26,0.40%
+134,"IAG","Iamgold Corp","Basic Materials","Gold",11694.08,-3.96%,5.96,0.00%,-0.05%,-0.05%,-0.53%,27.76%,1.09%,2152077,20.48,-2.20%
+135,"HBM","Hudbay Minerals Inc","Basic Materials","Copper",12182.21,8.11%,8.26,0.00%,0.70%,0.70%,-6.35%,4.26%,1.07%,2074800,27.43,-0.94%
+136,"DG","Dollar General Corp","Consumer Defensive","Discount Stores",29388.36,23.10%,6.51,-0.14%,-0.14%,-0.14%,8.40%,4.52%,1.06%,1710525,133.21,1.49%
+137,"CHYM","Chime Financial Inc","Technology","Software - Application",12781.03,5284.62%,18.95,0.00%,0.00%,0.00%,1.69%,8.03%,1.05%,2890518,33.76,0.33%
+138,"FTNT","Fortinet Inc","Technology","Software - Infrastructure",114672.10,20.58%,14.20,-0.17%,-0.19%,-0.19%,-5.85%,-2.39%,1.03%,3060504,156.29,-0.04%
+139,"KGS","Kodiak Gas Services Inc","Energy","Oil & Gas Equipment & Services",6328.10,-21.36%,8.68,0.00%,0.00%,1.94%,8.53%,10.08%,1.02%,1211581,62.59,1.44%
+140,"GLBE","Global E Online Ltd","Consumer Cyclical","Internet Retail",6444.91,24.08%,3.79,0.00%,0.00%,0.00%,-3.95%,-6.46%,1.00%,899509,38.37,0.21%
+141,"RSI","Rush Street Interactive Inc","Consumer Cyclical","Gambling",3085.01,0.13%,7.34,0.00%,0.00%,0.00%,1.02%,6.38%,0.98%,1121312,26.68,-0.34%
+142,"FLEX","Flex Ltd","Technology","Electronic Components",40453.32,11.21%,9.38,0.43%,0.00%,0.22%,-0.90%,-10.71%,0.98%,4494235,109.51,1.50%
+143,"INGM","Ingram Micro Holding Corp","Technology","Information Technology Services",6652.29,10.65%,5.32,0.00%,0.00%,0.00%,0.49%,1.02%,0.98%,629623,28.84,1.02%
+144,"TENB","Tenable Holdings Inc","Technology","Software - Infrastructure",3772.29,8.28%,10.50,0.00%,-0.20%,-0.20%,-9.08%,-5.31%,0.97%,1577444,34.25,-0.70%
+145,"DNTH","Dianthus Therapeutics Inc","Healthcare","Biotechnology",6046.51,-6.35%,8.42,0.01%,0.01%,0.01%,2.14%,-1.66%,0.97%,638559,108.10,0.23%
+146,"CORT","Corcept Therapeutics Inc","Healthcare","Biotechnology",12065.94,1381.48%,9.70,1.55%,2.54%,2.54%,-1.98%,3.40%,0.93%,604556,111.62,-1.05%
+147,"ADPT","Adaptive Biotechnologies Corp","Healthcare","Diagnostics & Research",3874.99,-87.13%,13.32,0.00%,0.00%,-1.87%,-3.61%,2.88%,0.91%,1404316,24.28,-1.18%
+148,"SLB","SLB Ltd","Energy","Oil & Gas Equipment & Services",85353.08,7.57%,55.55,-1.28%,-1.28%,0.00%,0.31%,11.58%,0.89%,7610559,57.51,0.17%
+149,"GH","Guardant Health Inc","Healthcare","Diagnostics & Research",21660.60,-18.14%,11.19,-0.25%,0.15%,0.15%,-0.06%,2.43%,0.88%,2402454,161.41,0.23%
+150,"CDE","Coeur Mining Inc","Basic Materials","Gold",21833.34,-53.47%,46.47,-0.12%,-0.12%,-0.12%,0.52%,35.72%,0.88%,32938194,21.24,-1.89%
+151,"EXEL","Exelixis Inc","Healthcare","Biotechnology",14621.60,6.63%,28.03,0.00%,-0.02%,-0.02%,8.37%,13.05%,0.87%,1580988,59.01,-0.20%
+152,"MAC","Macerich Co","Real Estate","REIT - Retail",6852.59,-89.75%,27.71,-0.32%,-0.56%,-0.68%,-2.15%,-1.06%,0.87%,2109036,23.24,0.78%
+153,"CAI","Caris Life Sciences Inc","Healthcare","Biotechnology",7084.66,-100.00%,14.95,0.18%,0.85%,0.82%,-2.18%,25.35%,0.76%,4711320,25.07,-0.99%
+154,"ASX","ASE Technology Holding CoLtd ADR","Technology","Semiconductors",82477.36,18.64%,8.74,-0.03%,-0.03%,-0.03%,-0.71%,0.70%,0.75%,6864844,37.51,0.21%
+155,"SANM","Sanmina Corp","Technology","Electronic Components",10637.47,19.30%,1.54,0.23%,0.23%,0.23%,2.30%,-3.50%,0.75%,330925,198.47,1.42%
+156,"CAKE","Cheesecake Factory Inc","Consumer Cyclical","Restaurants",5353.25,22.17%,9.25,0.00%,0.00%,0.00%,-4.01%,0.25%,0.73%,1184393,107.58,0.37%
+157,"MPC","Marathon Petroleum Corp","Energy","Oil & Gas Refining & Marketing",109212.74,24.26%,6.52,1.57%,1.31%,0.80%,5.44%,29.96%,0.73%,1875286,388.90,0.31%
+158,"EGO","Eldorado Gold Corp","Basic Materials","Gold",11241.99,-3.98%,14.03,-0.44%,-0.44%,-0.44%,-5.41%,19.73%,0.70%,1578708,43.02,-1.76%
+159,"CBRE","CBRE Group Inc","Real Estate","Real Estate Services",42813.71,5.98%,4.31,0.00%,0.24%,0.24%,-1.97%,0.27%,0.69%,1069381,147.85,-0.60%
+160,"ILMN","Illumina Inc","Healthcare","Diagnostics & Research",32951.22,6.83%,9.46,-0.88%,-0.57%,-0.82%,1.22%,12.65%,0.68%,1748198,218.22,-1.55%
+161,"NTR","Nutrien Ltd","Basic Materials","Agricultural Inputs",37923.88,-3.30%,4.54,0.00%,-0.40%,-0.32%,8.11%,19.04%,0.62%,2774710,79.47,-1.56%
+162,"VLO","Valero Energy Corp","Energy","Oil & Gas Refining & Marketing",106740.47,24.06%,9.65,0.10%,0.01%,0.01%,5.21%,22.35%,0.60%,2850158,370.72,0.01%
+163,"PRMB","Primo Brands Corp","Consumer Defensive","Beverages - Non-Alcoholic",7962.76,14.91%,26.57,0.00%,0.00%,0.00%,-4.35%,-7.99%,0.59%,5805157,22.00,0.41%
+164,"DAR","Darling Ingredients Inc","Consumer Defensive","Packaged Foods",10287.17,72.33%,6.18,0.00%,1.13%,1.13%,1.35%,7.73%,0.57%,1906785,65.19,-0.85%
+165,"FRO","Frontline Plc","Energy","Oil & Gas Midstream",10267.37,8.08%,9.34,0.00%,0.00%,0.00%,4.37%,16.58%,0.57%,3088346,46.12,1.54%
+166,"ARWR","Arrowhead Pharmaceuticals Inc","Healthcare","Biotechnology",12195.91,-6.52%,9.21,1.74%,1.74%,1.74%,1.68%,0.59%,0.55%,757847,86.34,-0.17%
+167,"ERO","Ero Copper Corp","Basic Materials","Copper",3640.07,12.70%,5.76,-0.14%,-0.14%,-0.29%,-10.12%,12.22%,0.52%,677640,34.90,-1.19%
+168,"DK","Delek US Holdings Inc","Energy","Oil & Gas Refining & Marketing",4400.14,105.57%,5.98,0.00%,0.00%,0.00%,-0.54%,22.44%,0.50%,1428028,71.86,-0.75%
+169,"ANET","Arista Networks Inc","Technology","Computer Hardware",244400.10,15.14%,12.87,0.18%,0.06%,0.33%,-0.82%,0.76%,0.50%,4208589,193.78,1.22%
+170,"U","Unity Software Inc","Technology","Software - Application",18334.10,53.36%,31.06,0.10%,-0.02%,-0.02%,-3.81%,2.08%,0.48%,5201192,41.66,-1.00%
+171,"SRRK","Scholar Rock Holding Corp","Healthcare","Biotechnology",6738.38,0.06%,18.22,0.00%,0.00%,0.00%,-4.27%,5.11%,0.45%,658048,55.33,-1.09%
+172,"SQM","Sociedad Quimica Y Minera de Chile SA ADR","Basic Materials","Specialty Chemicals",10915.73,14.66%,2.45,0.00%,0.00%,0.00%,-2.80%,5.49%,0.43%,1090761,76.43,-4.20%
+173,"DLTR","Dollar Tree Inc","Consumer Defensive","Discount Stores",24658.37,135.42%,7.77,-0.04%,-0.04%,-0.04%,2.46%,1.34%,0.40%,1209898,131.42,0.29%
+174,"DFTX","Definium Therapeutics Inc","Healthcare","Biotechnology",5118.04,-166.17%,8.97,0.51%,0.53%,0.53%,-7.05%,-17.45%,0.40%,1128929,38.09,0.24%
+175,"SHOP","Shopify Inc","Technology","Software - Application",186678.59,4.29%,15.39,-0.08%,-0.00%,-0.15%,-5.11%,-1.59%,0.37%,6905871,145.09,-0.54%
+176,"JBL","Jabil Inc","Technology","Electronic Components",32543.73,1.98%,3.09,0.00%,-0.01%,-0.01%,3.03%,-9.89%,0.37%,714196,310.57,1.52%
+177,"DDOG","Datadog Inc","Technology","Software - Application",76457.85,11.47%,9.25,0.05%,0.05%,-0.05%,-10.15%,-7.14%,0.35%,2503415,212.93,-0.85%
+178,"WFRD","Weatherford International plc","Energy","Oil & Gas Equipment & Services",6969.36,-39.02%,3.98,0.00%,0.00%,0.00%,2.23%,7.78%,0.31%,520873,95.88,-0.57%
+179,"XYZ","Block Inc","Technology","Software - Infrastructure",49721.96,17.09%,13.66,-0.04%,0.00%,0.00%,-0.97%,4.73%,0.30%,2457322,82.76,-0.73%
+180,"ARIS","Aris Mining Corp","Basic Materials","Gold",4138.32,9.94%,5.63,0.00%,0.05%,0.05%,-1.09%,27.54%,0.30%,1024203,20.05,-2.43%
+181,"IMNM","Immunome Inc","Healthcare","Biotechnology",3039.34,-26.51%,17.39,0.00%,0.00%,0.00%,-2.94%,3.64%,0.30%,562401,26.76,-1.47%
+182,"HL","Hecla Mining Co","Basic Materials","Other Precious Metals & Mining",13892.17,1.01%,37.91,-0.19%,0.10%,0.19%,1.47%,30.39%,0.29%,17937164,20.68,-2.50%
+183,"CRWD","Crowdstrike Holdings Inc","Technology","Software - Infrastructure",218200.52,6.31%,24.16,-0.00%,-0.02%,-0.14%,-2.43%,2.75%,0.28%,8428571,213.10,-0.87%
+184,"DINO","HF Sinclair Corp","Energy","Oil & Gas Refining & Marketing",18740.20,18.26%,8.42,0.02%,0.50%,0.00%,5.72%,27.12%,0.26%,1979780,105.41,-0.70%
+185,"ABT","Abbott Laboratories","Healthcare","Medical Devices",187452.43,2.56%,20.38,-0.31%,-0.20%,-0.51%,-3.68%,0.34%,0.21%,7029460,108.33,-0.42%
+186,"RGEN","Repligen Corp","Healthcare","Medical Instruments & Supplies",9458.61,20.81%,6.09,0.00%,0.00%,0.00%,-4.92%,5.12%,0.20%,806066,167.60,-1.19%
+187,"OSCR","Oscar Health Inc","Healthcare","Healthcare Plans",9955.35,172.95%,16.44,-0.16%,-0.16%,0.00%,5.84%,21.51%,0.19%,3689946,32.25,0.03%
+188,"TNGX","Tango Therapeutics Inc","Healthcare","Biotechnology",3797.11,-16.65%,43.19,0.00%,0.00%,0.00%,-3.51%,-22.34%,0.18%,1457380,22.52,-1.05%
+189,"TXG","10x Genomics Inc","Healthcare","Health Information Services",8162.74,42.41%,15.93,0.48%,0.48%,0.48%,1.80%,37.39%,0.18%,1469824,62.65,-0.90%
+190,"RVTY","Revvity Inc","Healthcare","Diagnostics & Research",14530.78,16.16%,6.42,0.00%,-0.77%,-0.77%,1.10%,13.99%,0.15%,1175324,130.22,-0.31%
+191,"PAY","Paymentus Holdings Inc","Technology","Software - Infrastructure",4557.76,32.56%,3.23,0.00%,0.00%,0.00%,0.56%,-9.80%,0.14%,895628,36.19,-1.58%
+192,"RCUS","Arcus Biosciences Inc","Healthcare","Biotechnology",3776.71,19.21%,13.85,0.00%,0.00%,0.00%,1.54%,4.69%,0.07%,736996,29.66,-1.56%
+193,"WPM","Wheaton Precious Metals Corp","Basic Materials","Gold",70385.71,4.52%,5.24,0.94%,1.07%,0.89%,1.08%,23.69%,0.00%,2128074,154.98,-1.05%
+194,"LSCC","Lattice Semiconductor Corp","Technology","Semiconductors",16461.31,19.13%,5.19,-0.94%,0.00%,0.00%,1.31%,-9.95%,-0.02%,948320,115.90,2.00%
+195,"KGC","Kinross Gold Corp","Basic Materials","Gold",36619.23,6.88%,16.40,-0.23%,-0.23%,-0.13%,-1.28%,20.49%,-0.03%,5278046,30.87,-2.28%
+196,"TEAM","Atlassian Corp","Technology","Software - Application",47990.06,24.46%,11.75,0.36%,0.36%,0.00%,-0.44%,72.08%,-0.07%,2473769,189.58,-2.62%
+197,"APH","Amphenol Corp","Technology","Electronic Components",204132.75,14.74%,29.55,0.06%,0.06%,0.06%,4.96%,-2.96%,-0.07%,11224540,82.78,0.87%
+198,"NVST","Envista Holdings Corp","Healthcare","Medical Instruments & Supplies",4381.65,22.28%,9.63,0.95%,0.95%,0.95%,0.55%,-0.37%,-0.07%,1682182,27.28,-1.12%
+199,"TEVA","Teva- Pharmaceutical Industries Ltd ADR","Healthcare","Drug Manufacturers - Specialty & Generic",42370.31,-61.39%,35.67,0.00%,1.61%,1.53%,-0.22%,4.45%,-0.11%,7402524,36.36,-0.71%
+200,"DOCU","DocuSign Inc","Technology","Software - Application",13062.52,6.88%,15.42,0.29%,0.01%,0.57%,6.89%,20.23%,-0.16%,7999781,68.41,3.70%
+201,"DNLI","Denali Therapeutics Inc","Healthcare","Biotechnology",3561.40,-32.55%,17.96,0.00%,0.00%,0.00%,-7.17%,-9.91%,-0.18%,799633,22.28,-2.28%
+202,"RHI","Robert Half Inc","Industrials","Staffing & Employment Services",4358.57,0.93%,22.01,0.00%,0.00%,0.00%,-6.03%,4.67%,-0.19%,1296135,42.58,-0.98%
+203,"PBF","PBF Energy Inc","Energy","Oil & Gas Refining & Marketing",8812.03,49.93%,11.06,0.00%,-0.60%,-0.60%,4.29%,21.39%,-0.21%,1872747,74.34,-1.31%
+204,"TEM","Tempus AI Inc","Healthcare","Health Information Services",11659.70,71.99%,29.87,0.22%,0.22%,0.25%,0.91%,40.11%,-0.22%,4574980,64.62,-0.06%
+205,"B","Barrick Mining Corp","Basic Materials","Gold",73653.13,-0.57%,22.08,-0.11%,-0.18%,-0.11%,-1.97%,8.17%,-0.22%,6171047,44.75,-2.21%
+206,"WTTR","Select Water Solutions Inc","Energy","Oil & Gas Equipment & Services",2586.59,78.15%,4.81,0.55%,0.55%,0.20%,4.05%,-3.09%,-0.30%,1098546,20.06,-0.55%
+207,"SRPT","Sarepta Therapeutics Inc","Healthcare","Biotechnology",2376.61,-123.01%,27.05,0.00%,0.00%,0.00%,7.86%,34.09%,-0.35%,2955533,22.50,-2.13%
+208,"TWST","Twist Bioscience Corp","Healthcare","Diagnostics & Research",8210.62,-10.61%,14.11,0.00%,0.57%,1.13%,-11.78%,14.34%,-0.38%,901850,124.72,-3.10%
+209,"BVN","Compania de Minas Buenaventura SA ADR","Basic Materials","Other Precious Metals & Mining",8601.11,-12.26%,4.06,0.00%,0.00%,0.00%,-3.47%,4.12%,-0.38%,397970,33.90,-2.50%
+210,"ACHC","Acadia Healthcare Company Inc","Healthcare","Medical Care Facilities",2618.91,9.73%,20.95,0.00%,0.00%,0.00%,-1.47%,-8.43%,-0.39%,835044,28.13,-0.88%
+211,"CDW","CDW Corp","Technology","Information Technology Services",19050.16,3.97%,8.27,0.00%,0.00%,0.00%,3.18%,7.33%,-0.41%,1291192,152.38,-1.00%
+212,"SPCX","Space Exploration Technologies Corp","Industrials","Aerospace & Defense",2007839.66,60.82%,184.39,0.05%,0.06%,0.02%,4.56%,28.74%,-0.43%,49122393,147.95,-1.20%
+213,"CYTK","Cytokinetics Inc","Healthcare","Biotechnology",10109.78,7.87%,16.32,0.73%,0.73%,0.73%,0.87%,-10.63%,-0.44%,1140923,72.72,-1.66%
+214,"SN","SharkNinja Inc","Consumer Cyclical","Furnishings, Fixtures & Appliances",24424.31,13.45%,6.48,0.95%,1.20%,1.20%,-9.33%,-3.64%,-0.47%,1339839,173.38,-1.04%
+215,"CLMT","Calumet Inc","Basic Materials","Specialty Chemicals",4670.03,-1717.21%,3.56,0.91%,0.56%,0.56%,11.27%,26.86%,-0.47%,573774,53.13,-0.69%
+216,"CRSP","CRISPR Therapeutics AG","Healthcare","Biotechnology",5394.48,21.31%,18.74,0.00%,-0.70%,-0.64%,-3.34%,8.04%,-0.48%,904292,55.79,-1.24%
+217,"IMVT","Immunovant Inc","Healthcare","Biotechnology",8107.19,-19.26%,16.98,0.00%,0.00%,0.00%,-4.73%,-1.23%,-0.48%,765742,39.25,0.33%
+218,"GFI","Gold Fields Ltd ADR","Basic Materials","Gold",42423.95,-10.83%,6.23,0.00%,0.06%,0.06%,3.13%,26.94%,-0.48%,4362382,47.40,-1.58%
+219,"NAVN","Navan Inc","Technology","Software - Application",7065.32,1438.46%,9.52,0.00%,0.00%,0.00%,-2.53%,-0.29%,-0.50%,1486163,27.78,0.25%
+220,"HP","Helmerich & Payne Inc","Energy","Oil & Gas Drilling",4433.29,-216.03%,8.25,0.00%,0.00%,0.00%,4.25%,19.67%,-0.52%,863931,44.36,-1.47%
+221,"TGTX","TG Therapeutics Inc","Healthcare","Biotechnology",8569.57,-83.64%,30.11,0.71%,0.71%,-0.00%,3.81%,12.99%,-0.56%,992966,55.99,-1.28%
+222,"NCNO","Ncino Inc","Technology","Software - Application",2444.62,18.13%,18.28,0.00%,0.00%,2.32%,0.57%,21.75%,-0.60%,1936710,23.12,-2.16%
+223,"ELVN","Enliven Therapeutics Inc","Healthcare","Biotechnology",4346.42,-26.55%,8.26,0.00%,0.00%,0.00%,2.52%,-1.58%,-0.62%,1113062,59.32,-0.55%
+224,"VRNS","Varonis Systems Inc","Technology","Software - Infrastructure",5293.92,406.33%,8.24,0.00%,0.00%,0.00%,4.94%,8.60%,-0.63%,2038450,46.09,-0.90%
+225,"PBR","Petroleo Brasileiro SA Petrobras ADR","Energy","Oil & Gas Integrated",74868.74,14.20%,36.85,0.00%,0.00%,0.00%,8.58%,8.64%,-0.64%,18781000,20.12,-1.90%
+226,"FIVN","Five9 Inc","Technology","Software - Infrastructure",2486.05,2.74%,11.33,0.00%,0.00%,0.03%,-2.29%,17.27%,-0.66%,1900133,33.27,-2.43%
+227,"QCOM","Qualcomm Inc","Technology","Semiconductors",177216.47,-1.02%,33.27,0.12%,0.06%,0.07%,2.77%,5.21%,-0.73%,8537131,168.74,0.10%
+228,"SON","Sonoco Products Co","Consumer Cyclical","Packaging & Containers",5136.56,2.23%,10.73,0.00%,0.00%,0.00%,-8.00%,-8.97%,-0.76%,1400202,51.95,-1.40%
+229,"GEV","GE Vernova Inc","Industrials","Specialty Industrial Machinery",250872.93,-22.13%,7.94,0.01%,0.06%,-0.01%,3.29%,-5.83%,-0.85%,1238019,941.95,0.01%
+230,"QURE","uniQure NV","Healthcare","Biotechnology",3086.81,-48.36%,10.77,-0.56%,-0.56%,-0.56%,-8.66%,-1.90%,-0.91%,991475,44.50,-0.80%
+231,"ZLAB","Zai Lab Limited ADR","Healthcare","Biotechnology",2959.01,26.41%,7.47,0.00%,0.00%,0.00%,0.58%,25.62%,-0.94%,812771,26.23,-2.85%
+232,"GDDY","Godaddy Inc","Technology","Software - Infrastructure",12830.68,8.01%,5.41,0.00%,-0.31%,-0.31%,3.69%,12.13%,-0.96%,1622494,101.31,-2.24%
+233,"MTCH","Match Group Inc","Communication Services","Internet Content & Information",27500.33,7.16%,11.31,0.00%,0.00%,0.00%,0.67%,14.34%,-0.97%,1883848,41.86,-1.34%
+234,"OMC","Omnicom Group Inc","Communication Services","Advertising Agencies",22666.47,-0.66%,25.39,0.00%,0.00%,0.00%,-6.41%,0.13%,-1.07%,2722368,82.62,-2.49%
+235,"BG","Bunge Global SA","Consumer Defensive","Farm Products",22806.46,1.71%,6.25,0.00%,0.00%,0.00%,2.80%,8.91%,-1.11%,1175034,118.71,-1.17%
+236,"NET","Cloudflare Inc","Technology","Software - Infrastructure",99317.76,8.05%,7.43,-0.01%,0.22%,0.00%,-6.98%,-1.94%,-1.18%,1808939,278.92,-1.96%
+237,"BOX","Box Inc","Technology","Software - Infrastructure",4828.09,0.48%,15.59,0.00%,0.00%,0.00%,0.60%,10.49%,-1.21%,1659007,35.19,-2.14%
+238,"PTRN","Pattern Group Inc","Technology","Software - Application",3583.46,26.48%,6.88,0.00%,0.00%,0.00%,-4.58%,-8.56%,-1.22%,903436,20.20,-1.89%
+239,"MGNI","Magnite Inc","Communication Services","Advertising Agencies",3462.26,7.04%,11.18,0.00%,0.00%,-0.78%,1.86%,-0.74%,-1.23%,1944244,24.14,-1.99%
+240,"DYN","Dyne Therapeutics Inc","Healthcare","Biotechnology",4534.20,-44.23%,21.46,0.00%,0.00%,0.00%,-3.15%,-6.18%,-1.26%,1588059,24.28,-2.69%
+241,"FSLY","Fastly Inc","Technology","Software - Application",3279.99,127.62%,21.44,0.00%,0.10%,0.00%,-10.63%,-9.22%,-1.29%,2422124,20.59,-2.51%
+242,"SSRM","SSR Mining Inc","Basic Materials","Gold",7575.23,-1.68%,9.33,1.59%,1.59%,0.88%,-0.38%,29.13%,-1.35%,2534211,37.15,-4.47%
+243,"SE","Sea Ltd ADR","Consumer Cyclical","Internet Retail",63550.54,5.02%,11.12,0.62%,0.67%,0.60%,-6.09%,0.98%,-1.36%,3575486,112.09,-0.89%
+244,"EXPE","Expedia Group Inc","Consumer Cyclical","Travel Services",35770.43,10.40%,5.57,0.00%,-0.28%,-0.07%,-9.53%,-2.78%,-1.38%,1845844,298.04,-1.68%
+245,"BRKR","Bruker Corp","Healthcare","Medical Devices",8913.02,27.34%,11.79,0.00%,0.00%,0.00%,2.49%,14.10%,-1.38%,1334184,58.50,-1.53%
+246,"NOW","ServiceNow Inc","Technology","Software - Application",146062.83,4.40%,29.20,0.03%,0.10%,0.08%,-2.38%,20.37%,-1.43%,12505105,141.26,-2.97%
+247,"LYB","LyondellBasell Industries NV","Basic Materials","Specialty Chemicals",20519.37,25.14%,12.63,1.07%,1.07%,0.00%,-0.24%,3.39%,-1.46%,2589886,63.52,-1.91%
+248,"CF","CF Industries Holdings Inc","Basic Materials","Agricultural Inputs",20180.94,-15.67%,9.23,0.00%,-0.60%,-0.68%,6.01%,14.24%,-1.54%,2663517,133.35,-3.24%
+249,"STLD","Steel Dynamics Inc","Basic Materials","Steel",34694.00,1.78%,3.90,-1.37%,-1.37%,0.00%,3.15%,-7.43%,-1.55%,1177839,242.06,-1.61%
+250,"CRM","Salesforce Inc","Technology","Software - Application",213346.30,80.49%,26.50,-0.03%,0.03%,-0.11%,1.26%,38.80%,-1.57%,10498299,259.23,-1.97%
+251,"VEEV","Veeva Systems Inc","Healthcare","Health Information Services",44539.50,5.49%,5.84,-0.05%,-0.11%,-0.07%,-0.58%,26.30%,-1.60%,1152410,275.09,-3.27%
+252,"HTFL","Heartflow Inc","Healthcare","Health Information Services",4252.90,47.64%,6.78,0.00%,-0.09%,-0.09%,2.37%,79.88%,-1.67%,1407076,48.91,-1.61%
+253,"JAN","Janus Living Inc","Real Estate","REIT - Residential",9479.96,85.19%,7.41,0.00%,0.00%,0.00%,0.95%,3.70%,-1.72%,873599,30.79,-1.60%
+254,"MUR","Murphy Oil Corp","Energy","Oil & Gas E&P",5224.81,-1.11%,10.86,0.00%,0.00%,0.00%,2.27%,10.29%,-1.75%,1514313,36.44,-2.36%
+255,"BRZE","Braze Inc","Technology","Software - Application",3599.71,-3.94%,13.80,-0.04%,0.34%,0.37%,-7.44%,24.31%,-1.76%,2068790,31.96,-3.88%
+256,"DUOL","Duolingo Inc","Technology","Software - Application",7226.57,9.31%,7.09,-0.12%,-0.30%,-0.53%,5.09%,26.01%,-1.91%,1056458,154.46,-2.75%
+257,"FLR","Fluor Corp","Industrials","Engineering & Construction",7510.90,29.81%,9.51,0.00%,-0.09%,-0.09%,5.43%,15.20%,-1.97%,2251959,56.16,-2.33%
+258,"BILL","BILL Holdings Inc","Technology","Software - Application",4192.21,18.66%,10.55,0.00%,0.00%,1.78%,-2.29%,4.60%,-2.32%,1209622,49.16,-3.34%
+259,"MMED","MiniMed Group Inc","Healthcare","Medical Instruments & Supplies",6551.23,-356.07%,5.90,0.00%,0.00%,0.00%,15.85%,26.41%,-2.33%,1719503,23.28,-2.33%
+260,"FROG","JFrog Ltd","Technology","Software - Application",10801.20,12.27%,8.47,0.03%,0.03%,0.29%,-11.28%,5.49%,-2.40%,1661140,87.60,-3.32%
+261,"RELY","Remitly Global Inc","Technology","Software - Infrastructure",5539.77,651.21%,14.41,0.00%,-0.30%,-0.30%,-1.43%,0.93%,-2.42%,2154045,26.17,-2.79%
+262,"PCOR","Procore Technologies Inc","Technology","Software - Application",8814.93,12.82%,15.73,0.00%,0.00%,0.00%,-8.96%,4.11%,-2.50%,3048451,58.01,-4.26%
+263,"SPOT","Spotify Technology SA","Communication Services","Internet Content & Information",111676.76,-5.83%,4.93,-0.87%,-0.33%,-0.08%,-0.93%,14.18%,-2.53%,1370547,542.43,-3.16%
+264,"MDB","MongoDB Inc","Technology","Software - Infrastructure",29704.35,17.62%,2.84,0.07%,-0.07%,-0.04%,-17.44%,-0.34%,-2.54%,2069730,368.74,-4.09%
+265,"RNG","RingCentral Inc","Technology","Software - Application",6128.52,4.76%,7.06,-0.81%,-0.81%,-0.81%,5.78%,18.72%,-2.60%,1150920,73.39,-3.89%
+266,"TWLO","Twilio Inc","Technology","Software - Infrastructure",35779.96,11.06%,4.21,0.00%,0.48%,0.36%,-2.02%,20.59%,-2.73%,1475709,232.98,-3.12%
+267,"HRB","H&R Block Inc","Consumer Cyclical","Personal Services",6047.43,7.69%,17.84,0.88%,0.88%,0.14%,-6.52%,6.77%,-2.91%,1251313,49.06,-3.99%
+268,"GWRE","Guidewire Software Inc","Technology","Software - Application",13522.50,6.10%,4.65,0.21%,0.30%,0.54%,-21.10%,1.49%,-3.06%,4710820,162.42,-19.93%
+269,"NE","Noble Corp Plc","Energy","Oil & Gas Drilling",7281.28,-93.48%,14.90,0.00%,0.00%,0.00%,-0.33%,12.09%,-3.08%,1129153,45.61,-2.10%
+270,"PLTR","Palantir Technologies Inc","Technology","Software - Infrastructure",418931.23,18.98%,68.28,-0.05%,-0.04%,-0.03%,-6.42%,11.81%,-3.16%,27963048,174.33,-4.49%
+271,"IT","Gartner Inc","Technology","Information Technology Services",11772.23,16.28%,7.32,0.00%,0.00%,0.00%,-6.03%,0.87%,-3.25%,839563,186.42,-4.62%
+272,"HPE","Hewlett Packard Enterprise Co","Technology","Communication Equipment",69028.17,19.15%,59.57,-0.10%,-0.02%,0.00%,-0.59%,-0.82%,-3.44%,30210363,52.00,-4.48%
+273,"ESTC","Elastic N.V","Technology","Software - Application",9639.25,19.84%,6.34,1.10%,0.91%,1.12%,-8.11%,31.25%,-3.50%,1957303,91.81,-4.49%
+274,"TRI","Thomson-Reuters Corp","Industrials","Specialty Business Services",45783.75,3.32%,12.73,0.00%,1.18%,1.18%,-0.51%,5.52%,-3.52%,1279924,105.68,-5.44%
+275,"TTAN","ServiceTitan Inc","Technology","Software - Application",8387.35,34.06%,7.25,-0.05%,-0.05%,-0.99%,-11.97%,2.72%,-3.98%,1420352,87.92,-5.56%
+276,"ZETA","Zeta Global Holdings Corp","Technology","Software - Infrastructure",7869.28,10.93%,23.18,-0.22%,-0.06%,-0.22%,2.65%,22.65%,-3.98%,4785872,31.35,-4.07%
+277,"BSP","Bending Spoons S.p.A","Technology","Software - Application",25141.98,89.38%,14.27,0.00%,0.00%,0.00%,-9.20%,-12.34%,-4.23%,1057902,39.58,-5.06%
+278,"DASH","DoorDash Inc","Consumer Cyclical","Internet Retail",91747.67,-1.73%,16.17,0.06%,0.02%,-0.05%,-10.56%,-0.72%,-4.41%,4171916,211.73,-4.63%
+279,"SNOW","Snowflake Inc","Technology","Software - Application",116866.59,38.76%,18.81,0.01%,0.01%,0.02%,2.80%,6.03%,-4.65%,8451643,337.18,-5.41%
+280,"WIX","Wix.com Ltd","Technology","Software - Infrastructure",3189.35,23.34%,5.78,-0.46%,-0.46%,-0.71%,-13.02%,25.18%,-4.74%,1747017,76.21,-6.15%
+281,"VSNT","Versant Media Group Inc","Communication Services","Entertainment",5358.77,10.37%,5.24,0.00%,0.00%,0.00%,-5.88%,1.02%,-5.25%,1387570,38.61,-5.76%
+282,"MRNA","Moderna Inc","Healthcare","Biotechnology",58108.78,3.06%,52.81,0.08%,0.13%,0.01%,5.48%,170.24%,-5.25%,14966547,145.55,-2.23%
+283,"WDAY","Workday Inc","Technology","Software - Application",47185.39,5.32%,20.12,-0.19%,-0.23%,-0.19%,-4.36%,15.01%,-5.39%,2864986,195.79,-5.38%
+284,"ETSY","Etsy Inc","Consumer Cyclical","Internet Retail",7022.22,31.19%,9.72,-0.06%,0.64%,0.00%,-8.47%,-6.99%,-6.34%,3077319,76.51,-6.73%
+285,"IOT","Samsara Inc","Technology","Software - Infrastructure",23497.44,25.00%,28.71,-0.17%,0.00%,-0.02%,-2.33%,5.18%,-10.47%,25610012,40.20,3.74%
