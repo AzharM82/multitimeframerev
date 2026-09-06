@@ -26,6 +26,8 @@ import type {
   OpeningDriveResponse,
   SpyConvictionResponse,
   SpyShadowResponse,
+  SwingResultsResponse,
+  SwingUniverseResponse,
 } from "../types.js";
 
 const BASE = "/api";
@@ -196,6 +198,30 @@ export function getSpyShadow(date?: string): Promise<SpyShadowResponse> {
 /** Re-score one day against the shadow rule. Idempotent; session-authed like forceSpyFlat. */
 export function evaluateSpyShadow(date: string): Promise<{ status: string; filled: number; noTouch: number; noData: number; netUsd: number }> {
   return request(`/spy-shadow?date=${date}`, { method: "POST" });
+}
+
+export function getSwingResults(date?: string): Promise<SwingResultsResponse> {
+  return request<SwingResultsResponse>(`/swing-results${date ? `?date=${date}` : ""}`);
+}
+
+export function getSwingUniverse(): Promise<SwingUniverseResponse> {
+  return request<SwingUniverseResponse>(`/swing-universe`);
+}
+
+/** Replace the whole Swing Strength list with a pasted FinViz export. Session-authed. */
+export async function uploadSwingUniverse(csv: string): Promise<{ status: string; count: number; added: number; removed: number; skipped: number }> {
+  const res = await fetch(`${BASE}/swing-universe`, { method: "POST", headers: { "Content-Type": "text/csv" }, body: csv });
+  if (!res.ok) {
+    let msg = `${res.status}`;
+    try { msg = ((await res.json()) as { error?: string }).error ?? msg; } catch { /* keep status */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+/** Score the universe now. Session-authed; the cron does the same at 5:00 PM ET. */
+export function runSwingScan(): Promise<{ status: string; date: string; count: number; scored: number; failed: number }> {
+  return request(`/swing-scan`, { method: "POST" });
 }
 
 /** Reset the believed position. The browser never holds the timer secret — the

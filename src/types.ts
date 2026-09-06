@@ -1114,6 +1114,55 @@ export interface SpyShadowResponse {
   firstDay: string | null;
 }
 
+// ─── Swing Strength ──────────────────────────────────────────────────────────
+// A fixed, operator-curated list scored nightly against three lenses. Phase 1
+// ships Lens 1 (daily MA stack); `reversal` and `stage` are null until their
+// phases land so the row shape stays stable.
+
+export type SwingStack = "bull" | "bear" | "mixed" | "n/a";
+
+export interface SwingMaStack {
+  close: number;
+  ema10: number | null; ema20: number | null; sma50: number | null; sma200: number | null;
+  d10: number | null; d20: number | null; d50: number | null; d200: number | null;
+  c10over20: boolean | null; c20over50: boolean | null; c50over200: boolean | null;
+  score: number;
+  stack: SwingStack;
+  bars: number;
+}
+
+export interface SwingRow {
+  ticker: string;
+  company: string;
+  sector: string;
+  industry: string;
+  marketCapM: number | null;
+  extras: Record<string, number>;
+  asOf: string | null;
+  ma: SwingMaStack | null;
+  reversal: null;
+  stage: null;
+  error?: string;
+}
+
+export interface SwingResultsResponse {
+  date: string;
+  generatedAt: string;
+  count: number;
+  scored: number;
+  failed: number;
+  rows: SwingRow[];
+  /** Every stored snapshot day, oldest first. */
+  dates: string[];
+}
+
+export interface SwingUniverseResponse {
+  count: number;
+  updatedAt: string | null;
+  columns: string[];
+  rows: { ticker: string; company: string; sector: string; industry: string; marketCapM: number | null; extras: Record<string, number> }[];
+}
+
 // ─── Options Strategy Guide ──────────────────────────────────────────────────
 // Credit-spread builder. "Floor Bet" = bull put spread (stays ABOVE a line),
 // "Ceiling Bet" = bear call spread (stays BELOW). Every number below is computed

@@ -158,6 +158,10 @@ export const TABLES = {
    * + side. Never purged — it exists so the rule can be judged weeks later.
    */
   SPY_SHADOW: "SpyShadowTrades",
+  /** Swing Strength: the operator-curated FinViz list (PK "current"/RK ticker + PK "meta"). */
+  SWING_UNIVERSE: "SwingUniverse",
+  /** Swing Strength: one gzip-chunked snapshot per ET day (PK date / RK "snapshot") + PK "latest". */
+  SWING_SCAN: "SwingScan",
   /**
    * AVWAP-from-Earnings: the MASTER TradingView watchlist swept on DESKTOP2
    * against the 39-minute anchored-VWAP study.
