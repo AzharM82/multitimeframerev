@@ -64,15 +64,31 @@ function DirBadge({ dir, dim }: { dir: DeskDirection | null; dim?: boolean }) {
 
 const DEAD_BAND = 0.55; // ±% amber "no group edge" zone
 
+/**
+ * Which ETF move orders the board. "fromOpen" is the desk's signal and the
+ * DEFAULT (user decision 2026-08-06: a day-trade board ignores the overnight
+ * gap). "day" is a READ-ONLY alternative added 2026-09-05 after a session where
+ * Tech led on the day (+0.72%) but was flat from the open (0.00%) and so sat
+ * sixth: it re-orders the rail and the list on full-day change so the two
+ * readings can be compared, and nothing else — gates, conviction, blockers and
+ * the regime router still run on change-from-open. It is never persisted.
+ */
+type OrderMetric = "fromOpen" | "day";
+const metricOf = (g: DeskGroup, m: OrderMetric) => (m === "day" ? g.etfMove : g.etfFromOpen);
+const METRIC_LABEL: Record<OrderMetric, string> = { fromOpen: "change from open", day: "full-day change" };
+
 function RotationRail({
   groups,
   selectedKey,
   onSelect,
+  metric,
 }: {
   groups: DeskGroup[];
   selectedKey: string | null;
   onSelect: (key: string) => void;
+  metric: OrderMetric;
 }) {
+  const mv = (g: DeskGroup) => metricOf(g, metric);
   const W = 1000;
   const labelTop = 12; // baseline of the ETF label row
   const axisY = 78; // single label row above; slanted leaders reach the axis
@@ -80,7 +96,7 @@ function RotationRail({
   const MARGIN = 24;
   const LABEL_W = 52; // min horizontal gap between label centers (declutter)
 
-  const maxAbs = Math.max(3, ...groups.map((g) => Math.abs(g.etfFromOpen))) * 1.15;
+  const maxAbs = Math.max(3, ...groups.map((g) => Math.abs(mv(g)))) * 1.15;
   const xOf = (move: number) => {
     const frac = 0.5 + (move / maxAbs) * 0.5;
     return Math.max(0.03, Math.min(0.97, frac)) * W;
@@ -91,7 +107,7 @@ function RotationRail({
   // nudged) label down to the true pin, so nothing ever overlaps regardless of
   // how tightly the pins cluster on a flat day.
   const sorted = [...groups]
-    .map((g) => ({ g, x: xOf(g.etfFromOpen) }))
+    .map((g) => ({ g, x: xOf(mv(g)) }))
     .sort((a, b) => a.x - b.x);
   let cursor = -Infinity;
   const placed = sorted.map(({ g, x }) => {
@@ -146,8 +162,8 @@ function RotationRail({
 
       {/* pins + labels */}
       {placed.map(({ g, x, labelX }) => {
-        const inDead = Math.abs(g.etfFromOpen) < DEAD_BAND;
-        const color = inDead ? "text-amber-500" : g.etfFromOpen >= 0 ? "text-signal-bull" : "text-signal-bear";
+        const inDead = Math.abs(mv(g)) < DEAD_BAND;
+        const color = inDead ? "text-amber-500" : mv(g) >= 0 ? "text-signal-bull" : "text-signal-bear";
         const selected = g.key === selectedKey;
         return (
           <g key={g.key} className="cursor-pointer" onClick={() => onSelect(g.key)}>
@@ -156,7 +172,7 @@ function RotationRail({
               {g.etf}
             </text>
             <text x={labelX} y={labelTop + 11} textAnchor="middle" className="fill-text-secondary text-[9px] tabular-nums">
-              {fmtPct(g.etfFromOpen)}
+              {fmtPct(mv(g))}
             </text>
           </g>
         );
@@ -282,11 +298,15 @@ function GroupRow({
   g,
   selected,
   onSelect,
+  metric,
 }: {
   g: DeskGroup;
   selected: boolean;
   onSelect: () => void;
+  metric: OrderMetric;
 }) {
+  const primary = metricOf(g, metric);
+  const other: OrderMetric = metric === "day" ? "fromOpen" : "day";
   return (
     <button
       onClick={onSelect}
@@ -302,7 +322,8 @@ function GroupRow({
         <DirBadge dir={g.tradeable ? g.bias : null} />
       </div>
       <div className="flex items-center gap-3 mt-1 text-[11px] tabular-nums text-text-secondary flex-wrap">
-        <span className={pctTone(g.etfFromOpen)}>{fmtPct(g.etfFromOpen)}</span>
+        <span className={pctTone(primary)} title={`ETF ${METRIC_LABEL[metric]}`}>{fmtPct(primary)}</span>
+        <span className="text-dim" title={`ETF ${METRIC_LABEL[other]}`}>{fmtPct(metricOf(g, other))} {other === "day" ? "day" : "open"}</span>
         <span title="share of members trading ≥ their average volume">{Math.round(g.volParticipation * 100)}% vol</span>
         <span>{Math.round(g.breadth * 100)}% breadth</span>
         <span>{g.memberCount} names</span>
@@ -420,6 +441,7 @@ export function SectorDeskPage() {
   const [desk, setDesk] = useState<PanelState<MmSectorDeskData>>({ data: null, error: null, loading: true });
   const [idx, setIdx] = useState<PanelState<MmIndexLeadersData>>({ data: null, error: null, loading: true });
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [orderMetric, setOrderMetric] = useState<OrderMetric>("fromOpen");
   const [refreshing, setRefreshing] = useState(false);
   const [history, setHistory] = useState<SectorDeskHistoryResponse | null>(null);
   const alive = useRef(true);
@@ -455,6 +477,15 @@ export function SectorDeskPage() {
 
   const groups = desk.data?.groups ?? [];
   const regime = desk.data?.regime;
+
+  /** The board in reading order. The API ships change-from-open order; the
+   *  "day" view re-sorts client-side on the same rows, ties broken on gss like
+   *  the server does. Auto-select below reads conviction, not position, so
+   *  re-ordering never changes which group opens. */
+  const ordered = useMemo(() => {
+    if (orderMetric === "fromOpen") return groups;
+    return [...groups].sort((a, b) => (metricOf(b, "day") - metricOf(a, "day")) || (b.gss - a.gss));
+  }, [groups, orderMetric]);
 
   /**
    * Auto-select: the regime's first target, else the highest-conviction
@@ -540,8 +571,26 @@ export function SectorDeskPage() {
       {/* Rotation rail */}
       {groups.length > 0 && (
         <div className="bg-bg-card border border-border rounded p-3">
-          <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-1">Rotation rail — SPDR sector ETFs · change from open</h2>
-          <RotationRail groups={groups} selectedKey={activeKey} onSelect={setSelectedKey} />
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h2 className="text-[11px] uppercase tracking-wider text-text-secondary">Rotation rail — SPDR sector ETFs · {METRIC_LABEL[orderMetric]}</h2>
+            <span className="flex-1" />
+            <span className="text-[10px] uppercase tracking-wider text-text-secondary">order by</span>
+            {(["fromOpen", "day"] as const).map((m) => (
+              <button key={m} onClick={() => setOrderMetric(m)}
+                title={m === "fromOpen" ? "The desk's signal: the session's move, ignoring the overnight gap (default)." : "Reference view: full-day change including the gap. Gates and conviction still use change from open."}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
+                  orderMetric === m ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"
+                }`}>
+                {m === "fromOpen" ? "From open" : "Full day"}
+              </button>
+            ))}
+          </div>
+          <RotationRail groups={ordered} selectedKey={activeKey} onSelect={setSelectedKey} metric={orderMetric} />
+          {orderMetric === "day" && (
+            <p className="text-[10px] text-dim mt-1">
+              Reference order only: gates, conviction, blockers and the regime read stay on change from open.
+            </p>
+          )}
         </div>
       )}
 
@@ -549,9 +598,9 @@ export function SectorDeskPage() {
       {groups.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,20rem)_1fr] gap-4">
           <div className="space-y-1.5">
-            <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-1">Groups (by change from open)</h2>
-            {groups.map((g) => (
-              <GroupRow key={g.key} g={g} selected={g.key === activeKey} onSelect={() => setSelectedKey(g.key)} />
+            <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-1">Groups (by {METRIC_LABEL[orderMetric]})</h2>
+            {ordered.map((g) => (
+              <GroupRow key={g.key} g={g} selected={g.key === activeKey} onSelect={() => setSelectedKey(g.key)} metric={orderMetric} />
             ))}
           </div>
           <div className="bg-bg-card border border-border rounded p-3 min-w-0">
