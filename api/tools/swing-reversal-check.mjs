@@ -45,9 +45,9 @@ const ok = rows.filter((r) => !r.error);
 console.log(`as of ${asOf}: ${ok.length}/${rows.length} tickers priced; last bar dates: ${[...new Set(ok.map((r) => r.lastDate))].join(", ")}`);
 if (rows.some((r) => r.error)) console.log("errors:", rows.filter((r) => r.error).map((r) => `${r.t} ${r.error}`).join(" | "));
 
-console.log(`\n${"tkr".padEnd(6)} ${"exp".padEnd(4)} ${"leg".padEnd(5)} ${"legBars".padStart(7)} ${"thr%".padStart(5)} ${"K".padStart(6)} ${"D".padStart(6)} ${"upAgo".padStart(5)} ${"dnAgo".padStart(5)}  legPrev(1,2,3)`);
+console.log(`\n${"tkr".padEnd(6)} ${"exp".padEnd(4)} ${"Bull".padEnd(4)} ${"turnAgo".padStart(7)} ${"state".padEnd(16)} ${"leg".padEnd(5)} ${"legBars".padStart(7)} ${"thr%".padStart(5)} ${"K".padStart(6)} ${"D".padStart(6)} ${"upAgo".padStart(5)} ${"dnAgo".padStart(5)}`);
 for (const r of ok) {
-  console.log(`${r.t.padEnd(6)} ${r.expected.padEnd(4)} ${String(r.legUp === null ? "?" : r.legUp ? "UP" : "DOWN").padEnd(5)} ${String(r.legBars ?? "-").padStart(7)} ${String(r.thresholdPct ?? "-").padStart(5)} ${String(r.fullK ?? "-").padStart(6)} ${String(r.fullD ?? "-").padStart(6)} ${String(r.goingUpBarsAgo ?? "-").padStart(5)} ${String(r.goingDownBarsAgo ?? "-").padStart(5)}  ${r.legUpPrev.join(",")}`);
+  console.log(`${r.t.padEnd(6)} ${r.expected.padEnd(4)} ${String(r.bullish === null ? "?" : r.bullish ? "1" : "0").padEnd(4)} ${String(r.turnBarsAgo ?? "-").padStart(7)} ${String(r.state ?? "-").padEnd(16)} ${String(r.legUp === null ? "?" : r.legUp ? "UP" : "DOWN").padEnd(5)} ${String(r.legBars ?? "-").padStart(7)} ${String(r.thresholdPct ?? "-").padStart(5)} ${String(r.fullK ?? "-").padStart(6)} ${String(r.fullD ?? "-").padStart(6)} ${String(r.goingUpBarsAgo ?? "-").padStart(5)} ${String(r.goingDownBarsAgo ?? "-").padStart(5)}`);
 }
 
 // ─── Candidate definitions ──────────────────────────────────────────────────
@@ -60,7 +60,12 @@ const candidates = {
   "F  bull = K>D · bear = K<D (stochastic side only)": (r) => (r.fullK === null ? "none" : r.fullK > r.fullD ? "bull" : "bear"),
   "G  THE TAB BADGE: more recent cross within the 7-bar window": (r) => r.signal ?? "none",
   "H  bull = Going_Up ≤7 bars · bear = Going_Down ≤9 bars (either, up wins)": (r) => (r.goingUpBarsAgo !== null && r.goingUpBarsAgo < 7 ? "bull" : r.goingDownBarsAgo !== null && r.goingDownBarsAgo < 9 ? "bear" : "none"),
+  "I  OPERATOR'S PLOT: Bullish = 1 → bull, 0 → bear (any age)": (r) => (r.bullish === null ? "none" : r.bullish ? "bull" : "bear"),
+  "J  TRIGGERED only: Bullish turned within 2 bars": (r) => (r.state === "bull-triggered" ? "bull" : r.state === "bear-triggered" ? "bear" : "none"),
 };
+console.log("\nState distribution:", JSON.stringify(ok.reduce((m, r) => { const k = r.state ?? "none"; m[k] = (m[k] ?? 0) + 1; return m; }, {})));
+console.log("turnBarsAgo, BULL list:", ok.filter((r) => r.expected === "bull").map((r) => r.turnBarsAgo).join(" "));
+console.log("turnBarsAgo, BEAR list:", ok.filter((r) => r.expected === "bear").map((r) => r.turnBarsAgo).join(" "));
 console.log("\nMatch against the operator's sets (bull set = 50, bear set = 20):");
 for (const [name, fn] of Object.entries(candidates)) {
   const got = ok.map((r) => ({ ...r, got: fn(r) }));

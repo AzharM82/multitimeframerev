@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SwingResultsResponse, SwingRow, SwingStack } from "../types.js";
+import type { SwingResultsResponse, SwingRow, SwingStack, SwingReversalState } from "../types.js";
 import { getSwingResults, getSwingUniverse, uploadSwingUniverse, runSwingScan } from "../services/api.js";
 import { useTableSort, SortHeaderRow, type SortColumn } from "./shared/tableSort.js";
 import { fmtTimePT, PT_LABEL } from "../utils/time.js";
@@ -38,8 +38,17 @@ const COLUMNS: SortColumn<SortKey>[] = [
   { key: "stoch", label: "K / D", num: true, title: "StochasticFull 8·12·3 — FullK and FullD on the last bar" },
   { key: "revUp", label: "Bull rev", num: true, title: "Bars since Going_Up last fired (K crossed above D from under 40). 0 = today" },
   { key: "revDown", label: "Bear rev", num: true, title: "Bars since Going_Down last fired (D crossed above K from over 75). 0 = today" },
-  { key: "signal", label: "Reversal", num: false, title: "The more recent cross, if inside the window" },
+  { key: "signal", label: "Reversal", num: false, title: "The study's Bullish plot as the operator's four states: Triggered = turned within 2 bars, In progress = older" },
 ];
+
+const STATE_LABEL: Record<SwingReversalState, string> = {
+  "bull-triggered": "Bullish · triggered", "bull-inprogress": "Bullish · in progress",
+  "bear-triggered": "Bearish · triggered", "bear-inprogress": "Bearish · in progress",
+};
+const STATE_TONE: Record<SwingReversalState, string> = {
+  "bull-triggered": "text-signal-bull", "bull-inprogress": "text-signal-bull/80",
+  "bear-triggered": "text-signal-bear", "bear-inprogress": "text-signal-bear/80",
+};
 
 const STACK_LABEL: Record<SwingStack, string> = { bull: "Bull stack", bear: "Bear stack", mixed: "Mixed", "n/a": "Not enough bars" };
 const STACK_TONE: Record<SwingStack, string> = { bull: "text-signal-bull", bear: "text-signal-bear", mixed: "text-text-secondary", "n/a": "text-dim" };
@@ -68,7 +77,7 @@ function sortValue(r: SwingRow, key: SortKey): number | string | null {
     // bars-ago sorts ascending-first would be nicer, but the shared hook sorts numeric desc-first; negate so "freshest first" is the default.
     case "revUp": return r.reversal?.goingUpBarsAgo === null || r.reversal?.goingUpBarsAgo === undefined ? null : -r.reversal.goingUpBarsAgo;
     case "revDown": return r.reversal?.goingDownBarsAgo === null || r.reversal?.goingDownBarsAgo === undefined ? null : -r.reversal.goingDownBarsAgo;
-    case "signal": return r.reversal?.signal ?? "zzz";
+    case "signal": return r.reversal?.state ?? "zzz";
   }
 }
 
@@ -123,7 +132,7 @@ export function SwingStrengthPage() {
   const [fP50, setFP50] = useState<Tri>("");  // price above 50 SMA
   const [fP200, setFP200] = useState<Tri>(""); // price above 200 SMA
   const [minScore, setMinScore] = useState<number>(0);
-  const [fSignal, setFSignal] = useState<"" | "bull" | "bear" | "none">("");
+  const [fSignal, setFSignal] = useState<"" | SwingReversalState | "bull" | "bear">("");
   const [fLeg, setFLeg] = useState<Tri>("");   // ZigZag leg up (✓) / down (✗)
   const [showUpload, setShowUpload] = useState(false);
   const [csv, setCsv] = useState("");
@@ -158,7 +167,7 @@ export function SwingStrengthPage() {
     && tri(fP50, r.ma?.d50 === null || r.ma?.d50 === undefined ? null : r.ma.d50 > 0)
     && tri(fP200, r.ma?.d200 === null || r.ma?.d200 === undefined ? null : r.ma.d200 > 0)
     && (minScore === 0 || (r.ma?.score ?? -1) >= minScore)
-    && (!fSignal || (fSignal === "none" ? !r.reversal?.signal : r.reversal?.signal === fSignal))
+    && (!fSignal || (fSignal === "bull" || fSignal === "bear" ? r.reversal?.state?.startsWith(fSignal) : r.reversal?.state === fSignal))
     && tri(fLeg, r.reversal?.legUp)),
     [rows, fSector, fIndustry, fStack, q, f1, f2, f3, fP50, fP200, minScore, fSignal, fLeg]);
   const anyCondition = f1 || f2 || f3 || fP50 || fP200 || minScore > 0 || fSignal || fLeg;
@@ -171,12 +180,8 @@ export function SwingStrengthPage() {
     return c;
   }, [rows]);
   const revCounts = useMemo(() => {
-    const c = { bull: 0, bear: 0, none: 0, legUp: 0, legDown: 0 };
-    for (const r of rows) {
-      const sig = r.reversal?.signal ?? null;
-      if (sig === "bull") c.bull++; else if (sig === "bear") c.bear++; else c.none++;
-      if (r.reversal?.legUp === true) c.legUp++; else if (r.reversal?.legUp === false) c.legDown++;
-    }
+    const c: Record<SwingReversalState | "none", number> = { "bull-triggered": 0, "bull-inprogress": 0, "bear-triggered": 0, "bear-inprogress": 0, none: 0 };
+    for (const r of rows) c[r.reversal?.state ?? "none"] += 1;
     return c;
   }, [rows]);
   const hasLens2 = rows.some((r) => r.reversal);
@@ -272,16 +277,16 @@ export function SwingStrengthPage() {
           </div>
           {hasLens2 && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-              <Tile label="Bullish reversal" value={`${revCounts.bull}`} sub="Going_Up fired within 7 bars" cls="text-signal-bull"
-                onClick={() => setFSignal(fSignal === "bull" ? "" : "bull")} active={fSignal === "bull"} />
-              <Tile label="Bearish reversal" value={`${revCounts.bear}`} sub="Going_Down fired within 7 bars" cls="text-signal-bear"
-                onClick={() => setFSignal(fSignal === "bear" ? "" : "bear")} active={fSignal === "bear"} />
-              <Tile label="No fresh cross" value={`${revCounts.none}`} sub="neither in the window"
-                onClick={() => setFSignal(fSignal === "none" ? "" : "none")} active={fSignal === "none"} />
-              <Tile label="Leg up" value={`${revCounts.legUp}`} sub="ZigZag leg rising (TOS “Bullish”)" cls="text-signal-bull"
-                onClick={() => setFLeg(fLeg === "y" ? "" : "y")} active={fLeg === "y"} />
-              <Tile label="Leg down" value={`${revCounts.legDown}`} sub="ZigZag leg falling" cls="text-signal-bear"
-                onClick={() => setFLeg(fLeg === "n" ? "" : "n")} active={fLeg === "n"} />
+              <Tile label="Bullish reversal · triggered" value={`${revCounts["bull-triggered"]}`} sub="Bullish plot turned up within 2 bars" cls="text-signal-bull"
+                onClick={() => setFSignal(fSignal === "bull-triggered" ? "" : "bull-triggered")} active={fSignal === "bull-triggered"} />
+              <Tile label="Bullish · in progress" value={`${revCounts["bull-inprogress"]}`} sub="turned up 2+ bars ago, still up" cls="text-signal-bull"
+                onClick={() => setFSignal(fSignal === "bull-inprogress" ? "" : "bull-inprogress")} active={fSignal === "bull-inprogress"} />
+              <Tile label="Bearish reversal · triggered" value={`${revCounts["bear-triggered"]}`} sub="Bullish plot turned down within 2 bars" cls="text-signal-bear"
+                onClick={() => setFSignal(fSignal === "bear-triggered" ? "" : "bear-triggered")} active={fSignal === "bear-triggered"} />
+              <Tile label="Bearish · in progress" value={`${revCounts["bear-inprogress"]}`} sub="turned down 2+ bars ago, still down" cls="text-signal-bear"
+                onClick={() => setFSignal(fSignal === "bear-inprogress" ? "" : "bear-inprogress")} active={fSignal === "bear-inprogress"} />
+              <Tile label="Leg" value={`↑ ${rows.filter((r) => r.reversal?.legUp === true).length} · ↓ ${rows.filter((r) => r.reversal?.legUp === false).length}`}
+                sub="ZigZag legs up · down (context)" onClick={() => setFLeg(fLeg === "" ? "y" : fLeg === "y" ? "n" : "")} active={fLeg !== ""} />
             </div>
           )}
 
@@ -314,12 +319,15 @@ export function SwingStrengthPage() {
               <TriChip label="price vs 200" value={fP200} onChange={setFP200} yes="above" no="below" title="Price above or below the 200 SMA" />
               <span className="w-px h-4 bg-border mx-1" />
               <TriChip label="leg" value={fLeg} onChange={setFLeg} yes="up" no="down" title="ZigZag leg direction (the study's Bullish plot)" />
-              <select value={fSignal} onChange={(e) => setFSignal(e.target.value as "" | "bull" | "bear" | "none")}
-                className="bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary" title="Reversal badge">
+              <select value={fSignal} onChange={(e) => setFSignal(e.target.value as "" | SwingReversalState | "bull" | "bear")}
+                className="bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary" title="Reversal state">
                 <option value="">reversal: any</option>
-                <option value="bull">bullish reversal</option>
-                <option value="bear">bearish reversal</option>
-                <option value="none">no fresh cross</option>
+                <option value="bull">bullish (either)</option>
+                <option value="bull-triggered">bullish · triggered</option>
+                <option value="bull-inprogress">bullish · in progress</option>
+                <option value="bear">bearish (either)</option>
+                <option value="bear-triggered">bearish · triggered</option>
+                <option value="bear-inprogress">bearish · in progress</option>
               </select>
               <span className="w-px h-4 bg-border mx-1" />
               <label className="flex items-center gap-1 text-text-secondary">
@@ -373,8 +381,12 @@ export function SwingStrengthPage() {
                     <td className={`px-2 py-1 text-right tabular-nums ${r.reversal?.goingDownBarsAgo !== null && r.reversal?.goingDownBarsAgo !== undefined && r.reversal.goingDownBarsAgo < 7 ? "text-signal-bear font-semibold" : "text-text-secondary"}`}>
                       {r.reversal?.goingDownBarsAgo === null || r.reversal?.goingDownBarsAgo === undefined ? "—" : r.reversal.goingDownBarsAgo === 0 ? "today" : `${r.reversal.goingDownBarsAgo}b ago`}
                     </td>
-                    <td className={`px-2 py-1 whitespace-nowrap font-semibold ${r.reversal?.signal === "bull" ? "text-signal-bull" : r.reversal?.signal === "bear" ? "text-signal-bear" : "text-dim"}`}>
-                      {r.reversal?.signal === "bull" ? "Bullish" : r.reversal?.signal === "bear" ? "Bearish" : r.reversal ? "·" : "—"}
+                    <td className={`px-2 py-1 whitespace-nowrap font-semibold ${r.reversal?.state ? STATE_TONE[r.reversal.state] : "text-dim"}`}
+                      title={r.reversal?.turnBarsAgo !== null && r.reversal?.turnBarsAgo !== undefined ? `Bullish plot turned ${r.reversal.turnBarsAgo === 0 ? "today" : `${r.reversal.turnBarsAgo} bars ago`}` : ""}>
+                      {r.reversal?.state ? STATE_LABEL[r.reversal.state] : "—"}
+                      {r.reversal?.turnBarsAgo !== null && r.reversal?.turnBarsAgo !== undefined && (
+                        <span className="ml-1 font-normal text-dim">{r.reversal.turnBarsAgo === 0 ? "today" : `${r.reversal.turnBarsAgo}b`}</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -384,9 +396,10 @@ export function SwingStrengthPage() {
           </div>
           <p className="text-[10px] text-dim">
             Daily closes from Polygon (adjusted), two years. 10/20 are exponential, 50/200 simple. Distances are price vs the average.
-            Reversal columns are the operator&apos;s ThinkOrSwim &ldquo;Jonesy Signals&rdquo; study ported as written: Leg is the ZigZagHighLow direction on EMA5 highs/lows
-            (1% + 2×ATR(5) + $0.05 reversal), K / D is StochasticFull 8·12·3, Bull rev / Bear rev are bars since Going_Up / Going_Down last fired, and the Reversal badge is the more
-            recent of the two if it fired within 7 bars. Snapshots are stored per trading day and never overwritten by a later day.
+            Reversal columns are the operator&apos;s ThinkOrSwim &ldquo;Jonesy Signals&rdquo; study ported as written. The Reversal state is the study&apos;s Bullish plot
+            (a turn detector on the ZigZagHighLow&apos;s running extreme, EMA5 highs/lows, 1% + 2×ATR(5) + $0.05): <b>triggered</b> = it turned within 2 bars, exactly the
+            operator&apos;s scan &ldquo;Bullish crosses above 0.9 within 2 bars&rdquo;; <b>in progress</b> = older. Leg is the zig-zag direction the turn is happening inside,
+            K / D is StochasticFull 8·12·3, and Bull rev / Bear rev are bars since the study&apos;s Going_Up / Going_Down last fired. Snapshots are stored per trading day and never overwritten.
           </p>
         </>
       )}

@@ -15,10 +15,21 @@
  * threshold on each bar is
  *     hlPivot = percentageReversal/100 + Average(TrueRange, atrLength) / close × atrReversal
  * and a leg flips when the smoothed price crosses the running extreme by
- * minMax × (1 ± hlPivot) ± absoluteReversal. The DIRECTION state is causal;
- * only the drawing of pivots looks ahead, and the operator's `isUp` (via the
- * EISave / chg trick) reduces to that state on the last bar. We compute the
- * state directly.
+ * minMax × (1 ± hlPivot) ± absoluteReversal. The leg DIRECTION is causal.
+ *
+ * The "Bullish" plot is NOT the leg direction, and this matters. The study does
+ *     EISave = last non-NaN ZigZag value (carried forward)
+ *     chg    = (if EISave == priceh2 then priceh2 else pricel2) − EISave[1]
+ *     isUp   = chg >= 0
+ * and TOS plots the ZigZag at every PROVISIONAL extreme of the current leg
+ * (the last segment repaints to the running high or low). So EISave is the
+ * running extreme, and isUp reads: in a DOWN leg, 1 on every bar that is not a
+ * new low (the EMA5-low has lifted off the leg low), 0 on new-low bars; in an
+ * UP leg, 1 only on new-high bars and 0 on every pullback bar. It is a
+ * short-term turn detector, which is why the operator's scan — "Bullish
+ * crosses above 0.9 within 2 bars", Last ≥ 20, 50-day avg volume > 1M,
+ * ATR > 3 — matches thousands of names on any day. The operator's four states
+ * are built on it: a turn within 2 bars is TRIGGERED, older is IN PROGRESS.
  *
  * Conventions that matter for matching TOS to the tick:
  *   • ExpAverage seeds with the first value (TOS), not an SMA seed.
@@ -50,8 +61,20 @@ export const JONESY = {
 
 export type ReversalSignal = "bull" | "bear" | null;
 
+/** The operator's four states of the "Bullish" plot. */
+export type ReversalState = "bull-triggered" | "bull-inprogress" | "bear-triggered" | "bear-inprogress";
+
+/** "crosses above 0.9 within 2 bars" = the turn happened on bar 0 or bar 1. */
+export const TRIGGER_BARS = 2;
+
 export interface ReversalRead {
-  /** ZigZag state on the last bar: true = up leg ("Bullish" plot = 1). */
+  /** The study's "Bullish" plot on the last bar (see header: a turn detector, not the leg). */
+  bullish: boolean | null;
+  /** Bars since the Bullish plot last changed value (0 = it turned today). */
+  turnBarsAgo: number | null;
+  /** The operator's four states, from `bullish` and `turnBarsAgo`. */
+  state: ReversalState | null;
+  /** ZigZag leg direction on the last bar (context: the leg the turn is happening inside). */
   legUp: boolean | null;
   /** Bars since the current leg began (the bar the state last flipped). */
   legBars: number | null;
@@ -212,11 +235,57 @@ export function badgeFor(upAgo: number | null, downAgo: number | null, window = 
   return { signal: null, signalBarsAgo: null };
 }
 
+// ─── The study's "Bullish" plot, bar by bar ─────────────────────────────────
+
+/**
+ * isUp per bar, exactly as the script computes it once TOS's provisional
+ * extremes are accounted for. null while the zig-zag is still undefined.
+ */
+export function bullishSeries(c: Candle[], p = JONESY.zz): (boolean | null)[] {
+  const n = c.length;
+  const priceH = expAverage(c.map((b) => b.high), p.smoothLength);
+  const priceL = expAverage(c.map((b) => b.low), p.smoothLength);
+  const zz = zigZagState(c, p);
+  const out: (boolean | null)[] = new Array(n).fill(null);
+  let eiSave: number | null = null;
+  for (let i = 0; i < n; i++) {
+    const d = zz.dir[i];
+    if (d === 0) continue;
+    const prevSave = eiSave;
+    // Is this bar the (provisional) extreme of its leg? Flip bars always are.
+    const flipped = i > 0 && zz.dir[i - 1] !== d;
+    const isExtreme = flipped || (d === 1 ? priceH[i] >= zz.minMax[i] : priceL[i] <= zz.minMax[i]);
+    if (isExtreme) eiSave = d === 1 ? priceH[i] : priceL[i];
+    if (eiSave === null || prevSave === null) continue;
+    const chg = (eiSave === priceH[i] ? priceH[i] : priceL[i]) - prevSave;
+    out[i] = chg >= 0;
+  }
+  return out;
+}
+
+export function stateFor(bullish: boolean | null, turnBarsAgo: number | null): ReversalState | null {
+  if (bullish === null) return null;
+  const fresh = turnBarsAgo !== null && turnBarsAgo < TRIGGER_BARS;
+  if (bullish) return fresh ? "bull-triggered" : "bull-inprogress";
+  return fresh ? "bear-triggered" : "bear-inprogress";
+}
+
+/** Bars since the plot last changed value; null if it never has in the window. */
+export function turnAgo(series: (boolean | null)[]): number | null {
+  const last = series.length - 1;
+  const v = series[last];
+  if (v === null || v === undefined) return null;
+  let j = last;
+  while (j > 0 && series[j - 1] === v) j--;
+  return j > 0 && series[j - 1] !== null ? last - j : null;
+}
+
 // ─── The read for one stock ─────────────────────────────────────────────────
 
 export function computeReversal(c: Candle[]): ReversalRead {
   const n = c.length;
   const empty: ReversalRead = {
+    bullish: null, turnBarsAgo: null, state: null,
     legUp: null, legBars: null, legExtreme: null, legFrom: null, thresholdPct: null,
     fullK: null, fullD: null, goingUp: false, goingDown: false, goingUpBarsAgo: null, goingDownBarsAgo: null,
     signal: null, signalBarsAgo: null, bars: n,
@@ -230,7 +299,11 @@ export function computeReversal(c: Candle[]): ReversalRead {
   const upAgo = lastUp < 0 ? null : last - lastUp;
   const downAgo = lastDown < 0 ? null : last - lastDown;
   const { signal, signalBarsAgo } = badgeFor(upAgo, downAgo);
+  const bl = bullishSeries(c);
+  const bullish = bl[last];
+  const turnBarsAgo = turnAgo(bl);
   return {
+    bullish, turnBarsAgo, state: stateFor(bullish, turnBarsAgo),
     signal, signalBarsAgo,
     legUp: zz.dir[last] === 0 ? null : zz.dir[last] === 1,
     legBars: zz.dir[last] === 0 ? null : last - zz.legStart[last],

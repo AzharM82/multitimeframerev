@@ -1145,9 +1145,17 @@ export interface SwingRow {
   error?: string;
 }
 
+export type SwingReversalState = "bull-triggered" | "bull-inprogress" | "bear-triggered" | "bear-inprogress";
+
 /** Lens 2 — the operator's TOS "Jonesy Signals" study, ported. */
 export interface SwingReversal {
-  /** ZigZagHighLow leg on the last bar (the study's "Bullish" plot). */
+  /** The study's "Bullish" plot on the last bar: a turn detector on the zig-zag's provisional extremes. */
+  bullish: boolean | null;
+  /** Bars since the plot last changed (0 = turned today). */
+  turnBarsAgo: number | null;
+  /** The operator's four states: a turn within 2 bars is "triggered", older is "in progress". */
+  state: SwingReversalState | null;
+  /** ZigZagHighLow leg direction on the last bar (context). */
   legUp: boolean | null;
   legBars: number | null;
   legExtreme: number | null;

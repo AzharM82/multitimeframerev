@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { parseCsv, parseFinvizExport } from "../dist/lib/swing/universe.js";
 import { ema, sma, computeMaStack } from "../dist/lib/swing/maStack.js";
-import { expAverage, simpleAverage, trueRange, stochasticFull, crossesFromKD, badgeFor, zigZagState, computeReversal, JONESY } from "../dist/lib/swing/reversal.js";
+import { expAverage, simpleAverage, trueRange, stochasticFull, crossesFromKD, badgeFor, zigZagState, computeReversal, bullishSeries, stateFor, turnAgo, TRIGGER_BARS, JONESY } from "../dist/lib/swing/reversal.js";
 
 let pass = 0;
 const failures = [];
@@ -112,9 +112,30 @@ check("then DOWN after the reversal", zz2.dir[zzBars.length - 1], -1);
 check("legStart moves to the flip bar", zz2.legStart[zzBars.length - 1] > 45, true);
 check("threshold = 1% + 2×ATR/close (+abs) on a 2-pt/bar move", Number((zz2.hlPivot[zzBars.length - 1] * 100).toFixed(1)) > 1.0, true);
 
+// The "Bullish" plot: a turn detector on provisional extremes.
+// zzBars: 30 flat, 15 up (new highs every bar → Bullish 1), 15 down. On the way down the leg
+// flips to DOWN once the threshold is crossed; every new-low bar is 0; a bounce bar would be 1.
+const bl = bullishSeries(zzBars);
+check("up leg making new highs → Bullish 1", bl[44], true);
+check("down leg making new lows → Bullish 0", bl[zzBars.length - 1], false);
+// Add two bounce bars (higher lows): the EMA5-low lifts off the leg low → Bullish turns 1 without a leg flip.
+const bounce = [...zzBars, bar(102, 104, 101.5, 103.5), bar(103.5, 105.5, 103, 105)];
+const blB = bullishSeries(bounce);
+const zzB = zigZagState(bounce);
+check("bounce inside a down leg → Bullish 1 while the leg is still DOWN", [blB[bounce.length - 1], zzB.dir[bounce.length - 1]], [true, -1]);
+check("turnAgo counts bars since the last change", turnAgo(blB) <= 1, true);
+check("turnAgo null when the series never changed", turnAgo([true, true, true]), null);
+check("state: fresh turn up → bull-triggered", stateFor(true, 0), "bull-triggered");
+check("state: turn up one bar ago still triggered", stateFor(true, TRIGGER_BARS - 1), "bull-triggered");
+check("state: older turn up → in progress", stateFor(true, TRIGGER_BARS), "bull-inprogress");
+check("state: fresh turn down → bear-triggered", stateFor(false, 1), "bear-triggered");
+check("state: older turn down → bear in progress", stateFor(false, 9), "bear-inprogress");
+check("state: unknown plot → null", stateFor(null, 0), null);
+
 // computeReversal end to end on the zig-zag series
 const r = computeReversal(zzBars);
 check("read carries the leg and the stochastic", [r.legUp, typeof r.fullK, r.bars], [false, "number", zzBars.length]);
+check("read carries the plot state", [r.bullish, r.state], [false, "bear-inprogress"]);
 check("signal window constant", JONESY.signalWindowBars, 7);
 check("short history → nulls", computeReversal(zzBars.slice(0, 10)).legUp, null);
 
