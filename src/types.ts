@@ -1140,9 +1140,29 @@ export interface SwingRow {
   extras: Record<string, number>;
   asOf: string | null;
   ma: SwingMaStack | null;
-  reversal: null;
+  reversal: SwingReversal | null;
   stage: null;
   error?: string;
+}
+
+/** Lens 2 — the operator's TOS "Jonesy Signals" study, ported. */
+export interface SwingReversal {
+  /** ZigZagHighLow leg on the last bar (the study's "Bullish" plot). */
+  legUp: boolean | null;
+  legBars: number | null;
+  legExtreme: number | null;
+  legFrom: number | null;
+  thresholdPct: number | null;
+  fullK: number | null;
+  fullD: number | null;
+  goingUp: boolean;
+  goingDown: boolean;
+  goingUpBarsAgo: number | null;
+  goingDownBarsAgo: number | null;
+  /** Badge: the more recent stochastic cross if it fired within the window. */
+  signal: "bull" | "bear" | null;
+  signalBarsAgo: number | null;
+  bars: number;
 }
 
 export interface SwingResultsResponse {

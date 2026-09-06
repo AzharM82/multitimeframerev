@@ -19,7 +19,8 @@ import { fmtTimePT, PT_LABEL } from "../utils/time.js";
  * indicator arithmetic: every level, distance and flag comes from the API.
  */
 
-type SortKey = "ticker" | "sector" | "industry" | "close" | "d10" | "d20" | "d50" | "d200" | "score" | "stack" | "mcap";
+type SortKey = "ticker" | "sector" | "industry" | "close" | "d10" | "d20" | "d50" | "d200" | "score" | "stack" | "mcap"
+  | "leg" | "stoch" | "revUp" | "revDown" | "signal";
 
 const COLUMNS: SortColumn<SortKey>[] = [
   { key: "ticker", label: "Ticker", num: false },
@@ -33,6 +34,11 @@ const COLUMNS: SortColumn<SortKey>[] = [
   { key: "d200", label: "vs 200 SMA", num: true, title: "% distance of price from the 200-day SMA" },
   { key: "score", label: "10>20 · 20>50 · 50>200", num: true, title: "The three inequalities of the stack" },
   { key: "stack", label: "Stack", num: false },
+  { key: "leg", label: "Leg", num: true, title: "ZigZag leg direction (the TOS study's Bullish plot) and bars since it began" },
+  { key: "stoch", label: "K / D", num: true, title: "StochasticFull 8·12·3 — FullK and FullD on the last bar" },
+  { key: "revUp", label: "Bull rev", num: true, title: "Bars since Going_Up last fired (K crossed above D from under 40). 0 = today" },
+  { key: "revDown", label: "Bear rev", num: true, title: "Bars since Going_Down last fired (D crossed above K from over 75). 0 = today" },
+  { key: "signal", label: "Reversal", num: false, title: "The more recent cross, if inside the window" },
 ];
 
 const STACK_LABEL: Record<SwingStack, string> = { bull: "Bull stack", bear: "Bear stack", mixed: "Mixed", "n/a": "Not enough bars" };
@@ -57,6 +63,12 @@ function sortValue(r: SwingRow, key: SortKey): number | string | null {
     case "d200": return r.ma?.d200 ?? null;
     case "score": return r.ma?.score ?? null;
     case "stack": return r.ma?.stack ?? "zzz";
+    case "leg": return r.reversal?.legUp === null || r.reversal?.legUp === undefined ? null : (r.reversal.legUp ? 1 : -1) * (r.reversal.legBars ?? 0);
+    case "stoch": return r.reversal?.fullK ?? null;
+    // bars-ago sorts ascending-first would be nicer, but the shared hook sorts numeric desc-first; negate so "freshest first" is the default.
+    case "revUp": return r.reversal?.goingUpBarsAgo === null || r.reversal?.goingUpBarsAgo === undefined ? null : -r.reversal.goingUpBarsAgo;
+    case "revDown": return r.reversal?.goingDownBarsAgo === null || r.reversal?.goingDownBarsAgo === undefined ? null : -r.reversal.goingDownBarsAgo;
+    case "signal": return r.reversal?.signal ?? "zzz";
   }
 }
 
@@ -111,6 +123,8 @@ export function SwingStrengthPage() {
   const [fP50, setFP50] = useState<Tri>("");  // price above 50 SMA
   const [fP200, setFP200] = useState<Tri>(""); // price above 200 SMA
   const [minScore, setMinScore] = useState<number>(0);
+  const [fSignal, setFSignal] = useState<"" | "bull" | "bear" | "none">("");
+  const [fLeg, setFLeg] = useState<Tri>("");   // ZigZag leg up (✓) / down (✗)
   const [showUpload, setShowUpload] = useState(false);
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState<"" | "upload" | "scan">("");
@@ -143,10 +157,12 @@ export function SwingStrengthPage() {
     && tri(f1, r.ma?.c10over20) && tri(f2, r.ma?.c20over50) && tri(f3, r.ma?.c50over200)
     && tri(fP50, r.ma?.d50 === null || r.ma?.d50 === undefined ? null : r.ma.d50 > 0)
     && tri(fP200, r.ma?.d200 === null || r.ma?.d200 === undefined ? null : r.ma.d200 > 0)
-    && (minScore === 0 || (r.ma?.score ?? -1) >= minScore)),
-    [rows, fSector, fIndustry, fStack, q, f1, f2, f3, fP50, fP200, minScore]);
-  const anyCondition = f1 || f2 || f3 || fP50 || fP200 || minScore > 0;
-  const clearConditions = () => { setF1(""); setF2(""); setF3(""); setFP50(""); setFP200(""); setMinScore(0); };
+    && (minScore === 0 || (r.ma?.score ?? -1) >= minScore)
+    && (!fSignal || (fSignal === "none" ? !r.reversal?.signal : r.reversal?.signal === fSignal))
+    && tri(fLeg, r.reversal?.legUp)),
+    [rows, fSector, fIndustry, fStack, q, f1, f2, f3, fP50, fP200, minScore, fSignal, fLeg]);
+  const anyCondition = f1 || f2 || f3 || fP50 || fP200 || minScore > 0 || fSignal || fLeg;
+  const clearConditions = () => { setF1(""); setF2(""); setF3(""); setFP50(""); setFP200(""); setMinScore(0); setFSignal(""); setFLeg(""); };
   const { rows: sorted, sortKey, sortDir, onSort } = useTableSort<SwingRow, SortKey>(filtered, sortValue, "score", "desc");
 
   const counts = useMemo(() => {
@@ -154,6 +170,16 @@ export function SwingStrengthPage() {
     for (const r of rows) c[r.ma?.stack ?? "error"] += 1;
     return c;
   }, [rows]);
+  const revCounts = useMemo(() => {
+    const c = { bull: 0, bear: 0, none: 0, legUp: 0, legDown: 0 };
+    for (const r of rows) {
+      const sig = r.reversal?.signal ?? null;
+      if (sig === "bull") c.bull++; else if (sig === "bear") c.bear++; else c.none++;
+      if (r.reversal?.legUp === true) c.legUp++; else if (r.reversal?.legUp === false) c.legDown++;
+    }
+    return c;
+  }, [rows]);
+  const hasLens2 = rows.some((r) => r.reversal);
 
   const onUpload = async () => {
     if (!csv.trim()) return;
@@ -244,6 +270,20 @@ export function SwingStrengthPage() {
             <Tile label="Not enough history" value={`${counts["n/a"] + counts.error}`} sub={counts.error ? `${counts.error} failed to load` : "under 200 daily bars"} cls="text-dim" onClick={() => setFStack(fStack === "n/a" ? "" : "n/a")} active={fStack === "n/a"} />
             <Tile label="Snapshot" value={data.date} sub={`scored ${fmtTimePT(data.generatedAt)} ${PT_LABEL} · ${data.scored}/${data.count}`} />
           </div>
+          {hasLens2 && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <Tile label="Bullish reversal" value={`${revCounts.bull}`} sub="Going_Up fired within 7 bars" cls="text-signal-bull"
+                onClick={() => setFSignal(fSignal === "bull" ? "" : "bull")} active={fSignal === "bull"} />
+              <Tile label="Bearish reversal" value={`${revCounts.bear}`} sub="Going_Down fired within 7 bars" cls="text-signal-bear"
+                onClick={() => setFSignal(fSignal === "bear" ? "" : "bear")} active={fSignal === "bear"} />
+              <Tile label="No fresh cross" value={`${revCounts.none}`} sub="neither in the window"
+                onClick={() => setFSignal(fSignal === "none" ? "" : "none")} active={fSignal === "none"} />
+              <Tile label="Leg up" value={`${revCounts.legUp}`} sub="ZigZag leg rising (TOS “Bullish”)" cls="text-signal-bull"
+                onClick={() => setFLeg(fLeg === "y" ? "" : "y")} active={fLeg === "y"} />
+              <Tile label="Leg down" value={`${revCounts.legDown}`} sub="ZigZag leg falling" cls="text-signal-bear"
+                onClick={() => setFLeg(fLeg === "n" ? "" : "n")} active={fLeg === "n"} />
+            </div>
+          )}
 
           <div className="flex items-center gap-2 flex-wrap text-[11px]">
             <select value={fSector} onChange={(e) => { setFSector(e.target.value); setFIndustry(""); }} className="bg-bg-primary border border-border rounded px-2 py-1 text-text-primary">
@@ -260,7 +300,7 @@ export function SwingStrengthPage() {
               <button onClick={() => { setFSector(""); setFIndustry(""); setFStack(""); setQ(""); clearConditions(); }} className="text-text-secondary hover:text-text-primary underline">clear all</button>
             )}
             <span className="flex-1" />
-            <span className="text-dim">Lens 2 (reversal) and Lens 3 (Weinstein stage) arrive in the next phases.</span>
+            <span className="text-dim">{hasLens2 ? "Lens 3 (Weinstein stage) arrives in the next phase." : "Lens 2 (reversal) and Lens 3 (Weinstein stage) arrive in the next phases."}</span>
           </div>
 
           <div className="bg-bg-card border border-border rounded">
@@ -272,6 +312,15 @@ export function SwingStrengthPage() {
               <span className="w-px h-4 bg-border mx-1" />
               <TriChip label="price vs 50" value={fP50} onChange={setFP50} yes="above" no="below" title="Price above or below the 50 SMA" />
               <TriChip label="price vs 200" value={fP200} onChange={setFP200} yes="above" no="below" title="Price above or below the 200 SMA" />
+              <span className="w-px h-4 bg-border mx-1" />
+              <TriChip label="leg" value={fLeg} onChange={setFLeg} yes="up" no="down" title="ZigZag leg direction (the study's Bullish plot)" />
+              <select value={fSignal} onChange={(e) => setFSignal(e.target.value as "" | "bull" | "bear" | "none")}
+                className="bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary" title="Reversal badge">
+                <option value="">reversal: any</option>
+                <option value="bull">bullish reversal</option>
+                <option value="bear">bearish reversal</option>
+                <option value="none">no fresh cross</option>
+              </select>
               <span className="w-px h-4 bg-border mx-1" />
               <label className="flex items-center gap-1 text-text-secondary">
                 score ≥
@@ -309,6 +358,24 @@ export function SwingStrengthPage() {
                     <td className={`px-2 py-1 whitespace-nowrap font-semibold ${r.ma ? STACK_TONE[r.ma.stack] : "text-signal-bear"}`}>
                       {r.ma ? STACK_LABEL[r.ma.stack] : (r.error ?? "error")}
                     </td>
+                    <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap"
+                      title={r.reversal ? `leg from ${r.reversal.legFrom ?? "—"} to ${r.reversal.legExtreme ?? "—"} · flips on a ${r.reversal.thresholdPct ?? "—"}% reversal of EMA5 high/low` : ""}>
+                      {r.reversal?.legUp === true ? <span className="text-signal-bull">↑ {r.reversal.legBars}b</span>
+                        : r.reversal?.legUp === false ? <span className="text-signal-bear">↓ {r.reversal.legBars}b</span>
+                        : <span className="text-dim">—</span>}
+                    </td>
+                    <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap text-text-secondary">
+                      {r.reversal?.fullK !== null && r.reversal?.fullK !== undefined ? `${r.reversal.fullK.toFixed(0)} / ${(r.reversal.fullD ?? 0).toFixed(0)}` : "—"}
+                    </td>
+                    <td className={`px-2 py-1 text-right tabular-nums ${r.reversal?.goingUpBarsAgo !== null && r.reversal?.goingUpBarsAgo !== undefined && r.reversal.goingUpBarsAgo < 7 ? "text-signal-bull font-semibold" : "text-text-secondary"}`}>
+                      {r.reversal?.goingUpBarsAgo === null || r.reversal?.goingUpBarsAgo === undefined ? "—" : r.reversal.goingUpBarsAgo === 0 ? "today" : `${r.reversal.goingUpBarsAgo}b ago`}
+                    </td>
+                    <td className={`px-2 py-1 text-right tabular-nums ${r.reversal?.goingDownBarsAgo !== null && r.reversal?.goingDownBarsAgo !== undefined && r.reversal.goingDownBarsAgo < 7 ? "text-signal-bear font-semibold" : "text-text-secondary"}`}>
+                      {r.reversal?.goingDownBarsAgo === null || r.reversal?.goingDownBarsAgo === undefined ? "—" : r.reversal.goingDownBarsAgo === 0 ? "today" : `${r.reversal.goingDownBarsAgo}b ago`}
+                    </td>
+                    <td className={`px-2 py-1 whitespace-nowrap font-semibold ${r.reversal?.signal === "bull" ? "text-signal-bull" : r.reversal?.signal === "bear" ? "text-signal-bear" : "text-dim"}`}>
+                      {r.reversal?.signal === "bull" ? "Bullish" : r.reversal?.signal === "bear" ? "Bearish" : r.reversal ? "·" : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -316,7 +383,10 @@ export function SwingStrengthPage() {
             </div>
           </div>
           <p className="text-[10px] text-dim">
-            Daily closes from Polygon (adjusted), two years. 10/20 are exponential, 50/200 simple. Distances are price vs the average. Snapshots are stored per trading day and never overwritten by a later day.
+            Daily closes from Polygon (adjusted), two years. 10/20 are exponential, 50/200 simple. Distances are price vs the average.
+            Reversal columns are the operator&apos;s ThinkOrSwim &ldquo;Jonesy Signals&rdquo; study ported as written: Leg is the ZigZagHighLow direction on EMA5 highs/lows
+            (1% + 2×ATR(5) + $0.05 reversal), K / D is StochasticFull 8·12·3, Bull rev / Bear rev are bars since Going_Up / Going_Down last fired, and the Reversal badge is the more
+            recent of the two if it fired within 7 bars. Snapshots are stored per trading day and never overwritten by a later day.
           </p>
         </>
       )}

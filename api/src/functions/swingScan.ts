@@ -3,6 +3,7 @@ import { gzipSync, gunzipSync } from "zlib";
 import { upsert, getOne, listAll, TABLES } from "../lib/tables.js";
 import { fetchDailyBarsExtended } from "../lib/polygon.js";
 import { computeMaStack, type MaStack } from "../lib/swing/maStack.js";
+import { computeReversal, type ReversalRead } from "../lib/swing/reversal.js";
 import { loadUniverse } from "./swingUniverse.js";
 
 /**
@@ -32,7 +33,7 @@ export interface SwingRow {
   /** ET date of the last daily bar used. */
   asOf: string | null;
   ma: MaStack | null;
-  reversal: null;
+  reversal: ReversalRead | null;
   stage: null;
   error?: string;
 }
@@ -72,14 +73,14 @@ async function scoreAll(ctx: InvocationContext): Promise<SwingSnapshot> {
   const startedAt = Date.now();
   let lastBar = "";
   const rows = await pool(universe, CONCURRENCY, async (u): Promise<SwingRow> => {
-    const base = { ticker: u.ticker, company: u.company, sector: u.sector, industry: u.industry, marketCapM: u.marketCapM, extras: u.extras, reversal: null, stage: null } as const;
+    const base = { ticker: u.ticker, company: u.company, sector: u.sector, industry: u.industry, marketCapM: u.marketCapM, extras: u.extras, reversal: null as ReversalRead | null, stage: null } as const;
     try {
       const bars = await fetchDailyBarsExtended(u.ticker, 2);
       if (bars.length < 30) return { ...base, asOf: null, ma: null, error: `only ${bars.length} daily bars` };
       const closes = bars.map((b) => b.close);
       const asOf = etDate(new Date(bars[bars.length - 1].timestamp));
       if (asOf > lastBar) lastBar = asOf;
-      return { ...base, asOf, ma: computeMaStack(closes) };
+      return { ...base, asOf, ma: computeMaStack(closes), reversal: computeReversal(bars) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       ctx.warn(`swing-scan ${u.ticker}: ${message}`);
@@ -124,7 +125,8 @@ async function scan(req: HttpRequest, ctx: InvocationContext): Promise<HttpRespo
   const snap = await scoreAll(ctx);
   await store(snap);
   const stacks = snap.rows.reduce<Record<string, number>>((m, r) => { const k = r.ma?.stack ?? "error"; m[k] = (m[k] ?? 0) + 1; return m; }, {});
-  return { jsonBody: { status: "ok", date: snap.date, count: snap.count, scored: snap.scored, failed: snap.failed, stacks } };
+  const reversals = snap.rows.reduce<Record<string, number>>((m, r) => { const k = r.reversal?.signal ?? "none"; m[k] = (m[k] ?? 0) + 1; return m; }, {});
+  return { jsonBody: { status: "ok", date: snap.date, count: snap.count, scored: snap.scored, failed: snap.failed, stacks, reversals } };
 }
 
 async function results(req: HttpRequest): Promise<HttpResponseInit> {
