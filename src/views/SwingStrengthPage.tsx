@@ -457,7 +457,7 @@ export function SwingStrengthPage() {
                     <td className="px-2 py-1 text-right tabular-nums text-text-secondary">{r.stage?.weeksInStage ?? "—"}</td>
                     <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.distPct)}`} title={r.stage?.sma30 ? `30-wk SMA ${r.stage.sma30}` : ""}>{fmtPct(r.stage?.distPct)}</td>
                     <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.slope4wPct)}`}>{fmtPct(r.stage?.slope4wPct)}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.mrs)}`}>{r.stage?.mrs === null || r.stage?.mrs === undefined ? "—" : `${r.stage.mrs > 0 ? "+" : ""}${r.stage.mrs.toFixed(0)}`}</td>
+                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.mrs)}`}>{r.stage?.mrs === null || r.stage?.mrs === undefined ? "—" : (() => { const v = Math.round(r.stage!.mrs!); return v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : "0"; })()}</td>
                     <td className={`px-2 py-1 text-right tabular-nums ${(r.stage?.rvol ?? 0) >= 1.5 ? "text-text-primary font-semibold" : "text-text-secondary"}`}>{r.stage?.rvol === null || r.stage?.rvol === undefined ? "—" : `${r.stage.rvol.toFixed(1)}×`}</td>
                   </tr>
                 ))}
