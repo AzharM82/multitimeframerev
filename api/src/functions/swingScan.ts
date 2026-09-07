@@ -6,6 +6,7 @@ import { computeMaStack, type MaStack } from "../lib/swing/maStack.js";
 import { computeReversal, type ReversalRead } from "../lib/swing/reversal.js";
 import { toWeekly, type WeeklyBar } from "../lib/swing/weekly.js";
 import { computeStage, type StageRead } from "../lib/swing/stages.js";
+import { computeRs, rsRaw, rankRs, type RsRead } from "../lib/swing/rs.js";
 import { loadUniverse } from "./swingUniverse.js";
 
 /**
@@ -48,6 +49,8 @@ export interface SwingRow {
   /** ET date of the last daily bar used. */
   asOf: string | null;
   px: SwingPx | null;
+  /** RS strength: weighted 12-month return ranked 1–99 within the list. */
+  rs: RsRead | null;
   ma: MaStack | null;
   reversal: ReversalRead | null;
   stage: StageRead | null;
@@ -91,10 +94,14 @@ async function scoreAll(ctx: InvocationContext): Promise<SwingSnapshot> {
   // Benchmark weekly bars for Mansfield RS, fetched once. If SPY fails, stages
   // are still computed with MRS = null rather than failing the whole scan.
   let spyWeekly: WeeklyBar[] = [];
-  try { spyWeekly = toWeekly(await fetchDailyBarsExtended("SPY", 2)); }
-  catch (err) { ctx.warn(`swing-scan: SPY bars unavailable, MRS will be null: ${err instanceof Error ? err.message : String(err)}`); }
+  let spyRaw: number | null = null;
+  try {
+    const spyDaily = await fetchDailyBarsExtended("SPY", 2);
+    spyWeekly = toWeekly(spyDaily);
+    spyRaw = rsRaw(spyDaily.map((b) => b.close));
+  } catch (err) { ctx.warn(`swing-scan: SPY bars unavailable, MRS and RS vs SPY will be null: ${err instanceof Error ? err.message : String(err)}`); }
   const rows = await pool(universe, CONCURRENCY, async (u): Promise<SwingRow> => {
-    const base = { ticker: u.ticker, company: u.company, sector: u.sector, industry: u.industry, marketCapM: u.marketCapM, extras: u.extras, px: null as SwingPx | null, reversal: null as ReversalRead | null, stage: null as StageRead | null } as const;
+    const base = { ticker: u.ticker, company: u.company, sector: u.sector, industry: u.industry, marketCapM: u.marketCapM, extras: u.extras, px: null as SwingPx | null, rs: null as RsRead | null, reversal: null as ReversalRead | null, stage: null as StageRead | null } as const;
     try {
       const bars = await fetchDailyBarsExtended(u.ticker, 2);
       if (bars.length < 30) return { ...base, asOf: null, ma: null, error: `only ${bars.length} daily bars` };
@@ -107,7 +114,7 @@ async function scoreAll(ctx: InvocationContext): Promise<SwingSnapshot> {
         last: endBar.close, open: endBar.open, prevClose: prev?.close ?? null,
         changePct: pct(endBar.close, prev?.close), fromOpenPct: pct(endBar.close, endBar.open), weekPct: pct(endBar.close, wk?.close),
       };
-      return { ...base, asOf, px, ma: computeMaStack(closes), reversal: computeReversal(bars), stage: computeStage(toWeekly(bars), spyWeekly) };
+      return { ...base, asOf, px, rs: computeRs(closes, spyRaw), ma: computeMaStack(closes), reversal: computeReversal(bars), stage: computeStage(toWeekly(bars), spyWeekly) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       ctx.warn(`swing-scan ${u.ticker}: ${message}`);
@@ -115,6 +122,9 @@ async function scoreAll(ctx: InvocationContext): Promise<SwingSnapshot> {
     }
   });
   rows.sort((a, b) => a.ticker.localeCompare(b.ticker));
+  // RS rank is relative to the list, so it can only be assigned once every name is scored.
+  const ranks = rankRs(rows.map((r) => r.rs?.raw ?? null));
+  rows.forEach((r, i) => { if (r.rs) r.rs.rank = ranks[i]; });
   const snap: SwingSnapshot = {
     date: lastBar || etDate(),
     generatedAt: new Date().toISOString(),
