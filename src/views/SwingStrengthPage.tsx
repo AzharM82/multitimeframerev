@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SwingResultsResponse, SwingRow, SwingStack, SwingReversalState, SwingSubStage } from "../types.js";
 import { getSwingResults, getSwingUniverse, uploadSwingUniverse, runSwingScan } from "../services/api.js";
 import { useTableSort, SortHeaderRow, type SortColumn } from "./shared/tableSort.js";
+import { SwingGroups, type GroupLevel } from "./swing/SwingGroups.js";
 import { fmtTimePT, PT_LABEL } from "../utils/time.js";
 
 /**
@@ -159,6 +160,7 @@ export function SwingStrengthPage() {
   const [fLeg, setFLeg] = useState<Tri>("");   // ZigZag leg up (✓) / down (✗)
   const [fStage, setFStage] = useState<"" | "1" | "2" | "3" | "4" | SwingSubStage>("");
   const [fBreakout, setFBreakout] = useState<Tri>("");
+  const [groupLevel, setGroupLevel] = useState<GroupLevel>("sector");
   const [showUpload, setShowUpload] = useState(false);
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState<"" | "upload" | "scan">("");
@@ -338,6 +340,19 @@ export function SwingStrengthPage() {
             </div>
           )}
 
+          <SwingGroups rows={rows} level={groupLevel} onLevel={setGroupLevel}
+            activeKey={groupLevel === "sector" ? fSector : fIndustry}
+            onPick={(key) => {
+              if (groupLevel === "sector") { setFSector(fSector === key ? "" : key); setFIndustry(""); }
+              else {
+                const next = fIndustry === key ? "" : key;
+                setFIndustry(next);
+                // an industry belongs to one sector; keep the sector select consistent
+                setFSector(next ? (rows.find((r) => r.industry === next)?.sector ?? "") : "");
+              }
+              document.getElementById("swing-table")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }} />
+
           <div className="flex items-center gap-2 flex-wrap text-[11px]">
             <select value={fSector} onChange={(e) => { setFSector(e.target.value); setFIndustry(""); }} className="bg-bg-primary border border-border rounded px-2 py-1 text-text-primary">
               <option value="">All sectors</option>
@@ -353,10 +368,10 @@ export function SwingStrengthPage() {
               <button onClick={() => { setFSector(""); setFIndustry(""); setFStack(""); setQ(""); clearConditions(); }} className="text-text-secondary hover:text-text-primary underline">clear all</button>
             )}
             <span className="flex-1" />
-            <span className="text-dim">{hasLens3 ? "Group rollups arrive in the next phase." : hasLens2 ? "Lens 3 (Weinstein stage) arrives in the next phase." : "Lens 2 (reversal) and Lens 3 (Weinstein stage) arrive in the next phases."}</span>
+            {!hasLens3 && <span className="text-dim">{hasLens2 ? "Lens 3 (Weinstein stage) arrives in the next phase." : "Lens 2 (reversal) and Lens 3 (Weinstein stage) arrive in the next phases."}</span>}
           </div>
 
-          <div className="bg-bg-card border border-border rounded">
+          <div id="swing-table" className="bg-bg-card border border-border rounded">
             <div className="flex items-center gap-1.5 flex-wrap px-2 py-1.5 border-b border-border text-[10px]">
               <span className="uppercase tracking-wider text-text-secondary mr-1">Conditions</span>
               <TriChip label="10 > 20" value={f1} onChange={setF1} title="10 EMA above 20 EMA" />
