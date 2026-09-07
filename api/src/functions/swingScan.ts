@@ -25,6 +25,19 @@ import { loadUniverse } from "./swingUniverse.js";
  * PK = "latest" so the tab needs no date scan.
  */
 
+/** EOD price context from the same daily bars the lenses use. */
+export interface SwingPx {
+  last: number;
+  open: number;
+  prevClose: number | null;
+  /** close vs previous close, % */
+  changePct: number | null;
+  /** close vs today's open, % */
+  fromOpenPct: number | null;
+  /** close vs the close 5 trading days earlier, % */
+  weekPct: number | null;
+}
+
 export interface SwingRow {
   ticker: string;
   company: string;
@@ -34,6 +47,7 @@ export interface SwingRow {
   extras: Record<string, number>;
   /** ET date of the last daily bar used. */
   asOf: string | null;
+  px: SwingPx | null;
   ma: MaStack | null;
   reversal: ReversalRead | null;
   stage: StageRead | null;
@@ -80,14 +94,20 @@ async function scoreAll(ctx: InvocationContext): Promise<SwingSnapshot> {
   try { spyWeekly = toWeekly(await fetchDailyBarsExtended("SPY", 2)); }
   catch (err) { ctx.warn(`swing-scan: SPY bars unavailable, MRS will be null: ${err instanceof Error ? err.message : String(err)}`); }
   const rows = await pool(universe, CONCURRENCY, async (u): Promise<SwingRow> => {
-    const base = { ticker: u.ticker, company: u.company, sector: u.sector, industry: u.industry, marketCapM: u.marketCapM, extras: u.extras, reversal: null as ReversalRead | null, stage: null as StageRead | null } as const;
+    const base = { ticker: u.ticker, company: u.company, sector: u.sector, industry: u.industry, marketCapM: u.marketCapM, extras: u.extras, px: null as SwingPx | null, reversal: null as ReversalRead | null, stage: null as StageRead | null } as const;
     try {
       const bars = await fetchDailyBarsExtended(u.ticker, 2);
       if (bars.length < 30) return { ...base, asOf: null, ma: null, error: `only ${bars.length} daily bars` };
       const closes = bars.map((b) => b.close);
       const asOf = etDate(new Date(bars[bars.length - 1].timestamp));
       if (asOf > lastBar) lastBar = asOf;
-      return { ...base, asOf, ma: computeMaStack(closes), reversal: computeReversal(bars), stage: computeStage(toWeekly(bars), spyWeekly) };
+      const endBar = bars[bars.length - 1], prev = bars.length > 1 ? bars[bars.length - 2] : null, wk = bars.length > 5 ? bars[bars.length - 6] : null;
+      const pct = (a: number, b: number | null | undefined) => (b ? Math.round(((a - b) / b) * 10000) / 100 : null);
+      const px: SwingPx = {
+        last: endBar.close, open: endBar.open, prevClose: prev?.close ?? null,
+        changePct: pct(endBar.close, prev?.close), fromOpenPct: pct(endBar.close, endBar.open), weekPct: pct(endBar.close, wk?.close),
+      };
+      return { ...base, asOf, px, ma: computeMaStack(closes), reversal: computeReversal(bars), stage: computeStage(toWeekly(bars), spyWeekly) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       ctx.warn(`swing-scan ${u.ticker}: ${message}`);
