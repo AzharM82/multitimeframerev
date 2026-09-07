@@ -1131,6 +1131,8 @@ export interface SwingMaStack {
   bars: number;
 }
 
+export interface SwingRs { raw: number; r3m: number; r6m: number; r9m: number; r12m: number; vsSpy: number | null; rank: number | null }
+
 export interface SwingRow {
   ticker: string;
   company: string;
@@ -1141,6 +1143,8 @@ export interface SwingRow {
   asOf: string | null;
   /** EOD price context from the scan's daily bars (absent on snapshots scored before it existed). */
   px: { last: number; open: number; prevClose: number | null; changePct: number | null; fromOpenPct: number | null; weekPct: number | null } | null;
+  /** RS strength: IBD-style weighted 12-month return, ranked 1–99 within the list. */
+  rs: SwingRs | null;
   ma: SwingMaStack | null;
   reversal: SwingReversal | null;
   stage: SwingStage | null;

@@ -12,6 +12,7 @@ import { ema, sma, computeMaStack } from "../dist/lib/swing/maStack.js";
 import { expAverage, simpleAverage, trueRange, stochasticFull, crossesFromKD, badgeFor, zigZagState, computeReversal, bullishSeries, stateFor, turnAgo, TRIGGER_BARS, JONESY } from "../dist/lib/swing/reversal.js";
 import { toWeekly, weekEndFor } from "../dist/lib/swing/weekly.js";
 import { computeStage, STAGES } from "../dist/lib/swing/stages.js";
+import { returnOver, rsRaw, computeRs, rankRs, RS } from "../dist/lib/swing/rs.js";
 
 let pass = 0;
 const failures = [];
@@ -185,6 +186,22 @@ const sbo = computeStage(bo, benchFor(60));
 check("52-week high on 3× volume in Stage 2 → breakout", [sbo.stage, sbo.breakout, sbo.rvol >= STAGES.BREAKOUT_RVOL], [2, true, true]);
 check("too little history → null stage with a reason", [computeStage(up.slice(0, 20), benchFor(20)).stage, computeStage(up.slice(0, 20), benchFor(20)).why.includes("weeks")], [null, true]);
 check("missing benchmark → MRS null, stage still assigned", [computeStage(up, []).stage, computeStage(up, []).mrs], [2, null]);
+
+// ─── RS strength ────────────────────────────────────────────────────────────
+check("RS constants pinned", [RS.QUARTER_BARS, RS.RECENT_WEIGHT, RS.MIN_BARS], [63, 2, 252]);
+// A close series that doubles every 63 bars: r3m = 100%, r6m = 300%, r9m = 700%, r12m = 1500%.
+const dbl = Array.from({ length: 253 }, (_, i) => Math.pow(2, i / 63));
+check("returnOver reads N bars back", [returnOver(dbl, 63), Math.round(returnOver(dbl, 126))], [100, 300]);
+check("returnOver with too little history → null", returnOver([1, 2, 3], 3), null);
+check("rsRaw = 2×3m + 6m + 9m + 12m", Math.round(rsRaw(dbl)), 2 * 100 + 300 + 700 + 1500);
+check("rsRaw needs 252 bars", rsRaw(dbl.slice(1)), null);
+const flatPx = Array.from({ length: 300 }, () => 50);
+check("flat stock, SPY +40 → vsSpy −40, rank unset", (() => { const r = computeRs(flatPx, 40); return [r.raw, r.vsSpy, r.rank]; })(), [0, -40, null]);
+check("SPY unavailable → vsSpy null", computeRs(flatPx, null).vsSpy, null);
+check("rank 1..99, ties share, nulls skipped", rankRs([10, 30, 20, null, 30, -5]), [26, 99, 50, null, 99, 1]);
+check("rank with one scored name is 99", rankRs([null, 7]), [null, 99]);
+check("rank: middle tie, all tied", [rankRs([1, 2, 2, 3]), rankRs([4, 4])], [[1, 50, 50, 99], [50, 50]]);
+check("rank with nothing scored", rankRs([null, null]), [null, null]);
 
 console.log(`${pass} passed, ${failures.length} failed`);
 for (const f of failures) console.log(`  ✗ ${f}`);

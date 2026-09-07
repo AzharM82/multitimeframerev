@@ -26,12 +26,14 @@ import { fmtTimePT, PT_LABEL } from "../utils/time.js";
 
 // ─── Columns ────────────────────────────────────────────────────────────────
 
-type SortKey = "ticker" | "sector" | "industry" | "mcap" | "last" | "chg" | "open" | "week"
+type SortKey = "ticker" | "sector" | "industry" | "mcap" | "last" | "chg" | "open" | "week" | "rs"
   | "d10" | "d20" | "d50" | "d200" | "score" | "stack"
   | "leg" | "stoch" | "revUp" | "revDown" | "signal"
   | "stage" | "wk" | "d30" | "slope" | "mrs" | "rvol";
 
-const COLUMNS: SortColumn<SortKey>[] = [
+type SwingColumn = SortColumn<SortKey> & { extra?: boolean };
+
+const COLUMNS: SwingColumn[] = [
   { key: "ticker", label: "Ticker", num: false, title: "Click a ticker to open it in TradingView" },
   { key: "sector", label: "Sector", num: false },
   { key: "industry", label: "Industry", num: false },
@@ -40,30 +42,42 @@ const COLUMNS: SortColumn<SortKey>[] = [
   { key: "chg", label: "% Chg", num: true, title: "Close vs previous close" },
   { key: "open", label: "From open", num: true, title: "Close vs the day's open" },
   { key: "week", label: "Week", num: true, title: "Close vs the close 5 trading days earlier" },
-  { key: "d10", label: "vs 10 EMA", num: true, title: "% distance of price from the 10-day EMA" },
-  { key: "d20", label: "vs 20 EMA", num: true },
-  { key: "d50", label: "vs 50 SMA", num: true },
-  { key: "d200", label: "vs 200 SMA", num: true },
-  { key: "score", label: "10>20 · 20>50 · 50>200", num: true, title: "The three inequalities of the stack" },
-  { key: "stack", label: "Stack", num: false },
-  { key: "leg", label: "Leg", num: true, title: "ZigZag leg direction and bars since it began" },
-  { key: "stoch", label: "K / D", num: true, title: "StochasticFull 8·12·3 on the last bar" },
-  { key: "revUp", label: "Bull rev", num: true, title: "Bars since Going_Up last fired. 0 = today" },
-  { key: "revDown", label: "Bear rev", num: true, title: "Bars since Going_Down last fired. 0 = today" },
-  { key: "signal", label: "Reversal", num: false, title: "The study's Bullish plot as four states: Triggered = turned within 2 bars, In progress = older" },
+  { key: "rs", label: "RS", num: true, title: "RS strength 1–99: IBD-style weighted 12-month return (2×3m + 6m + 9m + 12m), ranked within this list — 99 = strongest of these names. Hover a value for the four returns and the gap to SPY" },
+  { key: "d10", label: "10 EMA", num: true, title: "% distance of price from the 10-day EMA" },
+  { key: "d20", label: "20 EMA", num: true, title: "% distance of price from the 20-day EMA" },
+  { key: "d50", label: "50 SMA", num: true, title: "% distance of price from the 50-day SMA" },
+  { key: "d200", label: "200 SMA", num: true, title: "% distance of price from the 200-day SMA" },
+  { key: "score", label: "Stack", num: true, title: "10>20 · 20>50 · 50>200 as three checks, then the verdict; sorts by the count of checks" },
+  { key: "leg", label: "Leg", num: true, title: "ZigZag leg direction and bars since it began", extra: true },
+  { key: "stoch", label: "K / D", num: true, title: "StochasticFull 8·12·3 on the last bar", extra: true },
+  { key: "revUp", label: "Bull rev", num: true, title: "Bars since Going_Up last fired. 0 = today", extra: true },
+  { key: "revDown", label: "Bear rev", num: true, title: "Bars since Going_Down last fired. 0 = today", extra: true },
+  { key: "signal", label: "Reversal", num: false, title: "The study's Bullish plot as four states: triggered = turned within 2 bars, in progress = older; the number is bars since the turn" },
   { key: "stage", label: "Stage", num: false, title: "Weinstein stage on weekly bars with the spec's sub-stage" },
   { key: "wk", label: "Wks", num: true, title: "Consecutive weeks in the current primary stage" },
-  { key: "d30", label: "vs 30w", num: true, title: "% distance of the weekly close from the 30-week SMA" },
-  { key: "slope", label: "Slope", num: true, title: "% change of the 30-week SMA over 4 weeks" },
+  { key: "d30", label: "30w", num: true, title: "% distance of the weekly close from the 30-week SMA" },
+  { key: "slope", label: "Slope", num: true, title: "% change of the 30-week SMA over 4 weeks", extra: true },
   { key: "mrs", label: "MRS", num: true, title: "Mansfield relative strength vs SPY" },
-  { key: "rvol", label: "RVOL", num: true, title: "This week's volume / 20-week average" },
+  { key: "rvol", label: "RVOL", num: true, title: "This week's volume / 20-week average", extra: true },
 ];
 
+/** Short sector names for the table (the filter keeps the full ones). */
+const SECTOR_SHORT: Record<string, string> = {
+  Technology: "Tech", "Consumer Cyclical": "Cons Cycl", "Consumer Defensive": "Cons Def", "Communication Services": "Comm Svcs",
+  Healthcare: "Health", "Basic Materials": "Materials", "Real Estate": "Real Est", Financial: "Fin",
+};
+const sectorShort = (sec: string) => SECTOR_SHORT[sec] ?? sec;
+
 const STACK_LABEL: Record<SwingStack, string> = { bull: "Bull stack", bear: "Bear stack", mixed: "Mixed", "n/a": "Not enough bars" };
+const STACK_SHORT: Record<SwingStack, string> = { bull: "Bull", bear: "Bear", mixed: "Mixed", "n/a": "n/a" };
 const STACK_TONE: Record<SwingStack, string> = { bull: "text-signal-bull", bear: "text-signal-bear", mixed: "text-text-secondary", "n/a": "text-dim" };
 const STATE_LABEL: Record<SwingReversalState, string> = {
   "bull-triggered": "Bullish · triggered", "bull-inprogress": "Bullish · in progress",
   "bear-triggered": "Bearish · triggered", "bear-inprogress": "Bearish · in progress",
+};
+const STATE_SHORT: Record<SwingReversalState, string> = {
+  "bull-triggered": "Bull trig", "bull-inprogress": "Bull in-prog",
+  "bear-triggered": "Bear trig", "bear-inprogress": "Bear in-prog",
 };
 const STATE_TONE: Record<SwingReversalState, string> = {
   "bull-triggered": "text-signal-bull", "bull-inprogress": "text-signal-bull/80",
@@ -83,6 +97,9 @@ const fmtPct = (v: number | null | undefined, dp = 1) =>
 const pctTone = (v: number | null | undefined) =>
   v === null || v === undefined ? "text-dim" : v > 0 ? "text-signal-bull" : v < 0 ? "text-signal-bear" : "text-text-secondary";
 const fmtCap = (m: number | null) => (m === null ? "—" : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}B` : `${m.toFixed(0)}M`);
+/** RS rank tone: top quintile bull, bottom quintile bear. */
+const rsTone = (v: number | null | undefined) => (v === null || v === undefined ? "text-dim" : v >= 80 ? "text-signal-bull font-semibold" : v <= 20 ? "text-signal-bear" : "text-text-secondary");
+
 const tvUrl = (t: string) => `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(t.replace("-", "."))}`;
 
 function sortValue(r: SwingRow, key: SortKey): number | string | null {
@@ -95,6 +112,7 @@ function sortValue(r: SwingRow, key: SortKey): number | string | null {
     case "chg": return r.px?.changePct ?? null;
     case "open": return r.px?.fromOpenPct ?? null;
     case "week": return r.px?.weekPct ?? null;
+    case "rs": return r.rs?.rank ?? null;
     case "d10": return r.ma?.d10 ?? null;
     case "d20": return r.ma?.d20 ?? null;
     case "d50": return r.ma?.d50 ?? null;
@@ -197,9 +215,12 @@ export function SwingStrengthPage() {
   const [fP50, setFP50] = useState<Tri>(""); const [fP200, setFP200] = useState<Tri>("");
   const [fLeg, setFLeg] = useState<Tri>("");
   const [minScore, setMinScore] = useState<number>(0);
+  const [minRs, setMinRs] = useState<number>(0);
 
   const [groupLevel, setGroupLevel] = useState<GroupLevel>("sector");
   const [showGroups, setShowGroups] = useState(false);
+  const [allCols, setAllCols] = useState(false);
+  const visibleCols = useMemo(() => COLUMNS.filter((c) => allCols || !c.extra), [allCols]);
   const [showUpload, setShowUpload] = useState(false);
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState<"" | "upload" | "scan">("");
@@ -253,17 +274,18 @@ export function SwingStrengthPage() {
     && tri(fP50, r.ma?.d50 === null || r.ma?.d50 === undefined ? null : r.ma.d50 > 0)
     && tri(fP200, r.ma?.d200 === null || r.ma?.d200 === undefined ? null : r.ma.d200 > 0)
     && tri(fLeg, r.reversal?.legUp)
-    && (minScore === 0 || (r.ma?.score ?? -1) >= minScore)),
-    [rows, stackSet, revSet, stageSet, breakoutOnly, fSector, fIndustry, q, f1, f2, f3, fP50, fP200, fLeg, minScore]);
+    && (minScore === 0 || (r.ma?.score ?? -1) >= minScore)
+    && (minRs === 0 || (r.rs?.rank ?? -1) >= minRs)),
+    [rows, stackSet, revSet, stageSet, breakoutOnly, fSector, fIndustry, q, f1, f2, f3, fP50, fP200, fLeg, minScore, minRs]);
   const { rows: sorted, sortKey, sortDir, onSort } = useTableSort<SwingRow, SortKey>(filtered, sortValue, "open", "desc");
 
   const isDefault = stackSet.size === 1 && stackSet.has("bull")
     && revSet.size === 2 && revSet.has("bull-triggered") && revSet.has("bull-inprogress")
     && stageSet.size === 2 && stageSet.has("2A") && stageSet.has("2B") && !breakoutOnly;
-  const moreActive = !!(f1 || f2 || f3 || fP50 || fP200 || fLeg || minScore > 0);
+  const moreActive = !!(f1 || f2 || f3 || fP50 || fP200 || fLeg || minScore > 0 || minRs > 0);
   const resetAll = () => {
     selStack.reset(DEFAULT_STACK); selRev.reset(DEFAULT_REV); selStage.reset(DEFAULT_STAGE); setBreakoutOnly(false);
-    setFSector(""); setFIndustry(""); setQ(""); setF1(""); setF2(""); setF3(""); setFP50(""); setFP200(""); setFLeg(""); setMinScore(0);
+    setFSector(""); setFIndustry(""); setQ(""); setF1(""); setF2(""); setF3(""); setFP50(""); setFP200(""); setFLeg(""); setMinScore(0); setMinRs(0);
   };
   const clearLenses = () => { selStack.reset([]); selRev.reset([]); selStage.reset([]); setBreakoutOnly(false); };
 
@@ -289,7 +311,7 @@ export function SwingStrengthPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-3">
+    <div className="w-full space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold">Swing Strength</h1>
@@ -312,6 +334,11 @@ export function SwingStrengthPage() {
           <button onClick={() => setShowGroups((v) => !v)}
             className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${showGroups ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"}`}>
             groups
+          </button>
+          <button onClick={() => setAllCols((v) => !v)}
+            title="Show the diagnostic columns too: leg, K/D, bars since the stochastic crosses, 30-week slope, RVOL"
+            className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${allCols ? "bg-text-primary text-bg-primary border-text-primary" : "border-border text-text-secondary hover:text-text-primary"}`}>
+            all columns
           </button>
           <button onClick={() => setShowUpload((v) => !v)}
             className="px-2.5 py-1 rounded-full text-[10px] font-semibold border border-border text-text-secondary hover:text-text-primary">
@@ -420,6 +447,12 @@ export function SwingStrengthPage() {
                     {[0, 1, 2, 3].map((n) => <option key={n} value={n}>{n === 0 ? "any" : `${n}/3`}</option>)}
                   </select>
                 </label>
+                <label className="flex items-center gap-1 text-text-secondary" title="RS strength rank within the list">
+                  RS ≥
+                  <select value={minRs} onChange={(e) => setMinRs(Number(e.target.value))} className="bg-bg-primary border border-border rounded px-1 py-0.5 text-[10px] text-text-primary">
+                    {[0, 50, 70, 80, 90].map((n) => <option key={n} value={n}>{n === 0 ? "any" : n}</option>)}
+                  </select>
+                </label>
               </div>
             )}
           </div>
@@ -441,75 +474,78 @@ export function SwingStrengthPage() {
           <div id="swing-table" className="bg-bg-card border border-border rounded overflow-x-auto">
             <table className="w-full text-[12px]">
               <thead>
-                <SortHeaderRow columns={COLUMNS} sortKey={sortKey} sortDir={sortDir} onSort={onSort}
+                <SortHeaderRow columns={visibleCols} sortKey={sortKey} sortDir={sortDir} onSort={onSort}
                   rowClass="text-[10px] uppercase tracking-wider text-text-secondary border-b border-border"
-                  cellClass="px-2 py-1.5 font-semibold whitespace-nowrap" />
+                  cellClass="px-1.5 py-1.5 font-semibold whitespace-nowrap" />
               </thead>
               <tbody>
                 {sorted.length === 0 && (
-                  <tr><td colSpan={COLUMNS.length} className="px-3 py-6 text-center text-text-secondary">No stock matches every selected condition. Untick a chip, or press “show all”.</td></tr>
+                  <tr><td colSpan={visibleCols.length} className="px-3 py-6 text-center text-text-secondary">No stock matches every selected condition. Untick a chip, or press “show all”.</td></tr>
                 )}
                 {sorted.map((r) => (
                   <tr key={r.ticker} className="border-b border-border/40 last:border-b-0 hover:bg-bg-secondary/40">
-                    <td className="px-2 py-1 font-semibold whitespace-nowrap">
+                    <td className="px-1.5 py-1 font-semibold whitespace-nowrap">
                       <a href={tvUrl(r.ticker)} target="_blank" rel="noopener noreferrer" title={`${r.company} — open in TradingView`}
                         className="hover:underline text-text-primary">{r.ticker}</a>
                     </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-text-secondary">{r.sector}</td>
-                    <td className="px-2 py-1 whitespace-nowrap text-text-secondary max-w-[12rem] truncate" title={r.industry}>{r.industry}</td>
-                    <td className="px-2 py-1 text-right tabular-nums text-text-secondary">{fmtCap(r.marketCapM)}</td>
-                    <td className="px-2 py-1 text-right tabular-nums">{r.px ? r.px.last.toFixed(2) : r.ma ? r.ma.close.toFixed(2) : <span className="text-signal-bear" title={r.error}>—</span>}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.px?.changePct)}`}>{fmtPct(r.px?.changePct, 2)}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums font-semibold ${pctTone(r.px?.fromOpenPct)}`}>{fmtPct(r.px?.fromOpenPct, 2)}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.px?.weekPct)}`}>{fmtPct(r.px?.weekPct, 1)}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.ma?.d10)}`} title={r.ma?.ema10 ? `10 EMA ${r.ma.ema10}` : ""}>{fmtPct(r.ma?.d10)}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.ma?.d20)}`} title={r.ma?.ema20 ? `20 EMA ${r.ma.ema20}` : ""}>{fmtPct(r.ma?.d20)}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.ma?.d50)}`} title={r.ma?.sma50 ? `50 SMA ${r.ma.sma50}` : ""}>{fmtPct(r.ma?.d50)}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.ma?.d200)}`} title={r.ma?.sma200 ? `200 SMA ${r.ma.sma200}` : ""}>{fmtPct(r.ma?.d200)}</td>
-                    <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap">
-                      <Check v={r.ma?.c10over20} /> <Check v={r.ma?.c20over50} /> <Check v={r.ma?.c50over200} />
-                      <span className="ml-2 text-text-secondary">{r.ma ? `${r.ma.score}/3` : ""}</span>
+                    <td className="px-1.5 py-1 whitespace-nowrap text-text-secondary" title={r.sector}>{sectorShort(r.sector)}</td>
+                    <td className="px-2 py-1 whitespace-nowrap text-text-secondary max-w-[10rem] truncate" title={r.industry}>{r.industry}</td>
+                    <td className="px-1.5 py-1 text-right tabular-nums text-text-secondary">{fmtCap(r.marketCapM)}</td>
+                    <td className="px-1.5 py-1 text-right tabular-nums">{r.px ? r.px.last.toFixed(2) : r.ma ? r.ma.close.toFixed(2) : <span className="text-signal-bear" title={r.error}>—</span>}</td>
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.px?.changePct)}`}>{fmtPct(r.px?.changePct, 2)}</td>
+                    <td className={`px-1.5 py-1 text-right tabular-nums font-semibold ${pctTone(r.px?.fromOpenPct)}`}>{fmtPct(r.px?.fromOpenPct, 2)}</td>
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.px?.weekPct)}`}>{fmtPct(r.px?.weekPct, 1)}</td>
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${rsTone(r.rs?.rank)}`}
+                      title={r.rs ? `3m ${fmtPct(r.rs.r3m, 0)} · 6m ${fmtPct(r.rs.r6m, 0)} · 9m ${fmtPct(r.rs.r9m, 0)} · 12m ${fmtPct(r.rs.r12m, 0)} · weighted ${fmtPct(r.rs.raw, 0)}${r.rs.vsSpy === null ? "" : ` · ${r.rs.vsSpy >= 0 ? "+" : "−"}${Math.abs(r.rs.vsSpy).toFixed(0)} pts vs SPY`}` : "under a year of history"}>
+                      {r.rs?.rank ?? <span className="text-dim">—</span>}
                     </td>
-                    <td className={`px-2 py-1 whitespace-nowrap font-semibold ${r.ma ? STACK_TONE[r.ma.stack] : "text-signal-bear"}`}>{r.ma ? STACK_LABEL[r.ma.stack] : (r.error ?? "error")}</td>
-                    <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap"
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.ma?.d10)}`} title={r.ma?.ema10 ? `10 EMA ${r.ma.ema10}` : ""}>{fmtPct(r.ma?.d10)}</td>
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.ma?.d20)}`} title={r.ma?.ema20 ? `20 EMA ${r.ma.ema20}` : ""}>{fmtPct(r.ma?.d20)}</td>
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.ma?.d50)}`} title={r.ma?.sma50 ? `50 SMA ${r.ma.sma50}` : ""}>{fmtPct(r.ma?.d50)}</td>
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.ma?.d200)}`} title={r.ma?.sma200 ? `200 SMA ${r.ma.sma200}` : ""}>{fmtPct(r.ma?.d200)}</td>
+                    <td className="px-1.5 py-1 whitespace-nowrap" title={r.ma ? `10>20 · 20>50 · 50>200 — ${r.ma.score}/3 · ${STACK_LABEL[r.ma.stack]}` : r.error}>
+                      <Check v={r.ma?.c10over20} /> <Check v={r.ma?.c20over50} /> <Check v={r.ma?.c50over200} />
+                      <span className={`ml-1.5 font-semibold ${r.ma ? STACK_TONE[r.ma.stack] : "text-signal-bear"}`}>{r.ma ? STACK_SHORT[r.ma.stack] : "error"}</span>
+                    </td>
+                    {allCols && <td className="px-1.5 py-1 text-right tabular-nums whitespace-nowrap"
                       title={r.reversal ? `leg from ${r.reversal.legFrom ?? "—"} to ${r.reversal.legExtreme ?? "—"} · flips on a ${r.reversal.thresholdPct ?? "—"}% reversal` : ""}>
                       {r.reversal?.legUp === true ? <span className="text-signal-bull">↑ {r.reversal.legBars}b</span>
                         : r.reversal?.legUp === false ? <span className="text-signal-bear">↓ {r.reversal.legBars}b</span>
                         : <span className="text-dim">—</span>}
-                    </td>
-                    <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap text-text-secondary">
+                    </td>}
+                    {allCols && <td className="px-1.5 py-1 text-right tabular-nums whitespace-nowrap text-text-secondary">
                       {r.reversal?.fullK !== null && r.reversal?.fullK !== undefined ? `${r.reversal.fullK.toFixed(0)} / ${(r.reversal.fullD ?? 0).toFixed(0)}` : "—"}
-                    </td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${r.reversal?.goingUpBarsAgo !== null && r.reversal?.goingUpBarsAgo !== undefined && r.reversal.goingUpBarsAgo < 7 ? "text-signal-bull font-semibold" : "text-text-secondary"}`}>
+                    </td>}
+                    {allCols && <td className={`px-1.5 py-1 text-right tabular-nums ${r.reversal?.goingUpBarsAgo !== null && r.reversal?.goingUpBarsAgo !== undefined && r.reversal.goingUpBarsAgo < 7 ? "text-signal-bull font-semibold" : "text-text-secondary"}`}>
                       {r.reversal?.goingUpBarsAgo === null || r.reversal?.goingUpBarsAgo === undefined ? "—" : r.reversal.goingUpBarsAgo === 0 ? "today" : `${r.reversal.goingUpBarsAgo}b ago`}
-                    </td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${r.reversal?.goingDownBarsAgo !== null && r.reversal?.goingDownBarsAgo !== undefined && r.reversal.goingDownBarsAgo < 7 ? "text-signal-bear font-semibold" : "text-text-secondary"}`}>
+                    </td>}
+                    {allCols && <td className={`px-1.5 py-1 text-right tabular-nums ${r.reversal?.goingDownBarsAgo !== null && r.reversal?.goingDownBarsAgo !== undefined && r.reversal.goingDownBarsAgo < 7 ? "text-signal-bear font-semibold" : "text-text-secondary"}`}>
                       {r.reversal?.goingDownBarsAgo === null || r.reversal?.goingDownBarsAgo === undefined ? "—" : r.reversal.goingDownBarsAgo === 0 ? "today" : `${r.reversal.goingDownBarsAgo}b ago`}
-                    </td>
-                    <td className={`px-2 py-1 whitespace-nowrap font-semibold ${r.reversal?.state ? STATE_TONE[r.reversal.state] : "text-dim"}`}
-                      title={r.reversal?.turnBarsAgo !== null && r.reversal?.turnBarsAgo !== undefined ? `Bullish plot turned ${r.reversal.turnBarsAgo === 0 ? "today" : `${r.reversal.turnBarsAgo} bars ago`}` : ""}>
-                      {r.reversal?.state ? STATE_LABEL[r.reversal.state] : "—"}
+                    </td>}
+                    <td className={`px-1.5 py-1 whitespace-nowrap font-semibold ${r.reversal?.state ? STATE_TONE[r.reversal.state] : "text-dim"}`}
+                      title={r.reversal?.state ? `${STATE_LABEL[r.reversal.state]}${r.reversal.turnBarsAgo !== null && r.reversal.turnBarsAgo !== undefined ? ` — Bullish plot turned ${r.reversal.turnBarsAgo === 0 ? "today" : `${r.reversal.turnBarsAgo} bars ago`}` : ""}` : ""}>
+                      {r.reversal?.state ? STATE_SHORT[r.reversal.state] : "—"}
                       {r.reversal?.turnBarsAgo !== null && r.reversal?.turnBarsAgo !== undefined && (
                         <span className="ml-1 font-normal text-dim">{r.reversal.turnBarsAgo === 0 ? "today" : `${r.reversal.turnBarsAgo}b`}</span>
                       )}
                     </td>
-                    <td className={`px-2 py-1 whitespace-nowrap font-semibold ${r.stage?.subStage ? STAGE_TONE[r.stage.subStage] : "text-dim"}`}
+                    <td className={`px-1.5 py-1 whitespace-nowrap font-semibold ${r.stage?.subStage ? STAGE_TONE[r.stage.subStage] : "text-dim"}`}
                       title={r.stage ? `${r.stage.subStage ? STAGE_NAME[r.stage.subStage] : ""} · ${r.stage.why}${r.stage.weekComplete ? "" : " · week in progress"}` : ""}>
                       {r.stage?.subStage ?? (r.stage ? <span className="text-dim" title={r.stage.why}>n/a</span> : "—")}
                       {r.stage?.breakout && <span className="ml-1 text-[9px] uppercase tracking-wider text-signal-bull">brk</span>}
                     </td>
-                    <td className="px-2 py-1 text-right tabular-nums text-text-secondary">{r.stage?.weeksInStage ?? "—"}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.distPct)}`} title={r.stage?.sma30 ? `30-wk SMA ${r.stage.sma30}` : ""}>{fmtPct(r.stage?.distPct)}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.slope4wPct)}`}>{fmtPct(r.stage?.slope4wPct)}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.mrs)}`}>{r.stage?.mrs === null || r.stage?.mrs === undefined ? "—" : (() => { const v = Math.round(r.stage!.mrs!); return v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : "0"; })()}</td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${(r.stage?.rvol ?? 0) >= 1.5 ? "text-text-primary font-semibold" : "text-text-secondary"}`}>{r.stage?.rvol === null || r.stage?.rvol === undefined ? "—" : `${r.stage.rvol.toFixed(1)}×`}</td>
+                    <td className="px-1.5 py-1 text-right tabular-nums text-text-secondary">{r.stage?.weeksInStage ?? "—"}</td>
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.stage?.distPct)}`} title={r.stage?.sma30 ? `30-wk SMA ${r.stage.sma30}` : ""}>{fmtPct(r.stage?.distPct)}</td>
+                    {allCols && <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.stage?.slope4wPct)}`}>{fmtPct(r.stage?.slope4wPct)}</td>}
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.stage?.mrs)}`}>{r.stage?.mrs === null || r.stage?.mrs === undefined ? "—" : (() => { const v = Math.round(r.stage!.mrs!); return v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : "0"; })()}</td>
+                    {allCols && <td className={`px-1.5 py-1 text-right tabular-nums ${(r.stage?.rvol ?? 0) >= 1.5 ? "text-text-primary font-semibold" : "text-text-secondary"}`}>{r.stage?.rvol === null || r.stage?.rvol === undefined ? "—" : `${r.stage.rvol.toFixed(1)}×`}</td>}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <p className="text-[10px] text-dim">
-            Daily closes from Polygon (adjusted), two years; Last / % Chg / From open / Week are end-of-day from the same bars. 10/20 are exponential, 50/200 simple.
+            Daily closes from Polygon (adjusted), two years; Last / % Chg / From open / Week are end-of-day from the same bars. RS is the IBD-style weighted 12-month return (2×3m + 6m + 9m + 12m) ranked 1–99 within this list, not the whole market. 10/20 are exponential, 50/200 simple.
             Reversal columns are the operator&apos;s ThinkOrSwim &ldquo;Jonesy Signals&rdquo; study ported as written; the state is its Bullish plot (a turn detector on the
             ZigZagHighLow&apos;s running extreme, EMA5 highs/lows, 1% + 2×ATR(5) + $0.05): <b>triggered</b> = turned within 2 bars, the operator&apos;s scan; <b>in progress</b> = older.
             Stage is Weinstein on weekly bars: 30-week SMA, 4-week slope (flat = ±0.5%), Mansfield RS vs SPY; 1B = 8+ weeks of base, range ≤ 20%, MRS &gt; −1; 2B = &gt; 15% over or &gt; 16 weeks;
