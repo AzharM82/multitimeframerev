@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SwingResultsResponse, SwingRow, SwingStack, SwingReversalState } from "../types.js";
+import type { SwingResultsResponse, SwingRow, SwingStack, SwingReversalState, SwingSubStage } from "../types.js";
 import { getSwingResults, getSwingUniverse, uploadSwingUniverse, runSwingScan } from "../services/api.js";
 import { useTableSort, SortHeaderRow, type SortColumn } from "./shared/tableSort.js";
 import { fmtTimePT, PT_LABEL } from "../utils/time.js";
@@ -20,7 +20,7 @@ import { fmtTimePT, PT_LABEL } from "../utils/time.js";
  */
 
 type SortKey = "ticker" | "sector" | "industry" | "close" | "d10" | "d20" | "d50" | "d200" | "score" | "stack" | "mcap"
-  | "leg" | "stoch" | "revUp" | "revDown" | "signal";
+  | "leg" | "stoch" | "revUp" | "revDown" | "signal" | "stage" | "wk" | "d30" | "slope" | "mrs" | "rvol";
 
 const COLUMNS: SortColumn<SortKey>[] = [
   { key: "ticker", label: "Ticker", num: false },
@@ -39,7 +39,24 @@ const COLUMNS: SortColumn<SortKey>[] = [
   { key: "revUp", label: "Bull rev", num: true, title: "Bars since Going_Up last fired (K crossed above D from under 40). 0 = today" },
   { key: "revDown", label: "Bear rev", num: true, title: "Bars since Going_Down last fired (D crossed above K from over 75). 0 = today" },
   { key: "signal", label: "Reversal", num: false, title: "The study's Bullish plot as the operator's four states: Triggered = turned within 2 bars, In progress = older" },
+  { key: "stage", label: "Stage", num: false, title: "Weinstein stage on weekly bars (30-wk SMA, 4-wk slope, flat = ±0.5%) with the spec's sub-stage" },
+  { key: "wk", label: "Wks", num: true, title: "Consecutive weeks in the current primary stage" },
+  { key: "d30", label: "vs 30w", num: true, title: "% distance of the weekly close from the 30-week SMA" },
+  { key: "slope", label: "Slope", num: true, title: "% change of the 30-week SMA over the last 4 weeks" },
+  { key: "mrs", label: "MRS", num: true, title: "Mansfield relative strength vs SPY: (RS / 30-wk SMA of RS − 1) × 100" },
+  { key: "rvol", label: "RVOL", num: true, title: "This week's volume / 20-week average" },
 ];
+
+const STAGE_TONE: Record<SwingSubStage, string> = {
+  "1A": "text-text-secondary", "1B": "text-text-primary",
+  "2A": "text-signal-bull", "2B": "text-signal-bull/80",
+  "3A": "text-amber-600", "3B": "text-amber-700",
+  "4A": "text-signal-bear/80", "4B": "text-signal-bear",
+};
+const STAGE_NAME: Record<SwingSubStage, string> = {
+  "1A": "Early base", "1B": "Late base", "2A": "Early uptrend", "2B": "Extended uptrend",
+  "3A": "Early top", "3B": "Late top", "4A": "Early downtrend", "4B": "Late downtrend",
+};
 
 const STATE_LABEL: Record<SwingReversalState, string> = {
   "bull-triggered": "Bullish · triggered", "bull-inprogress": "Bullish · in progress",
@@ -78,6 +95,12 @@ function sortValue(r: SwingRow, key: SortKey): number | string | null {
     case "revUp": return r.reversal?.goingUpBarsAgo === null || r.reversal?.goingUpBarsAgo === undefined ? null : -r.reversal.goingUpBarsAgo;
     case "revDown": return r.reversal?.goingDownBarsAgo === null || r.reversal?.goingDownBarsAgo === undefined ? null : -r.reversal.goingDownBarsAgo;
     case "signal": return r.reversal?.state ?? "zzz";
+    case "stage": return r.stage?.subStage ?? "zzz";
+    case "wk": return r.stage?.weeksInStage ?? null;
+    case "d30": return r.stage?.distPct ?? null;
+    case "slope": return r.stage?.slope4wPct ?? null;
+    case "mrs": return r.stage?.mrs ?? null;
+    case "rvol": return r.stage?.rvol ?? null;
   }
 }
 
@@ -134,6 +157,8 @@ export function SwingStrengthPage() {
   const [minScore, setMinScore] = useState<number>(0);
   const [fSignal, setFSignal] = useState<"" | SwingReversalState | "bull" | "bear">("");
   const [fLeg, setFLeg] = useState<Tri>("");   // ZigZag leg up (✓) / down (✗)
+  const [fStage, setFStage] = useState<"" | "1" | "2" | "3" | "4" | SwingSubStage>("");
+  const [fBreakout, setFBreakout] = useState<Tri>("");
   const [showUpload, setShowUpload] = useState(false);
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState<"" | "upload" | "scan">("");
@@ -168,10 +193,12 @@ export function SwingStrengthPage() {
     && tri(fP200, r.ma?.d200 === null || r.ma?.d200 === undefined ? null : r.ma.d200 > 0)
     && (minScore === 0 || (r.ma?.score ?? -1) >= minScore)
     && (!fSignal || (fSignal === "bull" || fSignal === "bear" ? r.reversal?.state?.startsWith(fSignal) : r.reversal?.state === fSignal))
-    && tri(fLeg, r.reversal?.legUp)),
-    [rows, fSector, fIndustry, fStack, q, f1, f2, f3, fP50, fP200, minScore, fSignal, fLeg]);
-  const anyCondition = f1 || f2 || f3 || fP50 || fP200 || minScore > 0 || fSignal || fLeg;
-  const clearConditions = () => { setF1(""); setF2(""); setF3(""); setFP50(""); setFP200(""); setMinScore(0); setFSignal(""); setFLeg(""); };
+    && tri(fLeg, r.reversal?.legUp)
+    && (!fStage || (fStage.length === 1 ? String(r.stage?.stage ?? "") === fStage : r.stage?.subStage === fStage))
+    && tri(fBreakout, r.stage ? r.stage.breakout : null)),
+    [rows, fSector, fIndustry, fStack, q, f1, f2, f3, fP50, fP200, minScore, fSignal, fLeg, fStage, fBreakout]);
+  const anyCondition = f1 || f2 || f3 || fP50 || fP200 || minScore > 0 || fSignal || fLeg || fStage || fBreakout;
+  const clearConditions = () => { setF1(""); setF2(""); setF3(""); setFP50(""); setFP200(""); setMinScore(0); setFSignal(""); setFLeg(""); setFStage(""); setFBreakout(""); };
   const { rows: sorted, sortKey, sortDir, onSort } = useTableSort<SwingRow, SortKey>(filtered, sortValue, "score", "desc");
 
   const counts = useMemo(() => {
@@ -185,6 +212,13 @@ export function SwingStrengthPage() {
     return c;
   }, [rows]);
   const hasLens2 = rows.some((r) => r.reversal);
+  const hasLens3 = rows.some((r) => r.stage);
+  const stageCounts = useMemo(() => {
+    const c: Record<SwingSubStage | "none", number> = { "1A": 0, "1B": 0, "2A": 0, "2B": 0, "3A": 0, "3B": 0, "4A": 0, "4B": 0, none: 0 };
+    let breakouts = 0;
+    for (const r of rows) { c[r.stage?.subStage ?? "none"] += 1; if (r.stage?.breakout) breakouts++; }
+    return { ...c, breakouts };
+  }, [rows]);
 
   const onUpload = async () => {
     if (!csv.trim()) return;
@@ -290,6 +324,20 @@ export function SwingStrengthPage() {
             </div>
           )}
 
+          {hasLens3 && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              {([["1", "Stage 1 · basing", `${stageCounts["1A"]} early · ${stageCounts["1B"]} late`, "text-text-primary"],
+                 ["2", "Stage 2 · advancing", `${stageCounts["2A"]} early · ${stageCounts["2B"]} extended`, "text-signal-bull"],
+                 ["3", "Stage 3 · topping", `${stageCounts["3A"]} early · ${stageCounts["3B"]} late`, "text-amber-600"],
+                 ["4", "Stage 4 · declining", `${stageCounts["4A"]} early · ${stageCounts["4B"]} late`, "text-signal-bear"]] as const).map(([k, label, sub, cls]) => (
+                <Tile key={k} label={label} value={`${stageCounts[`${k}A` as SwingSubStage] + stageCounts[`${k}B` as SwingSubStage]}`} sub={sub} cls={cls}
+                  onClick={() => setFStage(fStage === k ? "" : k)} active={fStage === k} />
+              ))}
+              <Tile label="Stage 2 breakouts" value={`${stageCounts.breakouts}`} sub="≥ prior 52-wk high on 1.5× volume, this week or last" cls="text-signal-bull"
+                onClick={() => setFBreakout(fBreakout === "y" ? "" : "y")} active={fBreakout === "y"} />
+            </div>
+          )}
+
           <div className="flex items-center gap-2 flex-wrap text-[11px]">
             <select value={fSector} onChange={(e) => { setFSector(e.target.value); setFIndustry(""); }} className="bg-bg-primary border border-border rounded px-2 py-1 text-text-primary">
               <option value="">All sectors</option>
@@ -305,7 +353,7 @@ export function SwingStrengthPage() {
               <button onClick={() => { setFSector(""); setFIndustry(""); setFStack(""); setQ(""); clearConditions(); }} className="text-text-secondary hover:text-text-primary underline">clear all</button>
             )}
             <span className="flex-1" />
-            <span className="text-dim">{hasLens2 ? "Lens 3 (Weinstein stage) arrives in the next phase." : "Lens 2 (reversal) and Lens 3 (Weinstein stage) arrive in the next phases."}</span>
+            <span className="text-dim">{hasLens3 ? "Group rollups arrive in the next phase." : hasLens2 ? "Lens 3 (Weinstein stage) arrives in the next phase." : "Lens 2 (reversal) and Lens 3 (Weinstein stage) arrive in the next phases."}</span>
           </div>
 
           <div className="bg-bg-card border border-border rounded">
@@ -329,6 +377,19 @@ export function SwingStrengthPage() {
                 <option value="bear-triggered">bearish · triggered</option>
                 <option value="bear-inprogress">bearish · in progress</option>
               </select>
+              <span className="w-px h-4 bg-border mx-1" />
+              <select value={fStage} onChange={(e) => setFStage(e.target.value as typeof fStage)}
+                className="bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary" title="Weinstein stage">
+                <option value="">stage: any</option>
+                {(["1", "2", "3", "4"] as const).map((k) => (
+                  <optgroup key={k} label={`Stage ${k}`}>
+                    <option value={k}>{`Stage ${k} (either)`}</option>
+                    <option value={`${k}A`}>{`${k}A · ${STAGE_NAME[`${k}A` as SwingSubStage]}`}</option>
+                    <option value={`${k}B`}>{`${k}B · ${STAGE_NAME[`${k}B` as SwingSubStage]}`}</option>
+                  </optgroup>
+                ))}
+              </select>
+              <TriChip label="breakout" value={fBreakout} onChange={setFBreakout} title="Stage 2 breakout: close ≥ prior 52-week high on ≥ 1.5× 20-week volume, this week or last" />
               <span className="w-px h-4 bg-border mx-1" />
               <label className="flex items-center gap-1 text-text-secondary">
                 score ≥
@@ -388,6 +449,16 @@ export function SwingStrengthPage() {
                         <span className="ml-1 font-normal text-dim">{r.reversal.turnBarsAgo === 0 ? "today" : `${r.reversal.turnBarsAgo}b`}</span>
                       )}
                     </td>
+                    <td className={`px-2 py-1 whitespace-nowrap font-semibold ${r.stage?.subStage ? STAGE_TONE[r.stage.subStage] : "text-dim"}`}
+                      title={r.stage ? `${r.stage.subStage ? STAGE_NAME[r.stage.subStage] : ""} · ${r.stage.why}${r.stage.weekComplete ? "" : " · week in progress"}` : ""}>
+                      {r.stage?.subStage ?? (r.stage ? <span className="text-dim" title={r.stage.why}>n/a</span> : "—")}
+                      {r.stage?.breakout && <span className="ml-1 text-[9px] uppercase tracking-wider text-signal-bull">brk</span>}
+                    </td>
+                    <td className="px-2 py-1 text-right tabular-nums text-text-secondary">{r.stage?.weeksInStage ?? "—"}</td>
+                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.distPct)}`} title={r.stage?.sma30 ? `30-wk SMA ${r.stage.sma30}` : ""}>{fmtPct(r.stage?.distPct)}</td>
+                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.slope4wPct)}`}>{fmtPct(r.stage?.slope4wPct)}</td>
+                    <td className={`px-2 py-1 text-right tabular-nums ${pctTone(r.stage?.mrs)}`}>{r.stage?.mrs === null || r.stage?.mrs === undefined ? "—" : (() => { const v = Math.round(r.stage!.mrs!); return v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : "0"; })()}</td>
+                    <td className={`px-2 py-1 text-right tabular-nums ${(r.stage?.rvol ?? 0) >= 1.5 ? "text-text-primary font-semibold" : "text-text-secondary"}`}>{r.stage?.rvol === null || r.stage?.rvol === undefined ? "—" : `${r.stage.rvol.toFixed(1)}×`}</td>
                   </tr>
                 ))}
               </tbody>
@@ -399,7 +470,10 @@ export function SwingStrengthPage() {
             Reversal columns are the operator&apos;s ThinkOrSwim &ldquo;Jonesy Signals&rdquo; study ported as written. The Reversal state is the study&apos;s Bullish plot
             (a turn detector on the ZigZagHighLow&apos;s running extreme, EMA5 highs/lows, 1% + 2×ATR(5) + $0.05): <b>triggered</b> = it turned within 2 bars, exactly the
             operator&apos;s scan &ldquo;Bullish crosses above 0.9 within 2 bars&rdquo;; <b>in progress</b> = older. Leg is the zig-zag direction the turn is happening inside,
-            K / D is StochasticFull 8·12·3, and Bull rev / Bear rev are bars since the study&apos;s Going_Up / Going_Down last fired. Snapshots are stored per trading day and never overwritten.
+            K / D is StochasticFull 8·12·3, and Bull rev / Bear rev are bars since the study&apos;s Going_Up / Going_Down last fired.
+            Stage is Weinstein on weekly bars (weeks end Friday; the current week counts even if unfinished): 30-week SMA, its 4-week slope (flat = ±0.5%), Mansfield RS vs SPY;
+            1A→1B needs 8+ weeks of base, an 8-week range ≤ 20% and MRS &gt; −1; 2B = &gt; 15% over the SMA or &gt; 16 weeks; 3B = MRS &lt; 0; 4B = &gt; 16 weeks or &gt; 15% under;
+            a flat SMA is Stage 1 if the slope was falling before it and Stage 3 if rising. Snapshots are stored per trading day and never overwritten.
           </p>
         </>
       )}

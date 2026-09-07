@@ -10,6 +10,8 @@ import { readFileSync } from "node:fs";
 import { parseCsv, parseFinvizExport } from "../dist/lib/swing/universe.js";
 import { ema, sma, computeMaStack } from "../dist/lib/swing/maStack.js";
 import { expAverage, simpleAverage, trueRange, stochasticFull, crossesFromKD, badgeFor, zigZagState, computeReversal, bullishSeries, stateFor, turnAgo, TRIGGER_BARS, JONESY } from "../dist/lib/swing/reversal.js";
+import { toWeekly, weekEndFor } from "../dist/lib/swing/weekly.js";
+import { computeStage, STAGES } from "../dist/lib/swing/stages.js";
 
 let pass = 0;
 const failures = [];
@@ -138,6 +140,51 @@ check("read carries the leg and the stochastic", [r.legUp, typeof r.fullK, r.bar
 check("read carries the plot state", [r.bullish, r.state], [false, "bear-inprogress"]);
 check("signal window constant", JONESY.signalWindowBars, 7);
 check("short history → nulls", computeReversal(zzBars.slice(0, 10)).legUp, null);
+
+// ─── Lens 3: weekly bars + Weinstein stages ─────────────────────────────────
+check("weekEndFor: Monday → that Friday", weekEndFor("2026-08-31"), "2026-09-04");
+check("weekEndFor: Friday → itself", weekEndFor("2026-09-04"), "2026-09-04");
+check("weekEndFor: Wednesday", weekEndFor("2026-09-02"), "2026-09-04");
+const dayMs = (iso) => Date.parse(`${iso}T20:00:00Z`); // 4 PM ET-ish, safely inside the ET date
+const dBars = [
+  { open: 10, high: 11, low: 9, close: 10.5, volume: 100, timestamp: dayMs("2026-08-31") },
+  { open: 10.5, high: 12, low: 10, close: 11, volume: 100, timestamp: dayMs("2026-09-01") },
+  { open: 11, high: 11.5, low: 8, close: 9, volume: 100, timestamp: dayMs("2026-09-02") },
+  { open: 9, high: 9.5, low: 8.5, close: 9.2, volume: 100, timestamp: dayMs("2026-09-03") },
+  { open: 9.2, high: 10, low: 9, close: 9.8, volume: 100, timestamp: dayMs("2026-09-04") },
+  { open: 9.8, high: 10.2, low: 9.6, close: 10, volume: 50, timestamp: dayMs("2026-09-08") },
+];
+const wk = toWeekly(dBars);
+check("weekly fold: OHLCV", [wk[0].weekEnd, wk[0].open, wk[0].high, wk[0].low, wk[0].close, wk[0].volume, wk[0].days], ["2026-09-04", 10, 12, 8, 9.8, 500, 5]);
+check("weekly fold: complete flags", [wk[0].complete, wk[1].complete, wk[1].weekEnd], [true, false, "2026-09-11"]);
+
+// Synthetic weekly series: 60 weeks. Benchmark flat at 100 so MRS tracks the stock's own trend.
+const wbar = (i, c, v = 1000) => ({ weekEnd: `w${i}`, open: c, high: c * 1.02, low: c * 0.98, close: c, volume: v, days: 5, complete: true });
+const benchFor = (n) => Array.from({ length: n }, (_, i) => wbar(i, 100));
+// Uptrend: +2%/week for 60 weeks → Stage 2, extended (well over 15% above a lagging SMA30 and > 16 weeks)
+const up = Array.from({ length: 60 }, (_, i) => wbar(i, 100 * Math.pow(1.02, i)));
+const su = computeStage(up, benchFor(60));
+check("steady uptrend → 2B", [su.stage, su.subStage], [2, "2B"]);
+check("uptrend: slope positive, above SMA30, MRS positive", [su.slope4wPct > STAGES.FLAT_SLOPE_PCT, su.distPct > 0, su.mrs > 0], [true, true, true]);
+// Downtrend: −2%/week → Stage 4, late
+const dn = Array.from({ length: 60 }, (_, i) => wbar(i, 100 * Math.pow(0.98, i)));
+const sd = computeStage(dn, benchFor(60));
+check("steady downtrend → 4B", [sd.stage, sd.subStage], [4, "4B"]);
+// Decline then flat base for 12 weeks → Stage 1 (came off a falling slope), 1B once the base is 8+ weeks and tight
+const base = [...Array.from({ length: 45 }, (_, i) => wbar(i, 100 * Math.pow(0.98, i))), ...Array.from({ length: 30 }, (_, i) => wbar(45 + i, 100 * Math.pow(0.98, 44) * (1 + (i % 2 ? 0.01 : -0.01))))];
+const sb = computeStage(base, benchFor(75));
+check("decline then long flat base → Stage 1", sb.stage, 1);
+// Rise then flat for 30 weeks → Stage 3 (came off a rising slope)
+const top = [...Array.from({ length: 45 }, (_, i) => wbar(i, 100 * Math.pow(1.02, i))), ...Array.from({ length: 30 }, (_, i) => wbar(45 + i, 100 * Math.pow(1.02, 44) * (1 + (i % 2 ? 0.01 : -0.01))))];
+const st3 = computeStage(top, benchFor(75));
+check("rise then long flat → Stage 3", st3.stage, 3);
+// Breakout: an uptrend whose last week closes above the prior 52-week high on 2× volume
+const bo = Array.from({ length: 60 }, (_, i) => wbar(i, 100 * Math.pow(1.01, i), i === 59 ? 3000 : 1000));
+bo[59] = { ...bo[59], close: bo[59].close * 1.05, high: bo[59].close * 1.06 };
+const sbo = computeStage(bo, benchFor(60));
+check("52-week high on 3× volume in Stage 2 → breakout", [sbo.stage, sbo.breakout, sbo.rvol >= STAGES.BREAKOUT_RVOL], [2, true, true]);
+check("too little history → null stage with a reason", [computeStage(up.slice(0, 20), benchFor(20)).stage, computeStage(up.slice(0, 20), benchFor(20)).why.includes("weeks")], [null, true]);
+check("missing benchmark → MRS null, stage still assigned", [computeStage(up, []).stage, computeStage(up, []).mrs], [2, null]);
 
 console.log(`${pass} passed, ${failures.length} failed`);
 for (const f of failures) console.log(`  ✗ ${f}`);

@@ -1141,8 +1141,30 @@ export interface SwingRow {
   asOf: string | null;
   ma: SwingMaStack | null;
   reversal: SwingReversal | null;
-  stage: null;
+  stage: SwingStage | null;
   error?: string;
+}
+
+export type SwingSubStage = "1A" | "1B" | "2A" | "2B" | "3A" | "3B" | "4A" | "4B";
+
+/** Lens 3 — Weinstein stage on weekly bars, sub-stages per the operator's spec. */
+export interface SwingStage {
+  stage: 1 | 2 | 3 | 4 | null;
+  subStage: SwingSubStage | null;
+  weeksInStage: number | null;
+  weekEnd: string | null;
+  weekComplete: boolean;
+  close: number | null;
+  sma30: number | null;
+  distPct: number | null;
+  slope4wPct: number | null;
+  mrs: number | null;
+  rvol: number | null;
+  high52: number | null;
+  low52: number | null;
+  breakout: boolean;
+  why: string;
+  weeks: number;
 }
 
 export type SwingReversalState = "bull-triggered" | "bull-inprogress" | "bear-triggered" | "bear-inprogress";
