@@ -1139,6 +1139,8 @@ export interface SwingRow {
   marketCapM: number | null;
   extras: Record<string, number>;
   asOf: string | null;
+  /** EOD price context from the scan's daily bars (absent on snapshots scored before it existed). */
+  px: { last: number; open: number; prevClose: number | null; changePct: number | null; fromOpenPct: number | null; weekPct: number | null } | null;
   ma: SwingMaStack | null;
   reversal: SwingReversal | null;
   stage: SwingStage | null;
