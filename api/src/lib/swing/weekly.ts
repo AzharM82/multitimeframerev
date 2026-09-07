@@ -24,7 +24,10 @@ export interface WeeklyBar {
   complete: boolean;
 }
 
-const etDate = (ms: number) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+// One formatter, reused: toLocaleDateString builds a new Intl formatter per
+// call, which made this fold ~110 ms per ticker (31 s across the universe).
+const ET_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+const etDate = (ms: number) => ET_FMT.format(new Date(ms));
 
 /** The Friday (ISO date) of the week containing an ISO date. */
 export function weekEndFor(isoDate: string): string {
