@@ -219,7 +219,6 @@ export function SwingStrengthPage() {
   useEffect(() => { void load(date); }, [date, load]);
 
   const rows = useMemo(() => data?.rows ?? [], [data]);
-  const hasPx = rows.some((r) => r.px);
   const sectors = useMemo(() => [...new Set(rows.map((r) => r.sector).filter(Boolean))].sort(), [rows]);
   const industries = useMemo(
     () => [...new Set(rows.filter((r) => !fSector || r.sector === fSector).map((r) => r.industry).filter(Boolean))].sort(),
@@ -256,7 +255,7 @@ export function SwingStrengthPage() {
     && tri(fLeg, r.reversal?.legUp)
     && (minScore === 0 || (r.ma?.score ?? -1) >= minScore)),
     [rows, stackSet, revSet, stageSet, breakoutOnly, fSector, fIndustry, q, f1, f2, f3, fP50, fP200, fLeg, minScore]);
-  const { rows: sorted, sortKey, sortDir, onSort } = useTableSort<SwingRow, SortKey>(filtered, sortValue, hasPx ? "open" : "score", "desc");
+  const { rows: sorted, sortKey, sortDir, onSort } = useTableSort<SwingRow, SortKey>(filtered, sortValue, "open", "desc");
 
   const isDefault = stackSet.size === 1 && stackSet.has("bull")
     && revSet.size === 2 && revSet.has("bull-triggered") && revSet.has("bull-inprogress")
