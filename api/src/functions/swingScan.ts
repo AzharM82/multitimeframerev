@@ -4,6 +4,8 @@ import { upsert, getOne, listAll, TABLES } from "../lib/tables.js";
 import { fetchDailyBarsExtended } from "../lib/polygon.js";
 import { computeMaStack, type MaStack } from "../lib/swing/maStack.js";
 import { computeReversal, type ReversalRead } from "../lib/swing/reversal.js";
+import { toWeekly, type WeeklyBar } from "../lib/swing/weekly.js";
+import { computeStage, type StageRead } from "../lib/swing/stages.js";
 import { loadUniverse } from "./swingUniverse.js";
 
 /**
@@ -34,7 +36,7 @@ export interface SwingRow {
   asOf: string | null;
   ma: MaStack | null;
   reversal: ReversalRead | null;
-  stage: null;
+  stage: StageRead | null;
   error?: string;
 }
 
@@ -72,15 +74,20 @@ async function scoreAll(ctx: InvocationContext): Promise<SwingSnapshot> {
   if (!universe.length) throw new Error("universe is empty — upload a FinViz export first");
   const startedAt = Date.now();
   let lastBar = "";
+  // Benchmark weekly bars for Mansfield RS, fetched once. If SPY fails, stages
+  // are still computed with MRS = null rather than failing the whole scan.
+  let spyWeekly: WeeklyBar[] = [];
+  try { spyWeekly = toWeekly(await fetchDailyBarsExtended("SPY", 2)); }
+  catch (err) { ctx.warn(`swing-scan: SPY bars unavailable, MRS will be null: ${err instanceof Error ? err.message : String(err)}`); }
   const rows = await pool(universe, CONCURRENCY, async (u): Promise<SwingRow> => {
-    const base = { ticker: u.ticker, company: u.company, sector: u.sector, industry: u.industry, marketCapM: u.marketCapM, extras: u.extras, reversal: null as ReversalRead | null, stage: null } as const;
+    const base = { ticker: u.ticker, company: u.company, sector: u.sector, industry: u.industry, marketCapM: u.marketCapM, extras: u.extras, reversal: null as ReversalRead | null, stage: null as StageRead | null } as const;
     try {
       const bars = await fetchDailyBarsExtended(u.ticker, 2);
       if (bars.length < 30) return { ...base, asOf: null, ma: null, error: `only ${bars.length} daily bars` };
       const closes = bars.map((b) => b.close);
       const asOf = etDate(new Date(bars[bars.length - 1].timestamp));
       if (asOf > lastBar) lastBar = asOf;
-      return { ...base, asOf, ma: computeMaStack(closes), reversal: computeReversal(bars) };
+      return { ...base, asOf, ma: computeMaStack(closes), reversal: computeReversal(bars), stage: computeStage(toWeekly(bars), spyWeekly) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       ctx.warn(`swing-scan ${u.ticker}: ${message}`);
@@ -125,8 +132,9 @@ async function scan(req: HttpRequest, ctx: InvocationContext): Promise<HttpRespo
   const snap = await scoreAll(ctx);
   await store(snap);
   const stacks = snap.rows.reduce<Record<string, number>>((m, r) => { const k = r.ma?.stack ?? "error"; m[k] = (m[k] ?? 0) + 1; return m; }, {});
-  const reversals = snap.rows.reduce<Record<string, number>>((m, r) => { const k = r.reversal?.signal ?? "none"; m[k] = (m[k] ?? 0) + 1; return m; }, {});
-  return { jsonBody: { status: "ok", date: snap.date, count: snap.count, scored: snap.scored, failed: snap.failed, stacks, reversals } };
+  const reversals = snap.rows.reduce<Record<string, number>>((m, r) => { const k = r.reversal?.state ?? "none"; m[k] = (m[k] ?? 0) + 1; return m; }, {});
+  const stages = snap.rows.reduce<Record<string, number>>((m, r) => { const k = r.stage?.subStage ?? "none"; m[k] = (m[k] ?? 0) + 1; return m; }, {});
+  return { jsonBody: { status: "ok", date: snap.date, count: snap.count, scored: snap.scored, failed: snap.failed, stacks, reversals, stages } };
 }
 
 async function results(req: HttpRequest): Promise<HttpResponseInit> {
