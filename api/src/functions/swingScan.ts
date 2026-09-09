@@ -7,6 +7,7 @@ import { computeReversal, type ReversalRead } from "../lib/swing/reversal.js";
 import { toWeekly, type WeeklyBar } from "../lib/swing/weekly.js";
 import { computeStage, type StageRead } from "../lib/swing/stages.js";
 import { computeRs, rsRaw, rankRs, type RsRead } from "../lib/swing/rs.js";
+import { closeStreak } from "../lib/swing/streak.js";
 import { loadUniverse } from "./swingUniverse.js";
 
 /**
@@ -37,6 +38,8 @@ export interface SwingPx {
   fromOpenPct: number | null;
   /** close vs the close 5 trading days earlier, % */
   weekPct: number | null;
+  /** Consecutive closes above (+) or below (−) the prior close, ending today. */
+  streak: number;
 }
 
 export interface SwingRow {
@@ -113,6 +116,7 @@ async function scoreAll(ctx: InvocationContext): Promise<SwingSnapshot> {
       const px: SwingPx = {
         last: endBar.close, open: endBar.open, prevClose: prev?.close ?? null,
         changePct: pct(endBar.close, prev?.close), fromOpenPct: pct(endBar.close, endBar.open), weekPct: pct(endBar.close, wk?.close),
+        streak: closeStreak(closes),
       };
       return { ...base, asOf, px, rs: computeRs(closes, spyRaw), ma: computeMaStack(closes), reversal: computeReversal(bars), stage: computeStage(toWeekly(bars), spyWeekly) };
     } catch (err) {
