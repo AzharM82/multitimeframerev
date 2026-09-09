@@ -26,7 +26,7 @@ import { fmtTimePT, PT_LABEL } from "../utils/time.js";
 
 // ─── Columns ────────────────────────────────────────────────────────────────
 
-type SortKey = "ticker" | "sector" | "industry" | "mcap" | "last" | "chg" | "open" | "week" | "rs"
+type SortKey = "ticker" | "new" | "sector" | "industry" | "mcap" | "last" | "chg" | "open" | "week" | "streak" | "rs"
   | "d10" | "d20" | "d50" | "d200" | "score" | "stack"
   | "leg" | "stoch" | "revUp" | "revDown" | "signal"
   | "stage" | "wk" | "d30" | "slope" | "mrs" | "rvol";
@@ -35,6 +35,7 @@ type SwingColumn = SortColumn<SortKey> & { extra?: boolean };
 
 const COLUMNS: SwingColumn[] = [
   { key: "ticker", label: "Ticker", num: false, title: "Click a ticker to open it in TradingView" },
+  { key: "new", label: "New", num: false, title: "New = passes the selected conditions today but did not in the previous snapshot (or was not in the list). Old = already passed." },
   { key: "sector", label: "Sector", num: false },
   { key: "industry", label: "Industry", num: false },
   { key: "mcap", label: "Mkt cap", num: true, title: "FinViz market cap" },
@@ -42,6 +43,7 @@ const COLUMNS: SwingColumn[] = [
   { key: "chg", label: "% Chg", num: true, title: "Close vs previous close" },
   { key: "open", label: "From open", num: true, title: "Close vs the day's open" },
   { key: "week", label: "Week", num: true, title: "Close vs the close 5 trading days earlier" },
+  { key: "streak", label: "Streak", num: true, title: "Consecutive daily closes above the prior close (+) or below it (−), ending on the snapshot day" },
   { key: "rs", label: "RS", num: true, title: "RS strength 1–99: IBD-style weighted 12-month return (2×3m + 6m + 9m + 12m), ranked within this list — 99 = strongest of these names. Hover a value for the four returns and the gap to SPY" },
   { key: "d10", label: "10 EMA", num: true, title: "% distance of price from the 10-day EMA" },
   { key: "d20", label: "20 EMA", num: true, title: "% distance of price from the 20-day EMA" },
@@ -54,10 +56,10 @@ const COLUMNS: SwingColumn[] = [
   { key: "revDown", label: "Bear rev", num: true, title: "Bars since Going_Down last fired. 0 = today", extra: true },
   { key: "signal", label: "Reversal", num: false, title: "The study's Bullish plot as four states: triggered = turned within 2 bars, in progress = older; the number is bars since the turn" },
   { key: "stage", label: "Stage", num: false, title: "Weinstein stage on weekly bars with the spec's sub-stage" },
-  { key: "wk", label: "Wks", num: true, title: "Consecutive weeks in the current primary stage" },
-  { key: "d30", label: "30w", num: true, title: "% distance of the weekly close from the 30-week SMA" },
+  { key: "wk", label: "Wks", num: true, title: "Consecutive weeks in the current primary stage", extra: true },
+  { key: "d30", label: "30w", num: true, title: "% distance of the weekly close from the 30-week SMA", extra: true },
   { key: "slope", label: "Slope", num: true, title: "% change of the 30-week SMA over 4 weeks", extra: true },
-  { key: "mrs", label: "MRS", num: true, title: "Mansfield relative strength vs SPY" },
+  { key: "mrs", label: "MRS", num: true, title: "Mansfield relative strength vs SPY", extra: true },
   { key: "rvol", label: "RVOL", num: true, title: "This week's volume / 20-week average", extra: true },
 ];
 
@@ -102,9 +104,21 @@ const rsTone = (v: number | null | undefined) => (v === null || v === undefined 
 
 const tvUrl = (t: string) => `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(t.replace("-", "."))}`;
 
-function sortValue(r: SwingRow, key: SortKey): number | string | null {
+/** The lens chips as one predicate: OR within a lens, AND across lenses, empty set = any. */
+function passesLenses(r: SwingRow, stackSet: Set<SwingStack>, revSet: Set<SwingReversalState>, stageSet: Set<SwingSubStage>, breakoutOnly: boolean): boolean {
+  return (stackSet.size === 0 || stackSet.has(r.ma?.stack ?? "n/a"))
+    && (revSet.size === 0 || (!!r.reversal?.state && revSet.has(r.reversal.state)))
+    && (stageSet.size === 0 || (!!r.stage?.subStage && stageSet.has(r.stage.subStage)))
+    && (!breakoutOnly || !!r.stage?.breakout);
+}
+
+/** Sort value for the New column: new first, then old, then unknown. */
+const NEW_ORDER: Record<string, number> = { new: 0, old: 1, "": 2 };
+
+function sortValue(r: SwingRow, key: SortKey, isNew?: (r: SwingRow) => "new" | "old" | ""): number | string | null {
   switch (key) {
     case "ticker": return r.ticker;
+    case "new": return NEW_ORDER[isNew ? isNew(r) : ""];
     case "sector": return r.sector;
     case "industry": return r.industry;
     case "mcap": return r.marketCapM;
@@ -112,6 +126,7 @@ function sortValue(r: SwingRow, key: SortKey): number | string | null {
     case "chg": return r.px?.changePct ?? null;
     case "open": return r.px?.fromOpenPct ?? null;
     case "week": return r.px?.weekPct ?? null;
+    case "streak": return r.px?.streak ?? null;
     case "rs": return r.rs?.rank ?? null;
     case "d10": return r.ma?.d10 ?? null;
     case "d20": return r.ma?.d20 ?? null;
@@ -225,12 +240,20 @@ export function SwingStrengthPage() {
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState<"" | "upload" | "scan">("");
   const [notice, setNotice] = useState<string | null>(null);
+  /** The stored snapshot before the one shown, by ticker — what "new" is judged against. */
+  const [prev, setPrev] = useState<{ date: string; rows: Map<string, SwingRow> } | null>(null);
 
   const load = useCallback(async (d: string | null) => {
     setLoading(true); setError(null);
     try {
       const [res, uni] = await Promise.all([getSwingResults(d ?? undefined), getSwingUniverse()]);
       setData(res); setUniverseCount(uni.count); setUniverseAt(uni.updatedAt);
+      // The previous stored day, for the New column. Its failure never blocks the tab.
+      const prevDate = [...res.dates].filter((x) => x < res.date).pop();
+      if (prevDate) {
+        try { const p = await getSwingResults(prevDate); setPrev({ date: p.date, rows: new Map(p.rows.map((r) => [r.ticker, r])) }); }
+        catch { setPrev(null); }
+      } else setPrev(null);
     } catch (e) {
       setData(null);
       setError(e instanceof Error ? e.message : "failed to load");
@@ -263,11 +286,14 @@ export function SwingStrengthPage() {
 
   const tri = (v: Tri, actual: boolean | null | undefined) => v === "" || (actual !== null && actual !== undefined && actual === (v === "y"));
   const stackSet = selStack.set, revSet = selRev.set, stageSet = selStage.set;
+  const isNew = useCallback((r: SwingRow): "new" | "old" | "" => {
+    if (!prev) return "";
+    if (!passesLenses(r, stackSet, revSet, stageSet, breakoutOnly)) return "";
+    const p = prev.rows.get(r.ticker);
+    return p && passesLenses(p, stackSet, revSet, stageSet, breakoutOnly) ? "old" : "new";
+  }, [prev, stackSet, revSet, stageSet, breakoutOnly]);
   const filtered = useMemo(() => rows.filter((r) =>
-    (stackSet.size === 0 || stackSet.has(r.ma?.stack ?? "n/a"))
-    && (revSet.size === 0 || (!!r.reversal?.state && revSet.has(r.reversal.state)))
-    && (stageSet.size === 0 || (!!r.stage?.subStage && stageSet.has(r.stage.subStage)))
-    && (!breakoutOnly || !!r.stage?.breakout)
+    passesLenses(r, stackSet, revSet, stageSet, breakoutOnly)
     && (!fSector || r.sector === fSector) && (!fIndustry || r.industry === fIndustry)
     && (!q || r.ticker.includes(q.toUpperCase()) || r.company.toUpperCase().includes(q.toUpperCase()))
     && tri(f1, r.ma?.c10over20) && tri(f2, r.ma?.c20over50) && tri(f3, r.ma?.c50over200)
@@ -277,7 +303,9 @@ export function SwingStrengthPage() {
     && (minScore === 0 || (r.ma?.score ?? -1) >= minScore)
     && (minRs === 0 || (r.rs?.rank ?? -1) >= minRs)),
     [rows, stackSet, revSet, stageSet, breakoutOnly, fSector, fIndustry, q, f1, f2, f3, fP50, fP200, fLeg, minScore, minRs]);
-  const { rows: sorted, sortKey, sortDir, onSort } = useTableSort<SwingRow, SortKey>(filtered, sortValue, "open", "desc");
+  const sortWithNew = useCallback((r: SwingRow, k: SortKey) => sortValue(r, k, isNew), [isNew]);
+  const { rows: sorted, sortKey, sortDir, onSort } = useTableSort<SwingRow, SortKey>(filtered, sortWithNew, "open", "desc");
+  const newCount = useMemo(() => (prev ? sorted.filter((r) => isNew(r) === "new").length : null), [sorted, isNew, prev]);
 
   const isDefault = stackSet.size === 1 && stackSet.has("bull")
     && revSet.size === 2 && revSet.has("bull-triggered") && revSet.has("bull-inprogress")
@@ -429,7 +457,7 @@ export function SwingStrengthPage() {
                 {more ? "fewer conditions" : `more conditions${moreActive ? " (active)" : ""}`}
               </button>
               <span className="flex-1" />
-              <span className="text-text-secondary tabular-nums"><b className="text-text-primary">{sorted.length}</b> of {rows.length} shown</span>
+              <span className="text-text-secondary tabular-nums"><b className="text-text-primary">{sorted.length}</b> of {rows.length} shown{newCount !== null && <> · <b className={newCount ? "text-signal-bull" : "text-text-primary"}>{newCount}</b> new since {prev?.date}</>}</span>
             </div>
             {more && (
               <div className="flex items-center gap-1.5 flex-wrap text-[10px] pt-1">
@@ -488,6 +516,11 @@ export function SwingStrengthPage() {
                       <a href={tvUrl(r.ticker)} target="_blank" rel="noopener noreferrer" title={`${r.company} — open in TradingView`}
                         className="hover:underline text-text-primary">{r.ticker}</a>
                     </td>
+                    <td className="px-1.5 py-1 whitespace-nowrap" title={prev ? (isNew(r) === "new" ? `Did not pass the selected conditions in the previous snapshot (${prev.date})` : isNew(r) === "old" ? `Already passed on ${prev.date}` : "Does not pass the selected conditions today") : "No earlier snapshot to compare with"}>
+                      {isNew(r) === "new" ? <span className="text-[10px] font-semibold uppercase tracking-wider text-signal-bull">new</span>
+                        : isNew(r) === "old" ? <span className="text-[10px] uppercase tracking-wider text-dim">old</span>
+                        : <span className="text-dim">—</span>}
+                    </td>
                     <td className="px-1.5 py-1 whitespace-nowrap text-text-secondary" title={r.sector}>{sectorShort(r.sector)}</td>
                     <td className="px-2 py-1 whitespace-nowrap text-text-secondary max-w-[10rem] truncate" title={r.industry}>{r.industry}</td>
                     <td className="px-1.5 py-1 text-right tabular-nums text-text-secondary">{fmtCap(r.marketCapM)}</td>
@@ -495,6 +528,10 @@ export function SwingStrengthPage() {
                     <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.px?.changePct)}`}>{fmtPct(r.px?.changePct, 2)}</td>
                     <td className={`px-1.5 py-1 text-right tabular-nums font-semibold ${pctTone(r.px?.fromOpenPct)}`}>{fmtPct(r.px?.fromOpenPct, 2)}</td>
                     <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.px?.weekPct)}`}>{fmtPct(r.px?.weekPct, 1)}</td>
+                    <td className={`px-1.5 py-1 text-right tabular-nums ${r.px?.streak === undefined ? "text-dim" : r.px.streak > 0 ? "text-signal-bull font-semibold" : r.px.streak < 0 ? "text-signal-bear" : "text-dim"}`}
+                      title={r.px?.streak === undefined ? "not in this snapshot — rescan" : r.px.streak > 0 ? `${r.px.streak} consecutive close${r.px.streak === 1 ? "" : "s"} above the prior close` : r.px.streak < 0 ? `${-r.px.streak} consecutive close${r.px.streak === -1 ? "" : "s"} below the prior close` : "closed flat"}>
+                      {r.px?.streak === undefined ? "—" : r.px.streak > 0 ? `+${r.px.streak}` : r.px.streak < 0 ? `−${-r.px.streak}` : "·"}
+                    </td>
                     <td className={`px-1.5 py-1 text-right tabular-nums ${rsTone(r.rs?.rank)}`}
                       title={r.rs ? `3m ${fmtPct(r.rs.r3m, 0)} · 6m ${fmtPct(r.rs.r6m, 0)} · 9m ${fmtPct(r.rs.r9m, 0)} · 12m ${fmtPct(r.rs.r12m, 0)} · weighted ${fmtPct(r.rs.raw, 0)}${r.rs.vsSpy === null ? "" : ` · ${r.rs.vsSpy >= 0 ? "+" : "−"}${Math.abs(r.rs.vsSpy).toFixed(0)} pts vs SPY`}` : "under a year of history"}>
                       {r.rs?.rank ?? <span className="text-dim">—</span>}
@@ -534,10 +571,10 @@ export function SwingStrengthPage() {
                       {r.stage?.subStage ?? (r.stage ? <span className="text-dim" title={r.stage.why}>n/a</span> : "—")}
                       {r.stage?.breakout && <span className="ml-1 text-[9px] uppercase tracking-wider text-signal-bull">brk</span>}
                     </td>
-                    <td className="px-1.5 py-1 text-right tabular-nums text-text-secondary">{r.stage?.weeksInStage ?? "—"}</td>
-                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.stage?.distPct)}`} title={r.stage?.sma30 ? `30-wk SMA ${r.stage.sma30}` : ""}>{fmtPct(r.stage?.distPct)}</td>
+                    {allCols && <td className="px-1.5 py-1 text-right tabular-nums text-text-secondary">{r.stage?.weeksInStage ?? "—"}</td>}
+                    {allCols && <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.stage?.distPct)}`} title={r.stage?.sma30 ? `30-wk SMA ${r.stage.sma30}` : ""}>{fmtPct(r.stage?.distPct)}</td>}
                     {allCols && <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.stage?.slope4wPct)}`}>{fmtPct(r.stage?.slope4wPct)}</td>}
-                    <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.stage?.mrs)}`}>{r.stage?.mrs === null || r.stage?.mrs === undefined ? "—" : (() => { const v = Math.round(r.stage!.mrs!); return v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : "0"; })()}</td>
+                    {allCols && <td className={`px-1.5 py-1 text-right tabular-nums ${pctTone(r.stage?.mrs)}`}>{r.stage?.mrs === null || r.stage?.mrs === undefined ? "—" : (() => { const v = Math.round(r.stage!.mrs!); return v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : "0"; })()}</td>}
                     {allCols && <td className={`px-1.5 py-1 text-right tabular-nums ${(r.stage?.rvol ?? 0) >= 1.5 ? "text-text-primary font-semibold" : "text-text-secondary"}`}>{r.stage?.rvol === null || r.stage?.rvol === undefined ? "—" : `${r.stage.rvol.toFixed(1)}×`}</td>}
                   </tr>
                 ))}
@@ -545,7 +582,7 @@ export function SwingStrengthPage() {
             </table>
           </div>
           <p className="text-[10px] text-dim">
-            Daily closes from Polygon (adjusted), two years; Last / % Chg / From open / Week are end-of-day from the same bars. RS is the IBD-style weighted 12-month return (2×3m + 6m + 9m + 12m) ranked 1–99 within this list, not the whole market. 10/20 are exponential, 50/200 simple.
+            Daily closes from Polygon (adjusted), two years; Last / % Chg / From open / Week are end-of-day from the same bars. Streak counts consecutive closes above (+) or below (−) the prior close. New means the name passes the selected chips today but did not in the previous stored snapshot. RS is the IBD-style weighted 12-month return (2×3m + 6m + 9m + 12m) ranked 1–99 within this list, not the whole market. 10/20 are exponential, 50/200 simple.
             Reversal columns are the operator&apos;s ThinkOrSwim &ldquo;Jonesy Signals&rdquo; study ported as written; the state is its Bullish plot (a turn detector on the
             ZigZagHighLow&apos;s running extreme, EMA5 highs/lows, 1% + 2×ATR(5) + $0.05): <b>triggered</b> = turned within 2 bars, the operator&apos;s scan; <b>in progress</b> = older.
             Stage is Weinstein on weekly bars: 30-week SMA, 4-week slope (flat = ±0.5%), Mansfield RS vs SPY; 1B = 8+ weeks of base, range ≤ 20%, MRS &gt; −1; 2B = &gt; 15% over or &gt; 16 weeks;

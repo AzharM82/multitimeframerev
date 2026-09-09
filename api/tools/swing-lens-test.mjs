@@ -13,6 +13,7 @@ import { expAverage, simpleAverage, trueRange, stochasticFull, crossesFromKD, ba
 import { toWeekly, weekEndFor } from "../dist/lib/swing/weekly.js";
 import { computeStage, STAGES } from "../dist/lib/swing/stages.js";
 import { returnOver, rsRaw, computeRs, rankRs, RS } from "../dist/lib/swing/rs.js";
+import { closeStreak } from "../dist/lib/swing/streak.js";
 
 let pass = 0;
 const failures = [];
@@ -202,6 +203,13 @@ check("rank 1..99, ties share, nulls skipped", rankRs([10, 30, 20, null, 30, -5]
 check("rank with one scored name is 99", rankRs([null, 7]), [null, 99]);
 check("rank: middle tie, all tied", [rankRs([1, 2, 2, 3]), rankRs([4, 4])], [[1, 50, 50, 99], [50, 50]]);
 check("rank with nothing scored", rankRs([null, null]), [null, null]);
+
+// ─── Close streak ───────────────────────────────────────────────────────────
+check("three green closes → 3", closeStreak([9, 9, 11, 12, 13]), 3);
+check("two red closes → −2", closeStreak([12, 13, 11, 10]), -2);
+check("flat last day → 0", closeStreak([10, 11, 11]), 0);
+check("single bar → 0", closeStreak([10]), 0);
+check("green after red → 1", closeStreak([12, 11, 10, 10.5]), 1);
 
 console.log(`${pass} passed, ${failures.length} failed`);
 for (const f of failures) console.log(`  ✗ ${f}`);

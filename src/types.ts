@@ -1142,7 +1142,7 @@ export interface SwingRow {
   extras: Record<string, number>;
   asOf: string | null;
   /** EOD price context from the scan's daily bars (absent on snapshots scored before it existed). */
-  px: { last: number; open: number; prevClose: number | null; changePct: number | null; fromOpenPct: number | null; weekPct: number | null } | null;
+  px: { last: number; open: number; prevClose: number | null; changePct: number | null; fromOpenPct: number | null; weekPct: number | null; /** consecutive closes above (+) / below (−) the prior close; absent on older snapshots */ streak?: number } | null;
   /** RS strength: IBD-style weighted 12-month return, ranked 1–99 within the list. */
   rs: SwingRs | null;
   ma: SwingMaStack | null;
