@@ -32,11 +32,18 @@ import type {
 
 const BASE = "/api";
 
+/** Thrown when the API sent us to the login page: the portal session has lapsed. */
+export const SIGNED_OUT = "Signed out — reload the page to sign in again";
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${url}`, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
+  // A lapsed session does not fail: SWA answers 302 → /login, fetch follows it,
+  // and the "success" body is the login page's HTML. Name that instead of
+  // letting res.json() report "Unexpected token '<'".
+  if (res.redirected && /\/(login|\.auth\/)/.test(new URL(res.url).pathname)) throw new Error(SIGNED_OUT);
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
