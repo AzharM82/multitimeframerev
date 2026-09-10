@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SwingResultsResponse, SwingRow, SwingStack, SwingReversalState, SwingSubStage } from "../types.js";
-import { getSwingResults, getSwingUniverse, uploadSwingUniverse, runSwingScan } from "../services/api.js";
+import { getSwingResults, getSwingUniverse, uploadSwingUniverse, runSwingScan, SIGNED_OUT } from "../services/api.js";
 import { useTableSort, SortHeaderRow, type SortColumn } from "./shared/tableSort.js";
 import { SwingGroups, type GroupLevel } from "./swing/SwingGroups.js";
 import { fmtTimePT, PT_LABEL } from "../utils/time.js";
@@ -403,7 +403,10 @@ export function SwingStrengthPage() {
       {loading && !data && <div className="text-sm text-text-secondary py-8 text-center">Loading…</div>}
       {error && !data && (
         <div className="bg-bg-card border border-border rounded p-4 text-sm text-text-secondary">
-          {error}. {universeCount ? "The list is loaded; press “score now” to compute the first snapshot." : "Upload a FinViz export first, then score."}
+          {error}.{" "}
+          {error === SIGNED_OUT ? "" : universeCount === null ? "The list itself could not be read either, so this is not a data problem — reload the page; if it persists, sign in again."
+            : universeCount > 0 ? "The list is loaded; press “score now” to compute the first snapshot."
+            : "Upload a FinViz export first, then score."}
         </div>
       )}
 
