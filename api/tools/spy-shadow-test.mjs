@@ -148,22 +148,23 @@ check("ema2 of a flat tape", Number(ema2(spy2Flat()).at(-1).ema.toFixed(2)), 773
   check("drawdown from the peak", s.maxDrawdownUsd, -50);
   check("equity curve per day", s.equity, [{ day: "2026-08-12", netUsd: 32 }, { day: "2026-08-13", netUsd: 32 }, { day: "2026-08-14", netUsd: -18 }]);
   check("by side", s.bySide, { CALL: { filled: 2, wins: 1, netUsd: 8 }, PUT: { filled: 1, wins: 0, netUsd: -26 } });
-  check("by exit", s.byExit, { TP: 1, SL: 1, EOD: 1 });
+  check("by exit", s.byExit, { TP: 1, SL: 1, TS: 0, EOD: 1 });
 }
 // ─── Account sizing ─────────────────────────────────────────────────────────
 {
-  check("account constant", RULE.ACCOUNT_USD, 2000);
+  check("account constant (Tradier Pro account, 2026-09-10)", RULE.ACCOUNT_USD, 2500);
   // $2.90 entry → 6 contracts ($1,740); +$58 gross per contract → $348 gross, $4.20 fees.
-  check("6 contracts at 2.90", sizeForAccount(2.9, 58), { contracts: 6, costUsd: 1740, grossUsd: 348, commissionUsd: 0, netUsd: 348, retPct: 17.4 });
+  check("6 contracts at 2.90 on $2,000", sizeForAccount(2.9, 58, 2000), { contracts: 6, costUsd: 1740, grossUsd: 348, commissionUsd: 0, netUsd: 348, retPct: 17.4 });
   // $0.88 entry → 22 contracts; a −9% stop on 0.88 is −$7.92/contract.
-  check("22 contracts at 0.88, losing", sizeForAccount(0.88, -7.92), { contracts: 22, costUsd: 1936, grossUsd: -174.24, commissionUsd: 0, netUsd: -174.24, retPct: -8.71 });
-  check("premium above the account → 0 contracts", sizeForAccount(25, 100).contracts, 0);
+  check("22 contracts at 0.88 on $2,000, losing", sizeForAccount(0.88, -7.92, 2000), { contracts: 22, costUsd: 1936, grossUsd: -174.24, commissionUsd: 0, netUsd: -174.24, retPct: -8.71 });
+  check("premium above the account → 0 contracts", sizeForAccount(30, 100).contracts, 0);
+  check("8 contracts at 2.90 on the $2,500 default", sizeForAccount(2.9, 58).contracts, 8);
   const rows = [
     { day: "2026-08-12", side: "CALL", status: "FILLED", entry: 2.9, grossUsd: 58, netUsd: 57.3, exitReason: "TP" },
     { day: "2026-08-12", side: "PUT", status: "FILLED", entry: 2.0, grossUsd: -18, netUsd: -18.7, exitReason: "SL" },
     { day: "2026-08-13", side: "PUT", status: "NO_TOUCH", entry: null, grossUsd: null, netUsd: null, exitReason: "" },
   ];
-  const a = summarize(rows).account;
+  const a = summarize(rows, 2000).account;
   // CALL: 6 × 58 = 348 ; PUT: 10 × −18 = −180 ; total 168 = 8.4% of 2000. No commissions.
   check("account totals", [a.sizeUsd, a.grossUsd, a.commissionUsd, a.netUsd, a.retPct], [2000, 168, 0, 168, 8.4]);
   check("account by side", a.bySide, { CALL: 348, PUT: -180 });
@@ -171,7 +172,41 @@ check("ema2 of a flat tape", Number(ema2(spy2Flat()).at(-1).ema.toFixed(2)), 773
   check("account best/worst/avg", [a.bestTradeUsd, a.worstTradeUsd, a.avgContracts], [348, -180, 8]);
   check("account drawdown never positive", a.maxDrawdownUsd <= 0 && a.maxDrawdownPct <= 0, true);
 }
-check("rule label mentions its own numbers", RULE.label.includes(`${RULE.TARGET_PCT}%`) && RULE.label.includes(`${RULE.STOP_PCT}%`), true);
+check("rule label mentions its own numbers", RULE.label.includes(`${RULE.TARGET_PCT}%`) && RULE.label.includes(`${RULE.STOP_PCT}%`) && RULE.TRAIL.every((t) => RULE.label.includes(`${t.atPct}%`) && RULE.label.includes(`+${t.stopPct}%`)), true);
+
+// ─── Stop ladder (2026-09-10) ───────────────────────────────────────────────
+check("ladder pinned", RULE.TRAIL, [{ atPct: 10, stopPct: 2 }, { atPct: 15, stopPct: 5 }]);
+{
+  // entry 2.90; 18:50 high 3.20 (+10.3%) raises the stop to 2.958; 18:55 low 2.90 hits it → TS at 2.96
+  const r = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [3.1, 3.2, 3.1, 3.15], "18:55": [3.0, 3.0, 2.9, 2.95] }));
+  check("+10% then back to +2% → TS at entry × 1.02", [r.exitReason, r.exit, r.retPct, r.grossUsd > 0], ["TS", 2.96, 2.07, true]);
+}
+{
+  // +15.5% raises the stop to 3.045; the default flat 3.00 bars that follow sit below it → TS at 3.05 on the next bar
+  const r = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [3.3, 3.35, 3.3, 3.33] }));
+  check("+15% raises the stop to +5%", [r.exitReason, r.exit, r.retPct], ["TS", 3.05, 5.17]);
+  check("TS trade held to the next bar only", r.heldMin, 7);
+}
+{
+  // The same bar prints +10% and dips under +2%: judged against the stop in force when it opened (−9%) → not stopped; the raise applies from the next bar
+  const r = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [2.9, 3.2, 2.8, 3.0], "18:51": [2.95, 2.95, 2.9, 2.9] }));
+  check("raise takes effect from the next bar", [r.exitReason, r.exit, r.heldMin], ["TS", 2.96, 7]);
+}
+{
+  // Ladder never lowers a stop, and the target still wins when it prints
+  const r = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [3.3, 3.35, 3.3, 3.33], "18:51": [3.4, 3.6, 3.4, 3.5] }));
+  check("target after the raise is still a TP", [r.exitReason, r.exit], ["TP", 3.48]);
+  const r2 = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [3.0, 3.1, 3.0, 3.05], "18:55": [2.8, 2.82, 2.5, 2.6] }));
+  check("under +10% the original stop still applies as SL", [r2.exitReason, r2.exit], ["SL", 2.64]);
+}
+{
+  const rows = [
+    { day: "2026-08-12", side: "CALL", status: "FILLED", entry: 2.9, grossUsd: 6, netUsd: 6, exitReason: "TS" },
+    { day: "2026-08-12", side: "PUT", status: "FILLED", entry: 3.1, grossUsd: -26, netUsd: -26, exitReason: "SL" },
+  ];
+  const s = summarize(rows, 2000);
+  check("TS counts as a win and its own exit bucket", [s.wins, s.byExit], [1, { TP: 0, SL: 1, TS: 1, EOD: 0 }]);
+}
 
 console.log(`${pass} passed, ${failures.length} failed`);
 for (const f of failures) console.log(`  ✗ ${f}`);

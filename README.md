@@ -196,8 +196,8 @@ seen.
 |---|---|
 | Contract | SPY at-the-money strike (SPY at the signal, rounded), expiring that week's Friday |
 | Entry | Let the 2-minute bar containing the alert close, then wait up to **10 minutes** for SPY's 1-minute range to touch the **9 EMA of 2-minute closes** (the EMA of the last *completed* bar). Fill at the option's 1-minute **midpoint** in that minute. No touch → `NO_TOUCH`, no trade |
-| Exit | Every 1-minute bar from entry: **−9% stop first** (bar low, entry minute included), then **+20% target** (bar high, never inside the entry minute), else the **15:59 ET close**. One bar spanning both = stop |
-| Sizing | A fixed **$2,000** account, all-in: `floor(2000 / (entry × 100))` contracts, not compounded. **Commission 0** (assumes Tradier Pro, $10/mo flat, SPY options commission-free — Lite's $0.35/side would have cost $227.50 on the backfill) |
+| Exit | Every 1-minute bar from entry: **stop first** (bar low, entry minute included) at the level in force when the bar opened, then **+20% target** (bar high, never inside the entry minute), else the **15:59 ET close**. One bar spanning both = stop. **Stop ladder (2026-09-10):** the stop starts at **−9%**; once a bar's high has been **+10%** it moves to **+2%**, once **+15%** to **+5%** — raises only, effective from the next bar; an exit on a raised stop is reason `TS` |
+| Sizing | A fixed **$2,500** account (the Tradier Pro account funded 2026-09-10; $2,000 before), all-in: `floor(2500 / (entry × 100))` contracts, not compounded. **Commission 0** (assumes Tradier Pro, $10/mo flat, SPY options commission-free — Lite's $0.35/side would have cost $227.50 on the backfill) |
 
 Sizing and commission are applied **at read time** from the stored entry and
 gross; `netUsd` is re-derived from `grossUsd − RULE.COMMISSION_RT` on every
@@ -240,6 +240,18 @@ no real money until the *forward* ledger (from Tue 2026-09-08) holds up for one
 to two weeks. If it does, the execution venue under discussion is a Tradier
 account (free Lite tier for real-time OPRA data + orders; Pro $10/mo for
 commission-free SPY options), with the $2,000 all-in sizing the ledger reports.
+
+**Rule change 2026-09-10 (operator's call) — previous rule's record, kept here
+because the ledger is re-scored under the new rule:** rule v1 (fixed −9% stop)
+forward 2026-09-08 → 09-10: 4 signals, 4 filled, 2 target / 2 stop, +$78 per
+contract, **+$404 (+20.2%) on $2,000**, drawdown −16.8%; whole ledger 08-12 →
+09-10: 37 filled, 43% wins, +$220 per contract, +$1,485 (+74%) on $2,000, max
+drawdown −38%. The raw v1 rows are in
+`api/tools/fixtures/spy-shadow-ledger-rule-v1-2026-09-10.json`. Rule v2 adds the
+stop ladder above and sizes on **$2,500**; the forward clock restarts on
+2026-09-11. A Tradier **Pro** account is open and funded with $2,500; the
+integration plan is parked in the operator's notes until the token is in
+production settings.
 
 Files: `api/src/lib/spyShadow/{rule,data}.ts`, `api/src/functions/spyShadow.ts`,
 `api/tools/spy-shadow-test.mjs` (43 pure checks — run before touching the rule),
