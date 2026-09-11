@@ -138,6 +138,33 @@ function redactSecrets(raw: string): string {
 
 const SIDE_EMOJI: Record<string, string> = { CALL: "🟢", PUT: "🔴", NONE: "⚪" };
 
+/**
+ * Dual-write during the move to StockAgentHub (2026-09-11). Every authenticated
+ * alert body is forwarded verbatim to SPY_FORWARD_URL (the hub's /api/spy-signal)
+ * with the same shared secret, so the hub builds the same audit and ledger
+ * while TradingView still points here. Best effort, bounded, after our own
+ * logging: a slow or dead hub must never cost us the alert. Remove once the
+ * TradingView alert URL has been repointed and the hub's record matches.
+ */
+async function forwardToHub(raw: string, ctx: InvocationContext): Promise<boolean> {
+  const url = process.env.SPY_FORWARD_URL || "";
+  const secret = process.env.TV_WEBHOOK_SECRET || "";
+  if (!url || !secret) return false;
+  try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 4000);
+    const res = await fetch(`${url}${url.includes("?") ? "&" : "?"}secret=${encodeURIComponent(secret)}`, {
+      method: "POST", headers: { "Content-Type": "text/plain" }, body: raw, signal: ac.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) ctx.warn(`spy-conviction: forward to hub returned ${res.status}`);
+    return res.ok;
+  } catch (e) {
+    ctx.warn(`spy-conviction: forward to hub failed: ${e instanceof Error ? e.message : e}`);
+    return false;
+  }
+}
+
 /** The Pushover/WhatsApp body: the one-liner, then why, then the six legs. */
 function messageBody(a: ConvictionAlert, held: string | null, et: ReturnType<typeof etNow>, rth: boolean): string {
   const lines = [formatAlert(a)];
@@ -267,6 +294,9 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
   const alert = parsed.alert;
   const key = safeRowKey(dedupeKey(alert));
 
+  // The hub receives the same body, in parallel with our own handling below.
+  const forwarded = forwardToHub(raw, ctx);
+
   // TradingView retries; a retry must not notify twice.
   const seen = await getOne<{ receivedAt?: string }>(TABLES.SPY_CONVICTION, `evt-${et.date}`, key);
   if (seen) {
@@ -322,7 +352,8 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
   await writeState(advance(prev, transition, alert.signal, alert.barTime, alert.score, alert.spy, nowIso))
     .catch((e) => ctx.error(`spy-conviction: state write failed: ${e}`));
 
-  ctx.log(`spy-conviction ${alert.signal} ${transition.from}->${transition.to} notify=${shouldNotify}`);
+  const hub = await forwarded;
+  ctx.log(`spy-conviction ${alert.signal} ${transition.from}->${transition.to} notify=${shouldNotify} hub=${hub}`);
 
   return {
     status: 200,
@@ -334,6 +365,7 @@ async function receive(req: HttpRequest, ctx: InvocationContext): Promise<HttpRe
       stateFrom: transition.from,
       anomaly: transition.anomaly,
       notified: shouldNotify ? notified : false,
+      forwardedToHub: hub,
       withinRth,
       line,
     },
