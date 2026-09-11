@@ -26,7 +26,6 @@ Function App, `mtfrev-cron`.
 | Rotation | `#rotation` | Market → sector → industry → stock tree, FinViz real-time |
 | Chart Analysis | `#chart` | Single-ticker weighted read off TradingView desktop |
 | Opening Drive | `#opening` | SMB PMH-break tracker |
-| **SPY Conviction** | `#spy` | Six-leg 10-min SPY indicator, alerts-only, **+ the shadow ledger and a "How it works" view — see below** |
 | Journal | `#journal` | SnapTrade fills + dictated notes + rolling lessons |
 | About | `#about` | — |
 
@@ -165,98 +164,9 @@ itself.
 
 ---
 
-## SPY Conviction — alerts, the shadow ledger, and "How it works"
+## SPY Conviction — moved to StockAgentHub
 
-The tab has two views, switched in its header.
-
-**Ledger** is the live system: a TradingView Pine indicator scores six legs
-(cumulative TICK, volume pressure, SPY vs VWAP, SPY vs EMA 9, SPY/RSP relative
-strength, VIX) on every closed 10-minute SPY bar, collapses them into one score
-from −100 to +100, and emits the decision itself — `ARM_*`, `ARM_CANCEL`,
-`BUY_*`, `HOLD_*`, `REDUCE_*`, `SELL_*`, `STAND_ASIDE`. The portal receives it
-at `POST /api/spy-conviction` (alias `/api/tv-trend-webhook`, both permanent),
-records every hit including rejects, mirrors the believed position, and pushes
-ARM/BUY/REDUCE/SELL/CANCEL to the phone. **Nothing is traded.** Full detail in
-`api/src/lib/spyConviction/README.md`.
-
-**How it works** is the explanation of the whole system with SVG diagrams
-(`src/views/spy/SpyHowItWorks.tsx`). Every rule number on it is read from the
-API's `params`, so it cannot drift from the code.
-
-### The shadow ledger (added 2026-09-05)
-
-A standing scoreboard: after each close, `mtfrev-cron` (`spyShadowCron`,
-4:20 PM ET weekdays) scores every accepted `BUY_CALL` / `BUY_PUT` of the day
-against **one rule fixed in `api/src/lib/spyShadow/rule.ts`** and writes the
-result to table `SpyShadowTrades` (PK = ET day, RK = `HHMM|SIDE`), which is
-deliberately outside `purge-history` so the rule is judged on days it has never
-seen.
-
-| Step | Rule |
-|---|---|
-| Contract | SPY at-the-money strike (SPY at the signal, rounded), expiring that week's Friday |
-| Entry | Let the 2-minute bar containing the alert close, then wait up to **10 minutes** for SPY's 1-minute range to touch the **9 EMA of 2-minute closes** (the EMA of the last *completed* bar). Fill at the option's 1-minute **midpoint** in that minute. No touch → `NO_TOUCH`, no trade |
-| Exit | Every 1-minute bar from entry: **stop first** (bar low, entry minute included) at the level in force when the bar opened, then **+20% target** (bar high, never inside the entry minute), else the **15:59 ET close**. One bar spanning both = stop. **Stop raise (2026-09-10):** the stop starts at **−9%**; once a bar's high has been **+15%** it moves to **+5%** — raise only, effective from the next bar; an exit on the raised stop is reason `TS`. (A two-rung ladder with +2% after +10% was measured first and rejected: $220 → $66 per contract on the same 43 signals) |
-| Sizing | A fixed **$2,500** account (the Tradier Pro account funded 2026-09-10; $2,000 before), all-in: `floor(2500 / (entry × 100))` contracts, not compounded. **Commission 0** (assumes Tradier Pro, $10/mo flat, SPY options commission-free — Lite's $0.35/side would have cost $227.50 on the backfill) |
-
-Sizing and commission are applied **at read time** from the stored entry and
-gross; `netUsd` is re-derived from `grossUsd − RULE.COMMISSION_RT` on every
-read and never trusted from the row. Changing either constant re-prices the
-whole history consistently. Per-row `tp10Hit` / `tp15Hit` and `mfePct` are kept
-so a later review can compare targets without re-running anything.
-
-Endpoints: `POST /api/spy-shadow` (timer secret **or** signed-in portal session;
-`?date=` for one day, `?from=&to=` to backfill; idempotent) and `GET
-/api/spy-shadow?date=` (that day's rows + the whole ledger's summary and equity
-curve). The POST has a method-scoped anonymous entry in
-`staticwebapp.config.json` for the cron.
-
-Data: Alpaca **Basic (free)** — SIP 1- and 2-minute SPY bars and option
-1-minute bars from the indicative feed. Everything is fetched after the close,
-so the plan's 15-minute delay never matters. Keys are already in production
-settings; for local scoring copy `ALPACA_API_KEY` / `ALPACA_API_SECRET` into
-`api/local.settings.json` (Core Tools does **not** inherit them from the shell).
-
-Backfill 2026-08-12 → 09-04, 39 signals, 33 filled, 6 no-touch, 42% win:
-**+$1,081 (+54%)** on $2,000 with a **−$767 (−38%)** max drawdown; +$142 per
-single contract. These are lower than the research scripts that found the rule
-on purpose (completed-bar EMA; no target fill in the entry minute).
-
-### How the rule was arrived at (so nobody re-runs the same dead ends)
-
-All measured on the same 35–39 BUY alerts with real 1-minute option bars:
-
-1. Underlying only, BUY → indicator SELL: 18% wins, breakeven.
-2. Buy the next bar's open, any TP/SL 10–30%: within a few dollars of zero.
-3. Stop at the alert bar's low (median 2% away): 31 of 38 stopped in minutes.
-4. Midpoint entry instead of open: worse — winners are already rising in that bar.
-5. Buy the bar's low (the ceiling): ~$5/contract/trade — the whole edge lived in a 2-minute fill.
-6. **Wait for the 2-minute 9 EMA touch within 10 min**: win rate from the high 20s to the 50s and no longer fill-dependent. EMA 21 touched too rarely; VWAP almost never inside the window.
-7. Obeying the indicator's SELL (median 10 min after entry) gave the move back every time; a mechanical target/stop/close kept it.
-8. Sizing: drawdown scales one-for-one with position size (all-in −38%, one-third −8%). Day-loss stops and trade caps did not help; a "sit out after two losses" rule that looked spectacular was rejected as a fit to the sequence. A one-third-size line was built, deployed and removed the same day at the operator's request.
-
-**Decision standing at 2026-09-05:** alerts-only stays. No broker, no executor,
-no real money until the *forward* ledger (from Tue 2026-09-08) holds up for one
-to two weeks. If it does, the execution venue under discussion is a Tradier
-account (free Lite tier for real-time OPRA data + orders; Pro $10/mo for
-commission-free SPY options), with the $2,000 all-in sizing the ledger reports.
-
-**Rule change 2026-09-10 (operator's call) — previous rule's record, kept here
-because the ledger is re-scored under the new rule:** rule v1 (fixed −9% stop)
-forward 2026-09-08 → 09-10: 4 signals, 4 filled, 2 target / 2 stop, +$78 per
-contract, **+$404 (+20.2%) on $2,000**, drawdown −16.8%; whole ledger 08-12 →
-09-10: 37 filled, 43% wins, +$220 per contract, +$1,485 (+74%) on $2,000, max
-drawdown −38%. The raw v1 rows are in
-`api/tools/fixtures/spy-shadow-ledger-rule-v1-2026-09-10.json`. Rule v2 adds the
-stop raise above and sizes on **$2,500**; the forward clock restarts on
-2026-09-11. A Tradier **Pro** account is open and funded with $2,500; the
-integration plan is parked in the operator's notes until the token is in
-production settings.
-
-Files: `api/src/lib/spyShadow/{rule,data}.ts`, `api/src/functions/spyShadow.ts`,
-`api/tools/spy-shadow-test.mjs` (43 pure checks — run before touching the rule),
-the `ShadowSection` in `src/views/SpyConvictionPage.tsx`,
-`src/views/spy/SpyHowItWorks.tsx`.
+SPY Conviction (the six-leg TradingView indicator, its 1-minute executor, the shadow ledger and "How it works") moved to **StockAgentHub** on 2026-09-11 and trades at Tradier from there — repo github.com/AzharM82/StockAgentHub, portal https://jolly-bush-02b86570f.4.azurestaticapps.net. This portal keeps only a relay on `POST /api/spy-conviction` and `POST /api/tv-trend-webhook` that forwards each TradingView request to the hub (`SPY_FORWARD_URL`), until the alert URL is repointed; then delete `api/src/functions/spyConviction.ts` and its two anonymous entries in `staticwebapp.config.json`. The old `SpyConviction` / `SpyShadowTrades` tables stay in storage untouched as a backup.
 
 ---
 
@@ -323,7 +233,7 @@ curl -s -o /dev/null -w '%{http_code}\n' $BASE/api/avwap-earnings               
   `/.auth/login/google` fails with `GOOGLE_CLIENT_ID not found`. Mint the
   emulator's own session cookie instead: on any local page run
   `document.cookie = "StaticWebAppsAuthCookie=" + btoa(JSON.stringify({identityProvider:"google",userId:"e2e",userDetails:"e2e@local",userRoles:["anonymous","authenticated","portal"],claims:[]})) + "; path=/"`
-  then open `/#spy`. The same base64 principal works as a `Cookie:` header for
+  then open the tab you changed (e.g. `/#swing`). The same base64 principal works as a `Cookie:` header for
   `curl` against `/api/*` routes gated on the `portal` role.
 - For a layout review of a view without a browser session, render it
   statically: `esbuild src/views/<View>.tsx --bundle --format=esm --platform=node

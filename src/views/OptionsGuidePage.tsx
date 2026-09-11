@@ -72,7 +72,7 @@ function Tile({ label, value, sub, tone }: {
 /**
  * The payoff diagram.
  *
- * Modelled on Timeline in SpyConvictionPage.tsx — same clamping scale closures,
+ * Modelled on the (since removed) SPY Conviction timeline — same clamping scale closures,
  * colour via Tailwind classes on the elements, <title> children, role="img".
  *
  * Zones are shaded BY PRICE, split at the breakeven, rather than under the

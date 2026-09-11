@@ -144,20 +144,6 @@ export const TABLES = {
   JOURNAL_NOTES: "JournalNotes",
   /** The rolling 10-point lessons list, one row per version. */
   JOURNAL_SUMMARY: "JournalSummary",
-  /**
-   * SPY Conviction Score: TradingView alerts from the 10-min six-leg indicator,
-   * the believed position, and raw hits including rejects and dead letters.
-   *
-   * Replaced the 5-min breadth-streak + Gate-regime system on 2026-08-12; its
-   * `TvTrendAlerts` table was archived to dev/spy-conviction/ and dropped.
-   */
-  SPY_CONVICTION: "SpyConviction",
-  /**
-   * SPY Conviction shadow ledger: every accepted BUY scored after the close
-   * against ONE fixed rule (lib/spyShadow/rule.ts). PK = ET day, RK = bar time
-   * + side. Never purged — it exists so the rule can be judged weeks later.
-   */
-  SPY_SHADOW: "SpyShadowTrades",
   /** Swing Strength: the operator-curated FinViz list (PK "current"/RK ticker + PK "meta"). */
   SWING_UNIVERSE: "SwingUniverse",
   /** Swing Strength: one gzip-chunked snapshot per ET day (PK date / RK "snapshot") + PK "latest". */
