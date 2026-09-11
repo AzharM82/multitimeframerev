@@ -16,7 +16,7 @@ import type { SpyShadowResponse } from "../../types.js";
 
 type Params = SpyShadowResponse["params"];
 
-const FALLBACK: Params = { waitMin: 10, emaLen: 9, targetPct: 20, stopPct: 9, trail: [{ atPct: 10, stopPct: 2 }, { atPct: 15, stopPct: 5 }], commissionRt: 0, accountUsd: 2500 };
+const FALLBACK: Params = { waitMin: 10, emaLen: 9, targetPct: 20, stopPct: 9, trail: [{ atPct: 15, stopPct: 5 }], commissionRt: 0, accountUsd: 2500 };
 
 export function SpyHowItWorks({ params, rule }: { params: Params | null; rule: string | null }) {
   const p = params ?? FALLBACK;
@@ -78,7 +78,7 @@ export function SpyHowItWorks({ params, rule }: { params: Params | null; rule: s
           <li><b className="text-text-primary">Stop first.</b> If the bar&apos;s low is at or below entry × {(1 - p.stopPct / 100).toFixed(2)}, exit at the stop price. The entry minute itself counts.</li>
           <li><b className="text-text-primary">Then target.</b> If the bar&apos;s high reaches entry × {(1 + p.targetPct / 100).toFixed(2)}, exit at the target. Not inside the entry minute, because we cannot know whether that high printed before or after the fill.</li>
           <li><b className="text-text-primary">Tie goes to the loss.</b> A single bar that spans both levels is scored as a stop.</li>
-          <li><b className="text-text-primary">The stop rises with the trade</b> (added 2026-09-10). {trail.map((t, i) => <span key={t.atPct}>{i ? "; " : ""}once a bar&apos;s high has been +{t.atPct}% above the entry, the stop moves to entry × {(1 + t.stopPct / 100).toFixed(2)} (+{t.stopPct}%)</span>)}. Rungs only ever raise the stop, and a raise applies from the <em>next</em> bar, because inside one bar we cannot tell whether the high or the low printed first. An exit on a raised stop is shown as &ldquo;raised stop&rdquo;: a small win instead of a full loss.</li>
+          <li><b className="text-text-primary">The stop rises once</b> (added 2026-09-10). {trail.map((t, i) => <span key={t.atPct}>{i ? "; " : ""}once a bar&apos;s high has been +{t.atPct}% above the entry, the stop moves to entry × {(1 + t.stopPct / 100).toFixed(2)} (+{t.stopPct}%)</span>)}. The stop is only ever raised, and the raise applies from the <em>next</em> bar, because inside one bar we cannot tell whether the high or the low printed first. An exit on the raised stop is shown as &ldquo;raised stop&rdquo;: a locked-in gain instead of a round trip to the stop.</li>
           <li><b className="text-text-primary">Otherwise the close.</b> The last bar of the session, 15:59 ET. Never overnight.</li>
           <li><b className="text-text-primary">Not modelled.</b> Slippage, a gap through the stop, or a low that was one print at the bid. Live fills would be a little worse than the ledger.</li>
         </ul>
@@ -148,7 +148,7 @@ const GLOSSARY: [string, string][] = [
   ["Contract", "OCC symbol of the at-the-money SPY option expiring that Friday."],
   ["Touch", "When SPY touched the 9 EMA and how many minutes after the alert bar closed. “No touch in 10m” means no trade."],
   ["Entry / Exit", "Option prices: the midpoint in the touch minute, and the target, stop or closing price."],
-  ["Why", "Which exit fired: target, raised stop (a small win after the trade had been up 10% or 15%), stop, or close."],
+  ["Why", "Which exit fired: target, raised stop (+5% locked in after the trade had been up 15%), stop, or close."],
   ["Ret", "Percent change of the option from entry to exit."],
   ["Qty", "Contracts the account buys at the entry."],
   ["Net $ / Acct %", "Dollars for that quantity, and the same as a percent of the account."],

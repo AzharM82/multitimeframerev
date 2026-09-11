@@ -175,11 +175,11 @@ check("ema2 of a flat tape", Number(ema2(spy2Flat()).at(-1).ema.toFixed(2)), 773
 check("rule label mentions its own numbers", RULE.label.includes(`${RULE.TARGET_PCT}%`) && RULE.label.includes(`${RULE.STOP_PCT}%`) && RULE.TRAIL.every((t) => RULE.label.includes(`${t.atPct}%`) && RULE.label.includes(`+${t.stopPct}%`)), true);
 
 // ─── Stop ladder (2026-09-10) ───────────────────────────────────────────────
-check("ladder pinned", RULE.TRAIL, [{ atPct: 10, stopPct: 2 }, { atPct: 15, stopPct: 5 }]);
+check("single rung pinned", RULE.TRAIL, [{ atPct: 15, stopPct: 5 }]);
 {
-  // entry 2.90; 18:50 high 3.20 (+10.3%) raises the stop to 2.958; 18:55 low 2.90 hits it → TS at 2.96
+  // entry 2.90; 18:50 high 3.20 (+10.3%) is below the 15% rung → nothing moves; 18:55 low 2.90 is above the −9% stop → runs to the close
   const r = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [3.1, 3.2, 3.1, 3.15], "18:55": [3.0, 3.0, 2.9, 2.95] }));
-  check("+10% then back to +2% → TS at entry × 1.02", [r.exitReason, r.exit, r.retPct, r.grossUsd > 0], ["TS", 2.96, 2.07, true]);
+  check("+10% alone does not raise the stop", [r.exitReason, r.exit], ["EOD", 3.0]);
 }
 {
   // +15.5% raises the stop to 3.045; the default flat 3.00 bars that follow sit below it → TS at 3.05 on the next bar
@@ -188,20 +188,20 @@ check("ladder pinned", RULE.TRAIL, [{ atPct: 10, stopPct: 2 }, { atPct: 15, stop
   check("TS trade held to the next bar only", r.heldMin, 7);
 }
 {
-  // The same bar prints +10% and dips under +2%: judged against the stop in force when it opened (−9%) → not stopped; the raise applies from the next bar
-  const r = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [2.9, 3.2, 2.8, 3.0], "18:51": [2.95, 2.95, 2.9, 2.9] }));
-  check("raise takes effect from the next bar", [r.exitReason, r.exit, r.heldMin], ["TS", 2.96, 7]);
+  // The same bar prints +15.5% and dips under +5%: judged against the stop in force when it opened (−9%) → not stopped; the raise applies from the next bar
+  const r = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [2.9, 3.35, 2.8, 3.0], "18:51": [3.02, 3.02, 2.9, 2.9] }));
+  check("raise takes effect from the next bar", [r.exitReason, r.exit, r.heldMin], ["TS", 3.05, 7]);
 }
 {
   // Ladder never lowers a stop, and the target still wins when it prints
   const r = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [3.3, 3.35, 3.3, 3.33], "18:51": [3.4, 3.6, 3.4, 3.5] }));
   check("target after the raise is still a TP", [r.exitReason, r.exit], ["TP", 3.48]);
   const r2 = simulate(SIG, spy1("18:45"), spy2Flat(), opt1({ "18:45": [2.9, 2.94, 2.86, 2.9], "18:50": [3.0, 3.1, 3.0, 3.05], "18:55": [2.8, 2.82, 2.5, 2.6] }));
-  check("under +10% the original stop still applies as SL", [r2.exitReason, r2.exit], ["SL", 2.64]);
+  check("under +15% the original stop still applies as SL", [r2.exitReason, r2.exit], ["SL", 2.64]);
 }
 {
   const rows = [
-    { day: "2026-08-12", side: "CALL", status: "FILLED", entry: 2.9, grossUsd: 6, netUsd: 6, exitReason: "TS" },
+    { day: "2026-08-12", side: "CALL", status: "FILLED", entry: 2.9, grossUsd: 15, netUsd: 15, exitReason: "TS" },
     { day: "2026-08-12", side: "PUT", status: "FILLED", entry: 3.1, grossUsd: -26, netUsd: -26, exitReason: "SL" },
   ];
   const s = summarize(rows, 2000);

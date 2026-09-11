@@ -46,14 +46,16 @@ export const RULE = {
   TARGET_PCT: 20,
   STOP_PCT: 9,
   /**
-   * Stop ladder (operator's change, 2026-09-10). Once the option's bar HIGH has
+   * Stop raise (operator's change, 2026-09-10; a two-rung ladder with +2% after
+   * +10% was measured first and rejected — it cut the per-contract result from
+   * $220 to $66 on the same 43 signals). Once the option's bar HIGH has
    * been `atPct` above the entry — after the entry minute, like the target — the
    * stop moves UP to `stopPct` above the entry. Rungs only ever raise the stop.
    * The raise takes effect from the NEXT bar: inside a bar we cannot know whether
    * the high or the low printed first, so a bar is judged against the stop that
    * was in force when it opened. Exits on a raised stop are reason "TS".
    */
-  TRAIL: [{ atPct: 10, stopPct: 2 }, { atPct: 15, stopPct: 5 }] as const,
+  TRAIL: [{ atPct: 15, stopPct: 5 }] as const,
   /** Informational: would these targets have filled before the stop? */
   ALT_TARGETS: [10, 15] as const,
   /**
@@ -77,7 +79,7 @@ export const RULE = {
    */
   ACCOUNT_USD: 2500,
   /** Human-readable, rendered on the tab. Keep in step with the constants. */
-  label: "2-min 9 EMA pullback within 10 min · +20% target · −9% stop, raised to +2% once up 10% and +5% once up 15% · else close",
+  label: "2-min 9 EMA pullback within 10 min · +20% target · −9% stop, raised to +5% once up 15% · else close",
 } as const;
 
 export type ShadowStatus = "FILLED" | "NO_TOUCH" | "NO_DATA";
