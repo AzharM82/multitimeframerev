@@ -161,7 +161,7 @@ async function read(req: HttpRequest): Promise<HttpResponseInit> {
   return {
     jsonBody: {
       date, rule: RULE.label,
-      params: { waitMin: RULE.WAIT_MIN, emaLen: RULE.EMA_LEN, targetPct: RULE.TARGET_PCT, stopPct: RULE.STOP_PCT, commissionRt: RULE.COMMISSION_RT, accountUsd: RULE.ACCOUNT_USD },
+      params: { waitMin: RULE.WAIT_MIN, emaLen: RULE.EMA_LEN, targetPct: RULE.TARGET_PCT, stopPct: RULE.STOP_PCT, trail: RULE.TRAIL.map((t) => ({ atPct: t.atPct, stopPct: t.stopPct })), commissionRt: RULE.COMMISSION_RT, accountUsd: RULE.ACCOUNT_USD },
       rows: dayRows.map(strip),
       summary: summarize(ledger),
       lastEvaluated: lastEvaluated || null,

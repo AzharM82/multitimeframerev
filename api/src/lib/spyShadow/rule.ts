@@ -45,6 +45,17 @@ export const RULE = {
   EMA_LEN: 9,
   TARGET_PCT: 20,
   STOP_PCT: 9,
+  /**
+   * Stop raise (operator's change, 2026-09-10; a two-rung ladder with +2% after
+   * +10% was measured first and rejected — it cut the per-contract result from
+   * $220 to $66 on the same 43 signals). Once the option's bar HIGH has
+   * been `atPct` above the entry — after the entry minute, like the target — the
+   * stop moves UP to `stopPct` above the entry. Rungs only ever raise the stop.
+   * The raise takes effect from the NEXT bar: inside a bar we cannot know whether
+   * the high or the low printed first, so a bar is judged against the stop that
+   * was in force when it opened. Exits on a raised stop are reason "TS".
+   */
+  TRAIL: [{ atPct: 15, stopPct: 5 }] as const,
   /** Informational: would these targets have filled before the stop? */
   ALT_TARGETS: [10, 15] as const,
   /**
@@ -61,17 +72,19 @@ export const RULE = {
   /**
    * The account the operator would fund. Sizing is "as many contracts as the
    * account buys at the entry", not compounded, so every trade is judged
-   * against the same $2,000 and the percentages stay comparable day to day.
+   * against the same balance and the percentages stay comparable day to day.
    * Applied at READ time from the stored entry price, so changing it never
-   * rewrites history.
+   * rewrites history. $2,000 until 2026-09-10; $2,500 = the Tradier Pro
+   * account the operator funded that day.
    */
-  ACCOUNT_USD: 2000,
+  ACCOUNT_USD: 2500,
   /** Human-readable, rendered on the tab. Keep in step with the constants. */
-  label: "2-min 9 EMA pullback within 10 min · +20% target · −9% stop · else close",
+  label: "2-min 9 EMA pullback within 10 min · +20% target · −9% stop, raised to +5% once up 15% · else close",
 } as const;
 
 export type ShadowStatus = "FILLED" | "NO_TOUCH" | "NO_DATA";
-export type ExitReason = "TP" | "SL" | "EOD" | "";
+/** TS = stopped out on a RAISED stop (a small win), SL = the original stop. */
+export type ExitReason = "TP" | "SL" | "TS" | "EOD" | "";
 
 export interface ShadowSignal {
   /** ET trading day, YYYY-MM-DD. */
@@ -225,27 +238,34 @@ export function simulate(
   const entry = round2((entryBar.h + entryBar.l) / 2);
   const entryMs = barMs(entryBar);
   const target = entry * (1 + RULE.TARGET_PCT / 100);
-  const stop = entry * (1 - RULE.STOP_PCT / 100);
+  let stop = entry * (1 - RULE.STOP_PCT / 100);
+  let raised = false;
 
-  // 3. Walk forward. Stop first, target not inside the entry minute.
+  // 3. Walk forward. Stop first (at the level in force when the bar opened),
+  //    target not inside the entry minute, then raise the stop for the next bar.
   let exit: number | null = null; let reason: ExitReason = ""; let exitMs = entryMs;
-  let mfe = 0; let tp10 = false; let tp15 = false; let stopped = false;
+  let mfe = 0; let tp10 = false; let tp15 = false;
   const after = opt1.filter((b) => barMs(b) >= entryMs);
   for (let i = 0; i < after.length; i++) {
     const b = after[i];
-    if (b.l <= stop) { exit = round2(stop); reason = "SL"; exitMs = barMs(b); stopped = true; break; }
+    if (b.l <= stop) { exit = round2(stop); reason = raised ? "TS" : "SL"; exitMs = barMs(b); break; }
     if (i > 0) {
       mfe = Math.max(mfe, (b.h / entry - 1) * 100);
       if (!tp10 && b.h >= entry * 1.10) tp10 = true;
       if (!tp15 && b.h >= entry * 1.15) tp15 = true;
       if (b.h >= target) { exit = round2(target); reason = "TP"; exitMs = barMs(b); break; }
+      for (const rung of RULE.TRAIL) {
+        if (b.h >= entry * (1 + rung.atPct / 100)) {
+          const lvl = entry * (1 + rung.stopPct / 100);
+          if (lvl > stop) { stop = lvl; raised = true; }
+        }
+      }
     }
   }
   if (exit === null) {
     const last = after[after.length - 1];
     exit = last.c; reason = "EOD"; exitMs = barMs(last);
   }
-  void stopped;
 
   const retPct = round2((exit / entry - 1) * 100);
   const gross = round2((exit - entry) * 100);
@@ -334,7 +354,7 @@ export interface LedgerSummary {
   avgWinUsd: number | null;
   avgLossUsd: number | null;
   bySide: Record<"CALL" | "PUT", { filled: number; wins: number; netUsd: number }>;
-  byExit: Record<"TP" | "SL" | "EOD", number>;
+  byExit: Record<"TP" | "SL" | "TS" | "EOD", number>;
   /** Cumulative net $ after each trading day, oldest first. */
   equity: { day: string; netUsd: number }[];
   /** The same ledger sized for RULE.ACCOUNT_USD. */
@@ -417,6 +437,7 @@ export function summarize(rows: LedgerRow[], account: number = RULE.ACCOUNT_USD)
     byExit: {
       TP: filled.filter((r) => r.exitReason === "TP").length,
       SL: filled.filter((r) => r.exitReason === "SL").length,
+      TS: filled.filter((r) => r.exitReason === "TS").length,
       EOD: filled.filter((r) => r.exitReason === "EOD").length,
     },
     equity,

@@ -464,7 +464,7 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
             Per single contract: {usd(s.netUsd)} net · avg win {usd(s.avgWinUsd)} / avg loss {usd(s.avgLossUsd)} gross · drawdown {usd(s.maxDrawdownUsd)}
           </div>
           <div className="text-[10px] text-dim">
-            Exits: {s.byExit.TP} target · {s.byExit.SL} stop · {s.byExit.EOD} close
+            Exits: {s.byExit.TP} target · {s.byExit.TS ?? 0} raised stop · {s.byExit.SL} stop · {s.byExit.EOD} close
             {shadow.firstDay ? ` · since ${shadow.firstDay}` : ""}
             {shadow.lastEvaluated ? ` · last scored ${fmtTimePT(shadow.lastEvaluated)} ${PT_LABEL}` : ""}
           </div>
@@ -533,8 +533,9 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
                       </td>
                       <td className="py-1 pr-3 text-right tabular-nums">{r.entry?.toFixed(2) ?? "—"}</td>
                       <td className="py-1 pr-3 text-right tabular-nums">{r.exit?.toFixed(2) ?? "—"}</td>
-                      <td className={`py-1 pr-3 ${r.exitReason === "TP" ? "text-signal-bull" : r.exitReason === "SL" ? "text-signal-bear" : "text-text-secondary"}`}>
-                        {r.exitReason === "TP" ? "target" : r.exitReason === "SL" ? "stop" : r.exitReason === "EOD" ? "close" : r.status === "NO_DATA" ? r.note : ""}
+                      <td className={`py-1 pr-3 ${r.exitReason === "TP" ? "text-signal-bull" : r.exitReason === "TS" ? "text-signal-bull/80" : r.exitReason === "SL" ? "text-signal-bear" : "text-text-secondary"}`}
+                        title={r.exitReason === "TS" ? "Stopped on the raised stop after the trade had been up 15%" : ""}>
+                        {r.exitReason === "TP" ? "target" : r.exitReason === "TS" ? "raised stop" : r.exitReason === "SL" ? "stop" : r.exitReason === "EOD" ? "close" : r.status === "NO_DATA" ? r.note : ""}
                       </td>
                       <td className={`py-1 pr-3 text-right tabular-nums ${tone(r.retPct)}`}>{pct(r.retPct)}</td>
                       <td className="py-1 pr-3 text-right tabular-nums text-text-secondary"
@@ -555,7 +556,7 @@ function ShadowSection({ shadow, date, isToday, onReevaluate, busy, error }: {
               </table>
               <div className="text-[10px] text-dim mt-1">
                 Times {PT_LABEL} · entry is the option&apos;s 1-minute midpoint at the touch · the stop is checked before
-                the target inside a bar · Qty is every contract ${acctSize.toLocaleString()} buys at the entry · Net $ and Acct %
+                the target inside a bar · once up {shadow.params.trail?.map((t) => `${t.atPct}%`).join(" / ") ?? "15%"} the stop moves to {shadow.params.trail?.map((t) => `+${t.stopPct}%`).join(" / ") ?? "+5%"} from the next bar · Qty is every contract ${acctSize.toLocaleString()} buys at the entry · Net $ and Acct %
                 are for that quantity{shadow.params.commissionRt ? " after commissions" : ", commission-free"} · &ldquo;10 / 15%&rdquo; marks whether those targets would have filled before the stop
                 {rows.some((r) => r.backfilled) ? " · this day was backfilled from the alert log" : ""}
               </div>

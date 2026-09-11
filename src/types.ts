@@ -1045,7 +1045,7 @@ export interface ShadowTrade {
   spyAtTouch: number | null;
   entry: number | null;
   exit: number | null;
-  exitReason: "TP" | "SL" | "EOD" | "";
+  exitReason: "TP" | "SL" | "TS" | "EOD" | "";
   retPct: number | null;
   grossUsd: number | null;
   netUsd: number | null;
@@ -1099,7 +1099,7 @@ export interface ShadowSummary {
   avgWinUsd: number | null;
   avgLossUsd: number | null;
   bySide: Record<"CALL" | "PUT", { filled: number; wins: number; netUsd: number }>;
-  byExit: Record<"TP" | "SL" | "EOD", number>;
+  byExit: Record<"TP" | "SL" | "TS" | "EOD", number>;
   equity: { day: string; netUsd: number }[];
   account: ShadowAccountSummary;
 }
@@ -1107,7 +1107,7 @@ export interface ShadowSummary {
 export interface SpyShadowResponse {
   date: string;
   rule: string;
-  params: { waitMin: number; emaLen: number; targetPct: number; stopPct: number; commissionRt: number; accountUsd: number };
+  params: { waitMin: number; emaLen: number; targetPct: number; stopPct: number; trail?: { atPct: number; stopPct: number }[]; commissionRt: number; accountUsd: number };
   rows: ShadowTrade[];
   summary: ShadowSummary;
   lastEvaluated: string | null;
