@@ -161,10 +161,79 @@ export function parseConviction(raw: string): ParseResult {
 /** Dedupe identity. TradingView retries; a retry must not notify twice. */
 export const dedupeKey = (a: ConvictionAlert) => `${a.strategy}|${a.barTime}|${a.signal}`;
 
-/** "2026-08-12 09:50:00" -> "09:50". Falls back to the raw string. */
+/**
+ * The bar's clock in EXCHANGE time (ET), whatever timezone it arrived in.
+ *
+ * This is the highest-risk field in the whole payload, because getting it wrong
+ * is silent. The old streak indicator sent `{{timenow}}`, which TradingView
+ * renders as `yyyy-MM-ddTHH:mm:ssZ` — UTC. Reading "13:50Z" as an ET clock puts
+ * a 9:50 AM bar at 1:50 PM on the chart and calls a mid-session bar overnight,
+ * and nothing anywhere errors.
+ *
+ * So the marker decides, rather than an assumption:
+ *   - a trailing `Z` or a `±HH:MM` offset means an absolute instant -> convert
+ *   - a bare integer is a unix timestamp (s or ms) -> convert
+ *   - a NAIVE stamp is already exchange time, which is what
+ *     `str.format_time(time_close, "yyyy-MM-dd HH:mm:ss", syminfo.timezone)`
+ *     produces and what the indicator is specified to send
+ *
+ * Returns null when nothing usable can be read, so callers can fall back rather
+ * than invent a time.
+ */
+export function barToEt(barTime: string):
+  { date: string; hhmm: string; minutes: number; dow: number; converted: boolean } | null {
+  const raw = (barTime ?? "").trim();
+  if (!raw) return null;
+
+  const fromInstant = (d: Date, converted: boolean) => {
+    if (!Number.isFinite(d.getTime())) return null;
+    const date = d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const time = d.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false });
+    const hhmm = time.slice(0, 5);
+    return {
+      date, hhmm,
+      minutes: Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5)),
+      dow: new Date(`${date}T12:00:00Z`).getUTCDay(),
+      converted,
+    };
+  };
+
+  // Unix seconds or milliseconds.
+  if (/^\d{9,14}$/.test(raw)) {
+    const n = Number(raw);
+    return fromInstant(new Date(raw.length > 11 ? n : n * 1000), true);
+  }
+
+  // Explicitly zoned: an absolute instant, so convert.
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) return fromInstant(new Date(raw), true);
+
+  // Naive: already exchange time. Read the digits directly — parsing it as a
+  // Date would apply the SERVER's timezone, which is the same bug in reverse.
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})/);
+  if (m) {
+    const [, date, hh, mm] = m;
+    const hhmm = `${hh.padStart(2, "0")}:${mm}`;
+    return {
+      date, hhmm,
+      minutes: Number(hh) * 60 + Number(mm),
+      dow: new Date(`${date}T12:00:00Z`).getUTCDay(),
+      converted: false,
+    };
+  }
+
+  // A bare clock with no date — enough to label, not enough to date.
+  const clock = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (clock) {
+    const hhmm = `${clock[1].padStart(2, "0")}:${clock[2]}`;
+    return { date: "", hhmm, minutes: Number(clock[1]) * 60 + Number(clock[2]), dow: -1, converted: false };
+  }
+
+  return null;
+}
+
+/** "2026-08-12 09:50:00" -> "09:50", in ET. Falls back to the raw string. */
 export function barHHMM(barTime: string): string {
-  const m = barTime.match(/\d{2}:\d{2}/);
-  return m ? m[0] : barTime;
+  return barToEt(barTime)?.hhmm ?? barTime;
 }
 
 /**

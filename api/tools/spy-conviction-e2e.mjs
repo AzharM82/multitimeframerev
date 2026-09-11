@@ -39,6 +39,51 @@ if (!SECRET) throw new Error("TV_WEBHOOK_SECRET missing from local.settings.json
 
 /** A bar_time far outside market hours so a test row can never be mistaken for
  *  a real alert on the tab, and cleanup can find it by prefix. */
+/**
+ * REFUSE TO RUN DURING REGULAR HOURS, and never destroy the believed position.
+ *
+ * `swa start` points at the SHARED PRODUCTION storage account, so this script
+ * drives the same state row the live tab and the operator's phone read from. An
+ * earlier version ended with an unconditional
+ * `deleteEntity("cstate", "current")`, which mid-session would have wiped a real
+ * open position and left the tab reporting FLAT while the operator was holding —
+ * a silent, actively misleading failure, and the exact class of bug this whole
+ * system exists to make visible.
+ *
+ * So: the state row is snapshotted and restored rather than deleted, and the
+ * script declines to run during a session unless explicitly forced.
+ */
+function marketIsOpen(now = new Date()) {
+  const t = now.toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false });
+  const d = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const dow = new Date(`${d}T12:00:00Z`).getUTCDay();
+  return dow >= 1 && dow <= 5 && t >= "09:25:00" && t < "16:05:00";
+}
+
+if (marketIsOpen() && !process.argv.includes("--force")) {
+  console.error(`
+  REFUSING TO RUN — the market is open.
+
+  This talks to the SHARED PRODUCTION storage account and drives the same
+  position state the live tab and your phone read from. Run it after the close,
+  or pass --force if you are certain nothing is live.
+`);
+  process.exit(1);
+}
+
+/** Snapshot the believed position so cleanup can put it back exactly. */
+async function snapshotState(client) {
+  try { return await client.getEntity("cstate", "current"); } catch { return null; }
+}
+async function restoreState(client, saved) {
+  if (saved) { await client.upsertEntity(saved, "Replace"); return "restored"; }
+  await client.deleteEntity("cstate", "current").catch(() => {});
+  return "removed (there was none before)";
+}
+
+const stateClient = TableClient.fromConnectionString(CONN, "SpyConviction");
+const savedState = await snapshotState(stateClient);
+
 const RUN = `E2E_${Date.now()}`;
 const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
@@ -179,6 +224,33 @@ await check("GET without a principal or timer secret → 401", async () => {
   eq((await fetch(`${BASE}/api/spy-conviction`)).status, 401, "status");
 });
 
+await check("a rejected hit records the presented LENGTH, never the value", async () => {
+  // Length is what separates "a stale alert is sending a placeholder" from "the
+  // secret was rotated and this one is out of date". Without it a rejected hit
+  // is a dead end, because the body is redacted before it is stored.
+  await post({ secret: "short-wrong" });
+  const j = await (await fetch(`${BASE}/api/spy-conviction`, { headers: { "x-timer-secret": TIMER } })).json();
+  const rej = j.hits.filter((h) => h.decision === "rejected:secret");
+  ok(rej.length > 0, "no rejected hit recorded");
+  const mine = rej[rej.length - 1];
+  eq(mine.secretLen, "short-wrong".length, "presented length");
+  eq(mine.secretVia, "body", "channel");
+  ok(mine.expectedLen > 0, "expected length should be recorded for comparison");
+  ok(!JSON.stringify(mine).includes(SECRET), "the real secret must not appear anywhere on the hit");
+});
+
+await check("an accepted hit records which channel authenticated it", async () => {
+  const res = await fetch(`${BASE}/api/spy-conviction?token=${encodeURIComponent(SECRET)}`, {
+    method: "POST", headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ ...BASE_ALERT, secret: undefined, signal: "STAND_ASIDE",
+      action: "FLAT", side: "NONE", bar_time: `${today} 09:35:00` }),
+  });
+  eq(res.status, 200, "status");
+  const j = await (await fetch(`${BASE}/api/spy-conviction`, { headers: { "x-timer-secret": TIMER } })).json();
+  const viaQuery = j.hits.filter((h) => h.secretVia === "query" && String(h.decision).startsWith("accepted"));
+  ok(viaQuery.length > 0, "query-token auth should be recorded as such — this is how the URL-token migration gets verified");
+});
+
 await check("the stored raw body never contains the secret", async () => {
   const res = await fetch(`${BASE}/api/spy-conviction`, { headers: { "x-timer-secret": TIMER } });
   const j = await res.json();
@@ -232,8 +304,8 @@ try {
       removed++;
     }
   }
-  await client.deleteEntity("cstate", "current").catch(() => {});
-  console.log(`  removed ${removed} test rows + the test state row`);
+  const how = await restoreState(client, savedState);
+  console.log(`  removed ${removed} test rows; believed position ${how}`);
 } catch (err) {
   console.log(`  WARNING cleanup failed: ${err.message} — remove ${RUN} rows by hand`);
 }
