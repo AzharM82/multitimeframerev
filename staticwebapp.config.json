@@ -94,15 +94,6 @@
       ]
     },
     {
-      "route": "/api/spy-shadow",
-      "methods": [
-        "POST"
-      ],
-      "allowedRoles": [
-        "anonymous"
-      ]
-    },
-    {
       "route": "/api/purge-history",
       "allowedRoles": [
         "anonymous"
@@ -204,8 +195,7 @@
     {
       "route": "/api/spy-conviction",
       "methods": [
-        "POST",
-        "GET"
+        "POST"
       ],
       "allowedRoles": [
         "anonymous"
@@ -214,8 +204,7 @@
     {
       "route": "/api/tv-trend-webhook",
       "methods": [
-        "POST",
-        "GET"
+        "POST"
       ],
       "allowedRoles": [
         "anonymous"

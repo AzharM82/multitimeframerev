@@ -24,8 +24,6 @@ import type {
   TvRequestResponse,
   TvHistoryResponse,
   OpeningDriveResponse,
-  SpyConvictionResponse,
-  SpyShadowResponse,
   SwingResultsResponse,
   SwingUniverseResponse,
 } from "../types.js";
@@ -194,19 +192,6 @@ export function getSectorDeskHistory(days = 30): Promise<SectorDeskHistoryRespon
   return request<SectorDeskHistoryResponse>(`/sector-desk-history?days=${days}`);
 }
 
-export function getSpyConviction(date?: string): Promise<SpyConvictionResponse> {
-  return request<SpyConvictionResponse>(`/spy-conviction${date ? `?date=${date}` : ""}`);
-}
-
-export function getSpyShadow(date?: string): Promise<SpyShadowResponse> {
-  return request<SpyShadowResponse>(`/spy-shadow${date ? `?date=${date}` : ""}`);
-}
-
-/** Re-score one day against the shadow rule. Idempotent; session-authed like forceSpyFlat. */
-export function evaluateSpyShadow(date: string): Promise<{ status: string; filled: number; noTouch: number; noData: number; netUsd: number }> {
-  return request(`/spy-shadow?date=${date}`, { method: "POST" });
-}
-
 export function getSwingResults(date?: string): Promise<SwingResultsResponse> {
   return request<SwingResultsResponse>(`/swing-results${date ? `?date=${date}` : ""}`);
 }
@@ -229,12 +214,6 @@ export async function uploadSwingUniverse(csv: string): Promise<{ status: string
 /** Score the universe now. Session-authed; the cron does the same at 5:00 PM ET. */
 export function runSwingScan(): Promise<{ status: string; date: string; count: number; scored: number; failed: number }> {
   return request(`/swing-scan`, { method: "POST" });
-}
-
-/** Reset the believed position. The browser never holds the timer secret — the
- *  endpoint accepts a signed-in portal session for exactly this button. */
-export function forceSpyFlat(): Promise<{ status: string; was: string; now: string }> {
-  return request(`/spy-conviction?flat=1`, { method: "POST" });
 }
 
 // ─── Options Strategy Guide ─────────────────────────────────────────────────

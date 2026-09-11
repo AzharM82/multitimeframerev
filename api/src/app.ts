@@ -75,13 +75,9 @@ import "./functions/journalTrades.js";
 import "./functions/journalNotes.js";
 import "./functions/journalSummary.js";
 
-// SPY Conviction Score — TradingView alert sink for the six-leg 10-minute
-// indicator. Registers /api/spy-conviction AND /api/tv-trend-webhook, the URL
-// already configured in TradingView. Replaced the 5-min breadth-streak + Gate
-// regime system on 2026-08-12: the indicator now emits the decision itself, so
-// there is no regime lookup and no regime cron.
+// SPY Conviction moved to StockAgentHub (2026-09-11). Only a relay for the two
+// TradingView webhook URLs remains here, until the alert points at the hub.
 import "./functions/spyConviction.js";
-import "./functions/spyShadow.js";
 import "./functions/swingUniverse.js";
 import "./functions/swingScan.js";
 

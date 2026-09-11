@@ -1,7 +1,7 @@
 # MultiTimeframeReversal (MTF portal)
 
 Swing/day-trading scanner portal: Gate / Sector Desk / ATR Matrix / **AVWAP from Earnings** /
-Catalyst Value Eval / Rotation / Chart Analysis / Opening Drive / SPY Conviction / Journal / About.
+Catalyst Value Eval / Rotation / Chart Analysis / Opening Drive / Swing Strength / Journal / About.
 
 **Read `README.md` first** for architecture, the DESKTOP2 publisher pipeline, and the
 accumulated gotchas. This file is the operational contract: build, validate, deploy.
@@ -67,31 +67,9 @@ the rules that matter when changing it:
   crossing is structurally impossible (`c_pct_* == p_pct_*`). Got wrong twice.
 - **A change under `tools/` alone needs no deploy** — that code runs on DESKTOP2.
 
-## SPY Conviction shadow ledger
+## SPY Conviction — not here any more
 
-The ledger exists to judge ONE fixed rule on days it has not seen. Rules that keep it honest:
-
-- **Run `cd api && npm run build && node tools/spy-shadow-test.mjs` before touching
-  `api/src/lib/spyShadow/rule.ts`.** 43 pure checks, no network. They pin the touch
-  window edge, the completed-bar EMA, stop-before-target, no target fill in the entry
-  minute, the account sizing arithmetic, and the summary/equity/drawdown maths.
-- **The rule's numbers live only in `RULE` in `rule.ts`** (wait window, EMA length,
-  target, stop, commission, account). The tab and the "How it works" view read them
-  from `GET /api/spy-shadow` `params`; never type a rule number into a view.
-- **Never trust a stored `netUsd`.** Net, quantity and account P&L are derived at
-  read time from the stored `entry` and `grossUsd` with the CURRENT constants, so a
-  commission or account change re-prices history consistently. Storing net once
-  froze the old $0.70 commission into 33 rows and the two views disagreed.
-- **Re-scoring is idempotent** (PK day / RK `HHMM|SIDE`), so `POST /api/spy-shadow?date=`
-  is safe to repeat; `?from=&to=` backfills weekdays. The POST accepts the timer
-  secret OR a portal session (the tab has a re-score button).
-- **Do not "improve" the rule from the ledger's own numbers.** Eight variants were
-  tried on the same 39 trades on 2026-09-05 (see README); a rule fitted to that sample
-  will look good here and fail forward. Change the rule only with the operator, and
-  record the previous rule's forward record first.
-- `SpyShadowTrades` is deliberately excluded from `purge-history`. Do not add it.
-- Local scoring needs `ALPACA_API_KEY` / `ALPACA_API_SECRET` in `api/local.settings.json`;
-  Core Tools does not inherit them from the shell.
+SPY Conviction (the six-leg TradingView indicator, its 1-minute executor, the shadow ledger and "How it works") moved to **StockAgentHub** on 2026-09-11 and trades at Tradier from there — repo github.com/AzharM82/StockAgentHub, portal https://jolly-bush-02b86570f.4.azurestaticapps.net. This portal keeps only a relay on `POST /api/spy-conviction` and `POST /api/tv-trend-webhook` that forwards each TradingView request to the hub (`SPY_FORWARD_URL`), until the alert URL is repointed; then delete `api/src/functions/spyConviction.ts` and its two anonymous entries in `staticwebapp.config.json`. The old `SpyConviction` / `SpyShadowTrades` tables stay in storage untouched as a backup. Do not add SPY Conviction features to this repo; they belong in StockAgentHub.
 
 ## How to validate a change end-to-end
 
