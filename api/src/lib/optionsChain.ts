@@ -13,8 +13,13 @@
  *                       settings; the free "indicative" feed carried greeks on
  *                       only 157 of 400 contracts, which is why it is not the
  *                       default. See alpacaOptions.ts.
+ *   tradier           — real-time OPRA with ORATS greeks, open interest and
+ *                       volume on every contract, included with the brokerage
+ *                       account at no extra cost. Needs TRADIER_TOKEN. This is
+ *                       the feed to prefer once the token is in the app
+ *                       settings. See tradierOptions.ts.
  *
- * ── Why delayed data is acceptable here ───────────────────────────────────
+ * ── Why delayed data is tolerable, and why we still moved off it ──────────
  * The strategy picks a strike ~7% out of the money 28–60 days forward. Fifteen
  * minutes does not move which strike sits at 25 delta. The moment a live price
  * genuinely matters is when the order is sent, and that happens at the broker —
@@ -97,9 +102,12 @@ export class ChainUnavailableError extends Error {
   }
 }
 
-export function optionsFeed(): string {
+const FEEDS = ["finviz", "alpaca", "tradier"] as const;
+export type Feed = (typeof FEEDS)[number];
+
+export function optionsFeed(): Feed {
   const f = (process.env.OPTIONS_FEED || "finviz").trim().toLowerCase();
-  return f === "alpaca" ? "alpaca" : "finviz";
+  return (FEEDS as readonly string[]).includes(f) ? (f as Feed) : "finviz";
 }
 
 /**
@@ -122,8 +130,11 @@ type Provider = {
 };
 
 async function provider(): Promise<Provider> {
-  if (optionsFeed() === "alpaca") return await import("./alpacaOptions.js");
-  return await import("./finvizOptions.js");
+  switch (optionsFeed()) {
+    case "tradier": return await import("./tradierOptions.js");
+    case "alpaca": return await import("./alpacaOptions.js");
+    default: return await import("./finvizOptions.js");
+  }
 }
 
 /**

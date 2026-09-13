@@ -354,7 +354,9 @@ export function OptionsGuidePage() {
 
   const isPut = side === "floor";
   const sideWord = isPut ? "Put" : "Call";
-  const notConfigured = error?.includes("FINVIZ_API_KEY");
+  // Any provider's "the credential is missing" message names the setting it
+  // wants, so match on that shape rather than on one feed's variable name.
+  const notConfigured = /FINVIZ_API_KEY|TRADIER_TOKEN|ALPACA_API_KEY|not configured/i.test(error ?? "");
   const parseFailed = error?.toLowerCase().includes("payload") || error?.toLowerCase().includes("parse");
 
   const btn = (on: boolean) =>
@@ -402,8 +404,7 @@ export function OptionsGuidePage() {
         <div className="bg-bg-card border border-gold rounded p-2 text-xs">
           <span className="font-bold text-gold">Option chain not configured. </span>
           <span className="text-text-secondary">
-            <code className="text-text-primary">FINVIZ_API_KEY</code> is unset; the feed is chosen by{" "}
-            <code className="text-text-primary">OPTIONS_FEED</code>.
+            {error} The feed is chosen by <code className="text-text-primary">OPTIONS_FEED</code>.
           </span>
         </div>
       )}
@@ -411,7 +412,8 @@ export function OptionsGuidePage() {
         <div className="bg-bg-card border border-signal-bear rounded p-2 text-xs">
           <span className="font-bold text-signal-bear">The chain could not be read. </span>
           <span className="text-text-secondary">
-            The upstream page changed — <code>api/src/lib/finvizOptions.ts</code> needs updating.
+            The upstream shape changed — the provider behind{" "}
+            <code>OPTIONS_FEED</code> in <code>api/src/lib/</code> needs updating.
             Nothing is shown rather than a partial chain.
           </span>
         </div>
