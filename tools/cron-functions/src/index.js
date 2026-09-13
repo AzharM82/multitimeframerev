@@ -128,6 +128,30 @@ app.timer("openingDriveEngineCron", {
   handler: async (_t, ctx) => fire("opening-drive-engine", ctx),
 });
 
+// Unusual options — the end-of-day sweep, weekdays at 5:05 PM ET.
+//
+// This one does NOT call a portal endpoint. Static Web Apps cuts a managed API
+// request off at 45 seconds and sweeping 127 symbols against Tradier takes
+// about four minutes, so the work runs here and writes the blob the portal's
+// read proxy serves. Needs TRADIER_TOKEN and AZURE_STORAGE_CONNECTION_STRING
+// on THIS Function App, and host.json's functionTimeout raised past the sweep.
+//
+// 5:05 PM rather than at the bell: consolidated volume keeps printing for a few
+// minutes after the close, and a sweep run at 4:01 undercounts the last trades
+// of the day — which is exactly the flow this screen exists to catch.
+app.timer("uoaScanCron", {
+  schedule: "0 5 17 * * 1-5",
+  handler: async (_t, ctx) => {
+    const { runScan } = require("./uoa/scan.js");
+    try {
+      const out = await runScan({ log: (m) => ctx.log(m) });
+      ctx.log(`uoaScanCron: ${JSON.stringify(out)}`);
+    } catch (err) {
+      ctx.error(`uoaScanCron failed: ${err instanceof Error ? err.stack : String(err)}`);
+    }
+  },
+});
+
 // The SPY breadth-streak regime cron (tvRegimeCron / tvRegimeSessionCron) was
 // removed 2026-08-12. It kept a Gate snapshot warm so the streak webhook could
 // qualify a streak inside TradingView's 3-second cancel. The SPY Conviction

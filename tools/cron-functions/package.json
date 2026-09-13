@@ -4,9 +4,11 @@
   "private": true,
   "main": "src/index.js",
   "scripts": {
-    "start": "func start"
+    "start": "func start",
+    "test": "node test/uoa-detection-test.mjs"
   },
   "dependencies": {
-    "@azure/functions": "^4.5.0"
+    "@azure/functions": "^4.5.0",
+    "@azure/storage-blob": "^12.24.0"
   }
 }
