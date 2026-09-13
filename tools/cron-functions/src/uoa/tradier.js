@@ -87,4 +87,11 @@ async function optionChain(symbol, expiration) {
   return many(d.options && d.options.option);
 }
 
-module.exports = { quotes, expirations, optionChain };
+/** The exchange calendar for one month: which days were open, and which closed. */
+async function calendar(month, year) {
+  const d = await get("/v1/markets/calendar", { month: String(month), year: String(year) });
+  const days = (d.calendar && d.calendar.days && d.calendar.days.day) || [];
+  return many(days);
+}
+
+module.exports = { quotes, expirations, optionChain, calendar };

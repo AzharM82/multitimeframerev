@@ -24,7 +24,7 @@
 
 const { BlobServiceClient } = require("@azure/storage-blob");
 const { UNIVERSE, feedSymbol } = require("./universe.js");
-const { quotes, expirations, optionChain } = require("./tradier.js");
+const { quotes, expirations, optionChain, calendar } = require("./tradier.js");
 const D = require("./detection.js");
 
 const CONTAINER = process.env.UOA_SIGNALS_CONTAINER || "uoa-signals";
@@ -107,6 +107,34 @@ function toObservation(row, underlying) {
 }
 
 /**
+ * Was the exchange actually open on this date?
+ *
+ * The timer only fires on weekdays, but weekdays include Thanksgiving and Good
+ * Friday. On a closed day every chain still answers — with the PREVIOUS
+ * session's volume — so the sweep would happily publish a duplicate of
+ * yesterday under today's date and the tab would show the same flow twice as
+ * though it had happened again. Asking the exchange calendar costs one call.
+ *
+ * An unreachable calendar is not a reason to skip a real session, so the check
+ * fails open and says so.
+ */
+async function marketWasOpen(scanDate, log) {
+  const [y, m] = [Number(scanDate.slice(0, 4)), Number(scanDate.slice(5, 7))];
+  try {
+    const days = await calendar(m, y);
+    const row = days.find((d) => d.date === scanDate);
+    if (!row) {
+      log(`UOA: no calendar row for ${scanDate} — proceeding`);
+      return true;
+    }
+    return row.status === "open";
+  } catch (err) {
+    log(`UOA: calendar lookup failed (${err.message}) — proceeding`);
+    return true;
+  }
+}
+
+/**
  * The published shape.
  *
  * Detection works in camelCase because that is the language the code is written
@@ -161,9 +189,14 @@ function aggregateToPayload(a) {
  * because when it goes wrong the log is the only witness.
  */
 async function runScan({ log = console.log, universe = UNIVERSE, thresholds = D.DEFAULT_THRESHOLDS,
-  scanDate = easternDateKey(), dryRun = false } = {}) {
+  scanDate = easternDateKey(), dryRun = false, force = false } = {}) {
   const started = Date.now();
   log(`UOA scan ${scanDate}: ${universe.length} symbols`);
+
+  if (!force && !(await marketWasOpen(scanDate, log))) {
+    log(`UOA: ${scanDate} was not a trading day — nothing to scan`);
+    return { published: false, reason: "market_closed", scanDate };
+  }
 
   // Spot for every name first — cheap, batched, and needed for the moneyness
   // filter that keeps far wings out of the results.
