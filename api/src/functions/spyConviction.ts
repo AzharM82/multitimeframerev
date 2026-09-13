@@ -43,6 +43,11 @@ async function relay(req: HttpRequest, ctx: InvocationContext): Promise<HttpResp
       headers: {
         "Content-Type": req.headers.get("content-type") || "text/plain",
         "x-forwarded-for": req.headers.get("x-forwarded-for") || "",
+        // Marks the request as having come the old way. The hub records it, so
+        // "is TradingView still pointed here?" has a definite answer — the
+        // forwarded x-forwarded-for above makes a relayed hit otherwise
+        // indistinguishable from a direct one.
+        "x-relayed-by": "mtf-portal",
       },
       body,
       signal: ac.signal,
