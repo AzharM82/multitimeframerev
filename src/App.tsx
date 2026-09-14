@@ -14,8 +14,9 @@ import { ErrorBoundary } from "./views/ErrorBoundary.js";
 import { AboutPage } from "./views/AboutPage.js";
 import { AvwapEarningsPage } from "./views/AvwapEarningsPage.js";
 import { OptionsGuidePage } from "./views/OptionsGuidePage.js";
+import { UnusualOptionsPage } from "./views/UnusualOptionsPage.js";
 
-type Page = "gate" | "desk" | "atr" | "avwap" | "cve" | "rotation" | "chart" | "opening" | "swing" | "options" | "journal" | "about";
+type Page = "gate" | "desk" | "atr" | "avwap" | "cve" | "rotation" | "chart" | "opening" | "swing" | "options" | "uoa" | "journal" | "about";
 
 const TABS: { key: Page; label: string }[] = [
   { key: "gate", label: "Gate" },
@@ -28,6 +29,9 @@ const TABS: { key: Page; label: string }[] = [
   { key: "opening", label: "Opening Drive" },
   { key: "swing", label: "Swing Strength" },
   { key: "options", label: "Options Guide" },
+  // Its own tab, next to the Guide but not part of it: the Guide prices a trade
+  // you already chose, this one tells you where the flow is.
+  { key: "uoa", label: "Unusual Options" },
   { key: "journal", label: "Journal" },
   { key: "about", label: "About" },
 ];
@@ -126,6 +130,7 @@ function App() {
           {page === "opening" && <OpeningDrivePage />}
           {page === "swing" && <SwingStrengthPage />}
           {page === "options" && <OptionsGuidePage />}
+          {page === "uoa" && <UnusualOptionsPage />}
           {page === "journal" && <JournalPage />}
           {page === "about" && <AboutPage />}
         </ErrorBoundary>

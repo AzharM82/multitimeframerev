@@ -128,6 +128,75 @@ app.timer("openingDriveEngineCron", {
   handler: async (_t, ctx) => fire("opening-drive-engine", ctx),
 });
 
+// Unusual options — the end-of-day sweep, weekdays at 5:05 PM ET.
+//
+// This one does NOT call a portal endpoint. Static Web Apps cuts a managed API
+// request off at 45 seconds and sweeping 127 symbols against Tradier takes
+// about four minutes, so the work runs here and writes the blob the portal's
+// read proxy serves. Needs TRADIER_TOKEN and AZURE_STORAGE_CONNECTION_STRING
+// on THIS Function App, and host.json's functionTimeout raised past the sweep.
+//
+// 5:05 PM rather than at the bell: consolidated volume keeps printing for a few
+// minutes after the close, and a sweep run at 4:01 undercounts the last trades
+// of the day — which is exactly the flow this screen exists to catch.
+app.timer("uoaScanCron", {
+  schedule: "0 5 17 * * 1-5",
+  handler: async (_t, ctx) => {
+    const { runScan } = require("./uoa/scan.js");
+    try {
+      const out = await runScan({ log: (m) => ctx.log(m) });
+      ctx.log(`uoaScanCron: ${JSON.stringify(out)}`);
+    } catch (err) {
+      ctx.error(`uoaScanCron failed: ${err instanceof Error ? err.stack : String(err)}`);
+    }
+  },
+});
+
+// Unusual options, LIVE — the watch set, built once before the open.
+//
+// Walking the chains is the expensive half (about six minutes of Tradier calls)
+// and nothing it collects changes during the session: open interest is
+// recomputed by OCC overnight, so the figure this records at 8:40 is the right
+// denominator until the close. Doing it once, while StockAgentHub's executor is
+// still asleep and the whole rate limit is ours, is what makes the two-minute
+// polling affordable.
+app.timer("uoaWatchsetCron", {
+  schedule: "0 40 8 * * 1-5",
+  handler: async (_t, ctx) => {
+    const { buildWatchSet } = require("./uoa/live.js");
+    try {
+      // UOA_FORCE=1 builds regardless of the exchange calendar. It exists so the
+      // watch set can be rebuilt by hand after a failed morning — and so this
+      // function can be proven in Azure on a closed day. Unset it afterwards.
+      const force = process.env.UOA_FORCE === "1";
+      ctx.log(`uoaWatchsetCron: ${JSON.stringify(await buildWatchSet({ log: (m) => ctx.log(m), force }))}`);
+    } catch (err) {
+      ctx.error(`uoaWatchsetCron failed: ${err instanceof Error ? err.stack : String(err)}`);
+    }
+  },
+});
+
+// Unusual options, LIVE — the poll, every two minutes through the session.
+//
+// Fires across the whole 9-to-16 block and self-gates to 09:30-16:00 ET, so a
+// schedule edit can never produce readings from a closed market. One form POST
+// per ~900 contracts, so a poll is a handful of requests rather than one per
+// underlying, and it stays well clear of the executor's share of the token.
+app.timer("uoaLiveCron", {
+  schedule: "0 */2 9-16 * * 1-5",
+  handler: async (_t, ctx) => {
+    const { poll } = require("./uoa/live.js");
+    try {
+      // Same escape hatch as the build: UOA_FORCE=1 ignores the session gate so
+      // the poll can be exercised outside market hours. Unset it afterwards.
+      const out = await poll({ log: (m) => ctx.log(m), force: process.env.UOA_FORCE === "1" });
+      if (out.polled) ctx.log(`uoaLiveCron: ${JSON.stringify(out)}`);
+    } catch (err) {
+      ctx.error(`uoaLiveCron failed: ${err instanceof Error ? err.stack : String(err)}`);
+    }
+  },
+});
+
 // The SPY breadth-streak regime cron (tvRegimeCron / tvRegimeSessionCron) was
 // removed 2026-08-12. It kept a Gate snapshot warm so the streak webhook could
 // qualify a streak inside TradingView's 3-second cancel. The SPY Conviction

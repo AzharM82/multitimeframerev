@@ -20,6 +20,7 @@ import type {
   BigdogAlertsResponse,
   UoaScanResponse,
   UoaDatesResponse,
+  UoaLiveResponse,
   TvAnalysisResponse,
   TvRequestResponse,
   TvHistoryResponse,
@@ -121,6 +122,10 @@ export function getUoaSignals(date?: string): Promise<UoaScanResponse> {
 
 export function getUoaDates(): Promise<UoaDatesResponse> {
   return request<UoaDatesResponse>(`/uoa-signals?list=1`);
+}
+
+export function getUoaLive(): Promise<UoaLiveResponse> {
+  return request<UoaLiveResponse>(`/uoa-signals?live=1`);
 }
 
 // ─── Rotation ───────────────────────────────────────────────────────────────
