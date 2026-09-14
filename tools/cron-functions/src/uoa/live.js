@@ -29,6 +29,8 @@ const { UNIVERSE, feedSymbol } = require("./universe.js");
 const { quotes, quotesPost, expirations, optionChain, calendar, setPace } = require("./tradier.js");
 const { DEFAULT_BURST, detectBursts, snapshot } = require("./burst.js");
 const { dte, inMoneyness } = require("./detection.js");
+const { DEFAULT_ALERT, selectAlerts, formatMessage, markSent } = require("./alerts.js");
+const { notifyBoth, notifyConfigured } = require("./notify.js");
 
 const CONTAINER = process.env.UOA_SIGNALS_CONTAINER || "uoa-signals";
 
@@ -196,7 +198,7 @@ async function buildWatchSet({ log = console.log, universe = UNIVERSE, day = etD
     dte_window: [LIVE.dteMin, LIVE.dteMax], moneyness_pct: LIVE.moneynessPct, failed, contracts,
   });
   // A fresh watch set means yesterday's poll state is meaningless.
-  await writeJson(`live-state-${day}.json`, { day, seq: 0, at: null, volumes: {} });
+  await writeJson(`live-state-${day}.json`, { day, seq: 0, at: null, volumes: {}, alerts: { alerted: {}, sent: 0 } });
   return { built: true, day, symbols, watched: size, elapsed };
 }
 
@@ -207,8 +209,25 @@ async function buildWatchSet({ log = console.log, universe = UNIVERSE, day = etD
  * this decides whether the session is actually running, so a schedule change
  * cannot accidentally produce readings from a closed market.
  */
-async function poll({ log = console.log, day = etDate(), now = new Date(), force = false } = {}) {
+async function poll({ log = console.log, day = etDate(), now = new Date(), force = false,
+  alertDryRun = false } = {}) {
   setPace(LIVE.pollPaceMs);
+
+  // UOA_ALERT_TEST=1 sends one clearly-labelled message and does nothing else.
+  // It exists so the alert channel can be proven from the deployed app —
+  // credentials, queue, sidecar — without waiting for a real burst or faking
+  // market data into the tab. Unset it immediately afterwards.
+  if ((process.env.UOA_ALERT_TEST || "").trim() === "1") {
+    const res = await notifyBoth(
+      "Options flow: channel test",
+      "This is a test of the Unusual Options alert channel. No flow was detected — " +
+      "real alerts name the ticker, the contract and the size. Sent by hand from the cron app.",
+      "uoa_flow_test", { day },
+    );
+    log(`UOA live: alert channel test — ${JSON.stringify(res)}`);
+    return { polled: false, reason: "alert_test", ...res };
+  }
+
   const mins = etMinutes(now);
   // 9:30 to 16:00 ET. Nothing before the open: the first poll of the day has no
   // previous reading, so it would report the entire pre-market as one burst.
@@ -222,7 +241,7 @@ async function poll({ log = console.log, day = etDate(), now = new Date(), force
     return { polled: false, reason: "no_watchset", day };
   }
 
-  const state = await readJson(`live-state-${day}.json`, { day, seq: 0, at: null, volumes: {} });
+  const state = await readJson(`live-state-${day}.json`, { day, seq: 0, at: null, volumes: {}, alerts: { alerted: {}, sent: 0 } });
   const symbols = Object.keys(ws.contracts);
   const started = Date.now();
 
@@ -252,6 +271,29 @@ async function poll({ log = console.log, day = etDate(), now = new Date(), force
 
   for (const b of bursts) { b.at = stamp; b.window_seconds = windowSeconds; }
 
+  // ── alerting ────────────────────────────────────────────────────────────
+  // Far above the tab's bar, one message per poll, one line per name. The tab
+  // is something you look at; this interrupts someone.
+  let alerts = state.alerts || { alerted: {}, sent: 0 };
+  let alerted = [];
+  const alertsOff = (process.env.UOA_ALERTS || "").trim().toLowerCase() === "off";
+  if (bursts.length && !alertsOff && notifyConfigured()) {
+    const sel = selectAlerts(bursts, alerts, now, DEFAULT_ALERT);
+    if (sel.lines.length) {
+      const { title, body } = formatMessage(sel.lines, { windowSeconds });
+      const res = await notifyBoth(title, body, "uoa_flow", {
+        day, seq: (state.seq || 0) + 1, names: sel.lines.map((l) => l.underlying),
+      }, { dryRun: alertDryRun });
+      // Only count a message that was actually sent. Marking a dry run would
+      // silently burn the session cap and the cooldowns for a real session.
+      if (!alertDryRun) alerts = markSent(alerts, sel.lines, now);
+      alerted = sel.lines.map((l) => l.underlying);
+      log(`UOA live: alerted ${alerted.join(", ")} — ${JSON.stringify(res)}`);
+    } else if (sel.suppressed) {
+      log(`UOA live: ${bursts.length} bursts, alert suppressed (${sel.suppressed})`);
+    }
+  }
+
   const prevLive = await readJson(`live-${day}.json`, null);
   const session = [...bursts, ...((prevLive && prevLive.session) || [])].slice(0, LIVE.sessionCap);
 
@@ -269,15 +311,19 @@ async function poll({ log = console.log, day = etDate(), now = new Date(), force
     thresholds: DEFAULT_BURST,
     bursts,
     session,
+    /** Names this poll pushed to the phone, so the tab can show what was sent. */
+    alerted,
+    alerts_sent: alerts.sent || 0,
+    alerts_enabled: !alertsOff && notifyConfigured(),
     elapsed_seconds: Math.round((Date.now() - started) / 1000),
   };
 
   await writeJson(`live-${day}.json`, payload);
   await writeJson("live.json", payload);
-  await writeJson(`live-state-${day}.json`, { day, seq: payload.seq, at: stamp, volumes: snapshot(rows) });
+  await writeJson(`live-state-${day}.json`, { day, seq: payload.seq, at: stamp, volumes: snapshot(rows), alerts });
 
   log(`UOA live #${payload.seq}: ${rows.length} quotes, ${bursts.length} bursts${first ? " (warming)" : ""}, ${payload.elapsed_seconds}s`);
-  return { polled: true, seq: payload.seq, quoted: rows.length, bursts: bursts.length, warming: first };
+  return { polled: true, seq: payload.seq, quoted: rows.length, bursts: bursts.length, warming: first, alerted };
 }
 
 module.exports = { LIVE, buildWatchSet, poll, etDate, etMinutes };

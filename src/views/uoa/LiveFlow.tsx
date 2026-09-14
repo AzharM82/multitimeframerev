@@ -76,12 +76,13 @@ function SideChip({ side }: { side: UoaBurst["side"] }) {
   );
 }
 
-function BurstRow({ b, showTime }: { b: UoaBurst; showTime: boolean }) {
+function BurstRow({ b, showTime, pushed }: { b: UoaBurst; showTime: boolean; pushed: boolean }) {
   return (
     <tr className="border-b border-border/40 hover:bg-bg-secondary/40">
       {showTime && <td className="px-2 py-1 tabular-nums text-text-secondary whitespace-nowrap">{fmtEt(b.at)}</td>}
       <td className="px-2 py-1 font-semibold whitespace-nowrap">
         <a href={tvUrl(b.underlying)} target="_blank" rel="noreferrer" className="hover:underline">{b.underlying}</a>
+        {pushed && <span className="ml-1 text-[9px] text-gold" title="Pushed to WhatsApp and Pushover">●</span>}
       </td>
       <td className={`px-2 py-1 font-bold ${b.type === "C" ? "text-signal-bull" : "text-signal-bear"}`}>
         {b.type === "C" ? "CALL" : "PUT"}
@@ -137,6 +138,7 @@ export function LiveFlow() {
       : "border border-border text-text-secondary hover:text-text-primary"}`;
 
   const all = data ? (scope === "window" ? data.bursts : data.session) : [];
+  const pushedNames = new Set(data?.alerted ?? []);
   const rows = all.filter((b) => side === "all" || b.type === side);
   const noData = !loading && !data;
 
@@ -153,6 +155,11 @@ export function LiveFlow() {
         million dollars. Open interest is yesterday's settlement: OCC recomputes it overnight, so it does not
         move during the session and nothing here pretends otherwise. "At ask" and "at bid" are where the last
         print sat in the spread — a lean, not proof of who traded.
+      </p>
+      <p className="text-[11px] text-text-secondary max-w-4xl">
+        <span className="text-gold">●</span> marks a name that was pushed to WhatsApp and Pushover. The phone bar is
+        far higher than this table's: $1m committed in one window, or the window alone trading twice everything
+        outstanding — grouped to one line per name, one message per poll, at most fifteen a day.
       </p>
 
       {noData && (
@@ -222,7 +229,8 @@ export function LiveFlow() {
                 </thead>
                 <tbody>
                   {rows.map((b, i) => (
-                    <BurstRow key={`${b.occ_symbol}-${b.at}-${i}`} b={b} showTime={scope === "session"} />
+                    <BurstRow key={`${b.occ_symbol}-${b.at}-${i}`} b={b} showTime={scope === "session"}
+                      pushed={pushedNames.has(b.underlying)} />
                   ))}
                 </tbody>
               </table>
@@ -232,7 +240,11 @@ export function LiveFlow() {
           <p className="text-[10px] text-dim">
             Watch set built {fmtEt(data.watchset_built_at)} ET · poll #{data.seq} ·
             {" "}{data.quoted} of {fmtInt(data.watchset_size)} contracts quoted in {data.elapsed_seconds}s ·
-            {" "}refreshes every {POLL_MS / 1000}s. Mechanical signals, not investment advice.
+            {" "}refreshes every {POLL_MS / 1000}s.
+            {data.alerts_enabled === false
+              ? " Phone alerts are off."
+              : ` Phone alerts on: ${data.alerts_sent ?? 0} sent today (max 15). A name goes quiet for 30 minutes after alerting unless it comes back three times larger.`}
+            {" "}Mechanical signals, not investment advice.
           </p>
         </>
       )}

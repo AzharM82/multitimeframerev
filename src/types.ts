@@ -498,6 +498,10 @@ export interface UoaLiveResponse {
   bursts: UoaBurst[];
   /** Everything today, newest first. */
   session: UoaBurst[];
+  /** Names this poll pushed to WhatsApp and Pushover. */
+  alerted?: string[];
+  alerts_sent?: number;
+  alerts_enabled?: boolean;
   elapsed_seconds: number;
 }
 
