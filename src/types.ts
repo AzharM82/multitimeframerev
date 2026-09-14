@@ -448,6 +448,59 @@ export interface UoaDatesResponse {
   dates: string[];
 }
 
+// ─── UOA live (the intraday burst feed, refreshed every two minutes) ────────
+//
+// A burst is contracts traded since the PREVIOUS poll, not the day's total.
+// Open interest does not move intraday — OCC recomputes it overnight — so
+// `prior_oi` is yesterday's settlement all session, and `side` is a lean read
+// off where the last print sat in the spread, never a fact about who traded.
+
+export type UoaSide = "bought" | "sold" | "mid" | null;
+
+export interface UoaBurst {
+  occ_symbol: string;
+  underlying: string;
+  type: "C" | "P";
+  strike: number;
+  expiry: string;
+  dte: number;
+  /** Contracts traded in THIS window. */
+  lots: number;
+  notional: number;
+  /** Cumulative for the session, for context. */
+  day_volume: number;
+  prior_oi: number;
+  /** This window as a share of yesterday's open interest. */
+  oi_share: number;
+  day_vol_oi: number;
+  last: number;
+  bid: number | null;
+  ask: number | null;
+  side: UoaSide;
+  iv: number | null;
+  delta: number | null;
+  at: string;
+  window_seconds: number | null;
+}
+
+export interface UoaLiveResponse {
+  day: string;
+  updated_at: string;
+  seq: number;
+  /** The first poll of the day has no previous reading, so it reports nothing. */
+  warming: boolean;
+  window_seconds: number | null;
+  watchset_size: number;
+  quoted: number;
+  watchset_built_at: string;
+  thresholds: Record<string, number>;
+  /** The most recent window. */
+  bursts: UoaBurst[];
+  /** Everything today, newest first. */
+  session: UoaBurst[];
+  elapsed_seconds: number;
+}
+
 // ─── Rotation (sector/industry rotation — ported from sector-rotation) ──────
 
 export interface RotStockInfo {

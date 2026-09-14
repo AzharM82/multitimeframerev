@@ -152,6 +152,45 @@ app.timer("uoaScanCron", {
   },
 });
 
+// Unusual options, LIVE — the watch set, built once before the open.
+//
+// Walking the chains is the expensive half (about six minutes of Tradier calls)
+// and nothing it collects changes during the session: open interest is
+// recomputed by OCC overnight, so the figure this records at 8:40 is the right
+// denominator until the close. Doing it once, while StockAgentHub's executor is
+// still asleep and the whole rate limit is ours, is what makes the two-minute
+// polling affordable.
+app.timer("uoaWatchsetCron", {
+  schedule: "0 40 8 * * 1-5",
+  handler: async (_t, ctx) => {
+    const { buildWatchSet } = require("./uoa/live.js");
+    try {
+      ctx.log(`uoaWatchsetCron: ${JSON.stringify(await buildWatchSet({ log: (m) => ctx.log(m) }))}`);
+    } catch (err) {
+      ctx.error(`uoaWatchsetCron failed: ${err instanceof Error ? err.stack : String(err)}`);
+    }
+  },
+});
+
+// Unusual options, LIVE — the poll, every two minutes through the session.
+//
+// Fires across the whole 9-to-16 block and self-gates to 09:30-16:00 ET, so a
+// schedule edit can never produce readings from a closed market. One form POST
+// per ~900 contracts, so a poll is a handful of requests rather than one per
+// underlying, and it stays well clear of the executor's share of the token.
+app.timer("uoaLiveCron", {
+  schedule: "0 */2 9-16 * * 1-5",
+  handler: async (_t, ctx) => {
+    const { poll } = require("./uoa/live.js");
+    try {
+      const out = await poll({ log: (m) => ctx.log(m) });
+      if (out.polled) ctx.log(`uoaLiveCron: ${JSON.stringify(out)}`);
+    } catch (err) {
+      ctx.error(`uoaLiveCron failed: ${err instanceof Error ? err.stack : String(err)}`);
+    }
+  },
+});
+
 // The SPY breadth-streak regime cron (tvRegimeCron / tvRegimeSessionCron) was
 // removed 2026-08-12. It kept a Gate snapshot warm so the streak webhook could
 // qualify a streak inside TradingView's 3-second cancel. The SPY Conviction

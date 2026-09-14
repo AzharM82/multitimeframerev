@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { LiveFlow } from "./uoa/LiveFlow.js";
 import { getUoaSignals, getUoaDates } from "../services/api.js";
 import { useTableSort, SortHeaderRow, type SortColumn } from "./shared/tableSort.js";
 import type { UoaScanResponse, UoaSignal } from "../types.js";
@@ -10,7 +11,15 @@ import type { UoaScanResponse, UoaSignal } from "../types.js";
  * "you picked a ticker, what spread should you place on it". This answers the
  * opposite question: nobody picked anything, so where is something happening.
  *
- * The screen behind it is one test, run after the close across 127 optionable
+ * Two views, because "where is the money going" has two useful timeframes and
+ * they need different rules:
+ *
+ *   Live        — contracts traded since the previous two-minute poll. The one
+ *                 with a trade attached to it, and the default during the
+ *                 session. See uoa/LiveFlow.tsx.
+ *   End of day  — the whole session, swept once after the close. A record.
+ *
+ * The screen below is the end-of-day one, run across 127 optionable
  * names: today's contract volume against the open interest that existed at
  * yesterday's settlement. Volume above open interest means more contracts
  * changed hands than were outstanding — that is new positioning, not the same
@@ -95,7 +104,7 @@ function SplitBar({ call, put }: { call: number; put: number }) {
   );
 }
 
-export function UnusualOptionsPage() {
+function EodScan() {
   const [data, setData] = useState<UoaScanResponse | null>(null);
   const [dates, setDates] = useState<string[]>([]);
   const [date, setDate] = useState<string>("");
@@ -144,7 +153,6 @@ export function UnusualOptionsPage() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-lg font-bold tracking-tight">UNUSUAL OPTIONS</h2>
         {dates.length > 0 && (
           <select
             value={date || dates[0] || ""}
@@ -313,6 +321,33 @@ export function UnusualOptionsPage() {
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The tab itself: the view switch, and nothing else.
+ *
+ * Live is the default because that is the question worth asking while the
+ * market is open — an end-of-day list tells you where the money went after you
+ * could do anything about it. The daily scan stays a click away as the record.
+ */
+export function UnusualOptionsPage() {
+  const [view, setView] = useState<"live" | "eod">("live");
+  const tab = (on: boolean) =>
+    `px-2.5 py-0.5 rounded text-[11px] ${on ? "bg-text-primary text-bg-primary"
+      : "border border-border text-text-secondary hover:text-text-primary"}`;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-lg font-bold tracking-tight">UNUSUAL OPTIONS</h2>
+        <button className={tab(view === "live")} onClick={() => setView("live")}
+          title="Bursts since the last two-minute poll">Live flow</button>
+        <button className={tab(view === "eod")} onClick={() => setView("eod")}
+          title="The whole session against yesterday's open interest">End of day</button>
+      </div>
+      {view === "live" ? <LiveFlow /> : <EodScan />}
     </div>
   );
 }

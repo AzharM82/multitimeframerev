@@ -19,17 +19,30 @@
 const BASE = "https://api.tradier.com";
 
 /** Leaves clear headroom for the hub's executor on the shared token. */
-const MIN_INTERVAL_MS = 700;
+const DEFAULT_INTERVAL_MS = 700;
 const MAX_RETRIES = 3;
 
+let intervalMs = DEFAULT_INTERVAL_MS;
 let nextSlot = 0;
+
+/**
+ * Change the pacing for one job.
+ *
+ * The watch-set build runs before the open, when StockAgentHub's executor is
+ * idle and the whole 120/min budget is ours; the intraday poll runs while that
+ * executor is placing real orders and must stay out of its way. Same token,
+ * different neighbours.
+ */
+function setPace(ms) {
+  intervalMs = Math.max(200, ms || DEFAULT_INTERVAL_MS);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function throttle() {
   const now = Date.now();
   const wait = Math.max(0, nextSlot - now);
-  nextSlot = Math.max(now, nextSlot) + MIN_INTERVAL_MS;
+  nextSlot = Math.max(now, nextSlot) + intervalMs;
   if (wait > 0) await sleep(wait);
 }
 
@@ -69,11 +82,56 @@ async function get(path, params) {
   throw lastErr;
 }
 
-/** Underlying quotes, several symbols per call. */
+/** Up to ~300 symbols per GET; beyond that the URL is rejected. See quotesPost. */
 async function quotes(symbols) {
   if (!symbols.length) return [];
   const d = await get("/v1/markets/quotes", { symbols: symbols.join(","), greeks: "false" });
   return many(d.quotes && d.quotes.quote);
+}
+
+/**
+ * The same quotes, sent as a form POST — which is what makes live polling
+ * affordable at all.
+ *
+ * A GET with 600 option symbols comes back 414 (URI too long); the POST form
+ * took 1,164 contracts in 258 ms in testing. So the whole intraday watch set
+ * refreshes in a handful of requests rather than one per underlying, and a poll
+ * costs a few calls a minute against a 120/min budget shared with the hub's
+ * live executor.
+ */
+async function quotesPost(symbols) {
+  if (!symbols.length) return [];
+  const token = (process.env.TRADIER_TOKEN || "").trim();
+  if (!token) throw new Error("TRADIER_TOKEN is not set on the cron Function App");
+
+  let lastErr;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    await throttle();
+    try {
+      const res = await fetch(`${BASE}/v1/markets/quotes`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ symbols: symbols.join(","), greeks: "false" }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (res.status === 429) {
+        nextSlot = Date.now() + 5_000 * (attempt + 1);
+        lastErr = new Error("Tradier 429 rate limited");
+        continue;
+      }
+      if (!res.ok) throw new Error(`Tradier ${res.status} POST /markets/quotes`);
+      const d = await res.json();
+      return many(d.quotes && d.quotes.quote);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < MAX_RETRIES) await sleep(500 * (attempt + 1));
+    }
+  }
+  throw lastErr;
 }
 
 async function expirations(symbol) {
@@ -94,4 +152,4 @@ async function calendar(month, year) {
   return many(days);
 }
 
-module.exports = { quotes, expirations, optionChain, calendar };
+module.exports = { quotes, quotesPost, expirations, optionChain, calendar, setPace };
