@@ -165,7 +165,11 @@ app.timer("uoaWatchsetCron", {
   handler: async (_t, ctx) => {
     const { buildWatchSet } = require("./uoa/live.js");
     try {
-      ctx.log(`uoaWatchsetCron: ${JSON.stringify(await buildWatchSet({ log: (m) => ctx.log(m) }))}`);
+      // UOA_FORCE=1 builds regardless of the exchange calendar. It exists so the
+      // watch set can be rebuilt by hand after a failed morning — and so this
+      // function can be proven in Azure on a closed day. Unset it afterwards.
+      const force = process.env.UOA_FORCE === "1";
+      ctx.log(`uoaWatchsetCron: ${JSON.stringify(await buildWatchSet({ log: (m) => ctx.log(m), force }))}`);
     } catch (err) {
       ctx.error(`uoaWatchsetCron failed: ${err instanceof Error ? err.stack : String(err)}`);
     }
@@ -183,7 +187,9 @@ app.timer("uoaLiveCron", {
   handler: async (_t, ctx) => {
     const { poll } = require("./uoa/live.js");
     try {
-      const out = await poll({ log: (m) => ctx.log(m) });
+      // Same escape hatch as the build: UOA_FORCE=1 ignores the session gate so
+      // the poll can be exercised outside market hours. Unset it afterwards.
+      const out = await poll({ log: (m) => ctx.log(m), force: process.env.UOA_FORCE === "1" });
       if (out.polled) ctx.log(`uoaLiveCron: ${JSON.stringify(out)}`);
     } catch (err) {
       ctx.error(`uoaLiveCron failed: ${err instanceof Error ? err.stack : String(err)}`);
