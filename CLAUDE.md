@@ -37,8 +37,18 @@ the rules that matter when changing it:
   (`classifyCross`, `planPrune`) precisely so they can be tested without a live
   publish — you cannot exercise them by POSTing, because a crossing sends real
   alerts and a prune deletes real rows. 33 assertions, no network.
+- **The Options Guide runs on Tradier real-time chains** (2026-09-12). `OPTIONS_FEED`
+  picks the provider — `tradier` (real-time OPRA, ORATS greeks, OI and volume on
+  100% of contracts, needs `TRADIER_TOKEN`), `finviz` (15-min delayed scrape, the
+  old default and the fallback), or `alpaca` (a stub; the free tier carried greeks
+  on 157 of 400 contracts). Production is set to `tradier`. Adding a provider means
+  one file exporting `fetchChain` plus a case in `lib/optionsChain.ts` — callers
+  never name a feed, and the cache key includes it so a switch cannot serve one
+  provider's data under another's `delayed` badge. Check a live chain with
+  `cd api && node tools/tradier-chain-probe.mjs SPY` (needs the token; not in CI).
+  `lib/tradier.ts` is READ-ONLY market data — the order path lives in StockAgentHub.
 - **Run `cd api && npm run build && node tools/spread-math-test.mjs` before
-  touching the Options Guide's arithmetic.** 114 assertions, no network. The tab
+  touching the Options Guide's arithmetic.** 168 assertions, no network. The tab
   hands the operator a trade to place at a broker, so every credit, max loss,
   breakeven and probability is a pure function in `lib/spreadMath.ts` rather
   than inline in the view — the payoff chart is drawn from the same vertices the
