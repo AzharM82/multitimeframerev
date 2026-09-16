@@ -374,14 +374,11 @@ export interface BigdogAlertsResponse {
   available?: { date: string; totalHits: number }[];
 }
 
-// ─── Unusual Options Activity (UOA scanner → uoa-signals blobs) ─────────────
-
-export interface UoaOiConfirmation {
-  tag: "CONFIRMED" | "FADED" | "PARTIAL";
-  oi_change: number;
-  new_oi: number;
-  prior_oi: number;
-}
+// ─── Unusual Options Activity (the EOD sweep → uoa-signals blobs) ──────────
+//
+// Written by tools/cron-functions/src/uoa/scan.js after the close and served
+// through GET /api/uoa-signals. Rebuilt 2026-09-13 around Tradier's real open
+// interest; the previous shape came from the Polygon-bars scanner that had none.
 
 export interface UoaSignal {
   occ_symbol: string;
@@ -390,43 +387,122 @@ export interface UoaSignal {
   strike: number;
   expiry: string; // ISO date
   dte: number;
+  spot: number | null;
   today_volume: number;
-  avg_volume_20d: number;
-  avg_volume_20d_raw: number;
-  vol_ratio: number;
-  prior_oi: number | null;      // null in aggs data mode (no OI on plan)
+  /** Prior settlement's open interest — the denominator of the headline test. */
+  prior_oi: number | null;
   vol_oi_ratio: number | null;
+  /** Null until the contract has enough stored sessions to judge. */
+  vol_ratio: number | null;
+  avg_volume_20d: number | null;
+  baseline_days: number;
   last_price: number;
+  bid: number | null;
+  ask: number | null;
+  iv: number | null;
+  delta: number | null;
   notional_premium: number;
   anomaly_score: number;
   volume_history: number[];
-  oi_confirmation: UoaOiConfirmation | null;
 }
 
 export interface UoaAggregate {
   underlying: string;
-  side: "C" | "P";
-  agg_volume: number;
-  agg_avg_20d: number;
-  agg_vol_ratio: number;
-  put_call_skew: number | null;
+  call_volume: number;
+  put_volume: number;
+  total_volume: number;
+  call_oi: number;
+  put_oi: number;
+  /** Null when nothing traded on the call side — never Infinity. */
+  put_call_ratio: number | null;
+  notional: number;
+}
+
+export interface UoaFailure {
+  symbol: string;
+  error: string;
 }
 
 export interface UoaScanResponse {
   scan_date: string;
   generated_at: string;
-  data_delay_note: string;
-  data_mode?: "aggs" | "snapshot";
-  oi_available?: boolean;
+  feed?: string;
+  delayed?: boolean;
+  data_note?: string;
+  /** The old Polygon scanner's wording; kept so an archived scan still renders. */
+  data_delay_note?: string;
   universe_size: number;
+  symbols_scanned?: number;
   contracts_scanned: number;
   contracts_fired: number;
+  elapsed_seconds?: number;
+  thresholds?: Record<string, unknown>;
   signals: UoaSignal[];
   aggregates: UoaAggregate[];
+  no_spot?: string[];
+  no_window_expiry?: string[];
+  failed?: UoaFailure[];
 }
 
 export interface UoaDatesResponse {
   dates: string[];
+}
+
+// ─── UOA live (the intraday burst feed, refreshed every two minutes) ────────
+//
+// A burst is contracts traded since the PREVIOUS poll, not the day's total.
+// Open interest does not move intraday — OCC recomputes it overnight — so
+// `prior_oi` is yesterday's settlement all session, and `side` is a lean read
+// off where the last print sat in the spread, never a fact about who traded.
+
+export type UoaSide = "bought" | "sold" | "mid" | null;
+
+export interface UoaBurst {
+  occ_symbol: string;
+  underlying: string;
+  type: "C" | "P";
+  strike: number;
+  expiry: string;
+  dte: number;
+  /** Contracts traded in THIS window. */
+  lots: number;
+  notional: number;
+  /** Cumulative for the session, for context. */
+  day_volume: number;
+  prior_oi: number;
+  /** This window as a share of yesterday's open interest. */
+  oi_share: number;
+  day_vol_oi: number;
+  last: number;
+  bid: number | null;
+  ask: number | null;
+  side: UoaSide;
+  iv: number | null;
+  delta: number | null;
+  at: string;
+  window_seconds: number | null;
+}
+
+export interface UoaLiveResponse {
+  day: string;
+  updated_at: string;
+  seq: number;
+  /** The first poll of the day has no previous reading, so it reports nothing. */
+  warming: boolean;
+  window_seconds: number | null;
+  watchset_size: number;
+  quoted: number;
+  watchset_built_at: string;
+  thresholds: Record<string, number>;
+  /** The most recent window. */
+  bursts: UoaBurst[];
+  /** Everything today, newest first. */
+  session: UoaBurst[];
+  /** Names this poll pushed to WhatsApp and Pushover. */
+  alerted?: string[];
+  alerts_sent?: number;
+  alerts_enabled?: boolean;
+  elapsed_seconds: number;
 }
 
 // ─── Rotation (sector/industry rotation — ported from sector-rotation) ──────

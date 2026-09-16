@@ -2,19 +2,28 @@ import { app, type HttpRequest, type HttpResponseInit } from "@azure/functions";
 import { BlobServiceClient, type ContainerClient } from "@azure/storage-blob";
 
 /**
- * GET /api/uoa-signals              — latest scan payload
+ * GET /api/uoa-signals                 — the latest end-of-day scan
  * GET /api/uoa-signals?date=YYYY-MM-DD — a specific day's scan
- * GET /api/uoa-signals?list=1      — available scan dates (newest first)
+ * GET /api/uoa-signals?list=1          — available scan dates (newest first)
+ * GET /api/uoa-signals?live=1          — the intraday burst feed, updated every 2 min
  *
- * The UOA scanner (github.com/AzharM82/UnusualOptions) runs as a GitHub Actions
- * cron and writes signal JSON into this storage account's `uoa-signals`
- * container — this endpoint is a thin read proxy so the storage key never
- * reaches the browser. Payloads change once per trading day; a short in-memory
- * cache absorbs tab-switch refetches.
+ * A thin read proxy over the `uoa-signals` container so the storage key never
+ * reaches the browser. Everything here is written by the cron Function App
+ * (tools/cron-functions/src/uoa/), which does the Tradier work: SWA cuts a
+ * managed API request off at 45 seconds and both the end-of-day sweep and the
+ * pre-open watch-set build take minutes.
+ *
+ * Two different clocks, so two different caches. The daily scan changes once a
+ * session and can sit for a minute. The live feed is the whole point of the
+ * intraday view and must not be served stale — the tab polls it every 30
+ * seconds and a 60-second cache would show the operator a burst that had
+ * already been superseded.
  */
 
 const CONTAINER = process.env.UOA_SIGNALS_CONTAINER || "uoa-signals";
 const CACHE_MS = 60_000;
+/** Well under the two-minute poll, so the tab never waits on our own cache. */
+const LIVE_CACHE_MS = 10_000;
 
 let container: ContainerClient | null = null;
 const cache = new Map<string, { at: number; body: unknown }>();
@@ -63,16 +72,26 @@ async function listDates(): Promise<string[]> {
 async function uoaSignalsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   try {
     const wantList = req.query.get("list");
+    const wantLive = req.query.get("live");
     const date = (req.query.get("date") || "").trim();
-    const key = wantList ? "list" : date || "latest";
+    const key = wantLive ? "live" : wantList ? "list" : date || "latest";
+    const ttl = wantLive ? LIVE_CACHE_MS : CACHE_MS;
 
     const hit = cache.get(key);
-    if (hit && Date.now() - hit.at < CACHE_MS) {
+    if (hit && Date.now() - hit.at < ttl) {
       return { headers: { "Cache-Control": "no-store" }, jsonBody: hit.body as object };
     }
 
     let body: unknown;
-    if (wantList) {
+    if (wantLive) {
+      body = await readJsonBlob("live.json");
+      if (!body) {
+        // Before the first poll of the day there is genuinely nothing, which is
+        // not the same as an error. The tab says so rather than showing a
+        // failure the operator would go looking for.
+        return { status: 404, jsonBody: { error: "no_live_data" } };
+      }
+    } else if (wantList) {
       body = { dates: await listDates() };
     } else {
       if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
