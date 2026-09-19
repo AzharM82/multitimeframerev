@@ -871,6 +871,8 @@ export interface IndexBlock {
   label: string;
   memberCount: number;
   leaders: IndexLeader[];
+  /** Absent in payloads cached before losers were added (2026-09-19). */
+  losers?: IndexLeader[];
 }
 
 export interface MmIndexLeadersData {

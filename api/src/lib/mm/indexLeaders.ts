@@ -1,7 +1,7 @@
 /**
  * Index Leaders panel compute (`index-leaders`).
  *
- * Top-3 high-volume gainers per major index (Dow / S&P 500 / Nasdaq 100 /
+ * Top-3 high-volume gainers and losers per major index (Dow / S&P 500 / Nasdaq 100 /
  * Russell 2000). Same real-time FinViz Elite source + liquidity floor as the
  * Sector Desk. No options data.
  *
@@ -26,6 +26,7 @@ export interface IndexBlock {
   label: string;
   memberCount: number;
   leaders: IndexLeader[]; // top-3 gainers
+  losers: IndexLeader[]; // top-3 decliners, worst first
 }
 
 export interface MmIndexLeadersData {
@@ -52,24 +53,25 @@ async function computeIndex(def: IndexDef): Promise<IndexBlock> {
   const data = await fetchExportFromUrl(indexExportUrl(def.slug), `index-leaders/${def.slug}`);
   const members = parseGroupIndicatorRows(data, null);
 
-  const leaders: IndexLeader[] = members
-    .map((m) => ({
-      ticker: m.ticker,
-      chg: m.day_chg,
-      volume: m.volume ?? 0,
-      relVol: m.rel_volume ?? 0,
-      close: m.close,
-      dollarVol: (m.volume ?? 0) * m.close,
-    }))
-    // Universe is already liquid-filtered by the FinViz query; sort by day gain.
-    .sort((a, b) => b.chg - a.chg)
-    .slice(0, TOP_N);
+  const rows: IndexLeader[] = members.map((m) => ({
+    ticker: m.ticker,
+    chg: m.day_chg,
+    volume: m.volume ?? 0,
+    relVol: m.rel_volume ?? 0,
+    close: m.close,
+    dollarVol: (m.volume ?? 0) * m.close,
+  }));
+
+  // Universe is already liquid-filtered by the FinViz query; rank by day change.
+  const leaders = [...rows].sort((a, b) => b.chg - a.chg).slice(0, TOP_N);
+  const losers = [...rows].sort((a, b) => a.chg - b.chg).slice(0, TOP_N);
 
   return {
     key: def.key,
     label: def.label,
     memberCount: members.length,
     leaders,
+    losers,
   };
 }
 
