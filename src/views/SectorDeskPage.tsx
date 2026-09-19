@@ -7,6 +7,7 @@ import type {
   DeskRankedStock,
   DeskDirection,
   IndexBlock,
+  IndexLeader,
   SectorDeskHistoryResponse,
   SectorHistPoint,
 } from "../types.js";
@@ -337,19 +338,19 @@ function GroupRow({
 
 // ─── Index Leaders card ──────────────────────────────────────────────────────
 
-function IndexCard({ block }: { block: IndexBlock }) {
+function IndexCard({ block, rows, empty }: { block: IndexBlock; rows: IndexLeader[] | undefined; empty: string }) {
   return (
     <div className="bg-bg-card border border-border rounded p-3">
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-semibold text-sm">{block.label}</h3>
         <span className="text-[10px] text-text-secondary">{block.memberCount} liquid</span>
       </div>
-      {block.leaders.length === 0 ? (
-        <p className="text-xs text-text-secondary">No leaders.</p>
+      {!rows || rows.length === 0 ? (
+        <p className="text-xs text-text-secondary">{empty}</p>
       ) : (
         <table className="w-full text-sm">
           <tbody>
-            {block.leaders.map((l) => (
+            {rows.map((l) => (
               <tr key={l.ticker} className="border-b border-border/40 last:border-0">
                 <td className="py-1">
                   <a href={TV(l.ticker)} target="_blank" rel="noreferrer" className="font-bold hover:underline">
@@ -550,11 +551,32 @@ export function SectorDeskPage() {
         {idx.data && (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {idx.data.indices.map((b) => (
-              <IndexCard key={b.key} block={b} />
+              <IndexCard key={b.key} block={b} rows={b.leaders} empty="No leaders." />
             ))}
           </div>
         )}
       </div>
+
+      {/* Losers mirror the gainers (operator request 2026-09-19): same universe,
+          same liquidity floor, ranked by the worst day change. */}
+      {idx.data && (
+        <div>
+          <h2 className="text-[11px] uppercase tracking-wider text-text-secondary mb-2">
+            Index Laggards — top-3 high-volume losers
+            <span className="ml-2 text-dim normal-case tracking-normal">· as of {idx.data.generatedEt} ET</span>
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {idx.data.indices.map((b) => (
+              <IndexCard
+                key={b.key}
+                block={b}
+                rows={b.losers}
+                empty={b.losers ? "No losers." : "Filled by the next scheduled refresh."}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Regime banner */}
       {desk.loading && !desk.data && <div className="text-sm text-text-secondary">Loading…</div>}
